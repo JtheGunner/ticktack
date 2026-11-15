@@ -1,0 +1,364 @@
+{
+ "config": {
+  "gapThreshold": "5m",
+  "idleThreshold": "5m",
+  "sampleInterval": "2m",
+  "minBlock": "5m"
+ },
+ "rules": {
+  "repos": [
+   {
+    "Repo": "/work/example-app",
+    "Ticket": "APP-1"
+   }
+  ]
+ },
+ "events": [
+  {
+   "At": "2026-03-02T08:00:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 1
+  },
+  {
+   "At": "2026-03-02T08:00:00Z",
+   "Kind": "context",
+   "Source": "git",
+   "Repo": "/work/example-app",
+   "Branch": "feat/APP-2-login",
+   "Ticket": "",
+   "ID": 2
+  },
+  {
+   "At": "2026-03-02T08:02:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 3
+  },
+  {
+   "At": "2026-03-02T08:04:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 4
+  },
+  {
+   "At": "2026-03-02T08:06:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 5
+  },
+  {
+   "At": "2026-03-02T08:08:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 6
+  },
+  {
+   "At": "2026-03-02T08:10:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 7
+  },
+  {
+   "At": "2026-03-02T08:12:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 8
+  },
+  {
+   "At": "2026-03-02T08:14:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 9
+  },
+  {
+   "At": "2026-03-02T08:16:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 10
+  },
+  {
+   "At": "2026-03-02T08:18:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 11
+  },
+  {
+   "At": "2026-03-02T08:20:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 12
+  },
+  {
+   "At": "2026-03-02T08:22:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 13
+  },
+  {
+   "At": "2026-03-02T08:24:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 14
+  },
+  {
+   "At": "2026-03-02T08:26:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 15
+  },
+  {
+   "At": "2026-03-02T08:28:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 16
+  },
+  {
+   "At": "2026-03-02T08:30:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 17
+  },
+  {
+   "At": "2026-03-02T08:32:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 18
+  },
+  {
+   "At": "2026-03-02T08:34:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 19
+  },
+  {
+   "At": "2026-03-02T08:36:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 20
+  },
+  {
+   "At": "2026-03-02T08:38:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 21
+  },
+  {
+   "At": "2026-03-02T08:40:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 22
+  },
+  {
+   "At": "2026-03-02T09:40:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 23
+  },
+  {
+   "At": "2026-03-02T09:40:00Z",
+   "Kind": "gap",
+   "Source": "presence",
+   "IdleSeconds": 60,
+   "ID": 24
+  },
+  {
+   "At": "2026-03-02T09:42:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 25
+  },
+  {
+   "At": "2026-03-02T09:44:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 26
+  },
+  {
+   "At": "2026-03-02T09:46:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 27
+  },
+  {
+   "At": "2026-03-02T09:48:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 28
+  },
+  {
+   "At": "2026-03-02T09:50:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 29
+  },
+  {
+   "At": "2026-03-02T09:52:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 30
+  },
+  {
+   "At": "2026-03-02T09:54:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 31
+  },
+  {
+   "At": "2026-03-02T09:56:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 32
+  },
+  {
+   "At": "2026-03-02T09:58:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 33
+  },
+  {
+   "At": "2026-03-02T10:00:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 34
+  },
+  {
+   "At": "2026-03-02T10:02:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 35
+  },
+  {
+   "At": "2026-03-02T10:04:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 36
+  },
+  {
+   "At": "2026-03-02T10:06:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 37
+  },
+  {
+   "At": "2026-03-02T10:08:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 38
+  },
+  {
+   "At": "2026-03-02T10:10:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 39
+  },
+  {
+   "At": "2026-03-02T10:12:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 40
+  },
+  {
+   "At": "2026-03-02T10:14:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 41
+  },
+  {
+   "At": "2026-03-02T10:16:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 42
+  },
+  {
+   "At": "2026-03-02T10:18:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 43
+  },
+  {
+   "At": "2026-03-02T10:20:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 44
+  },
+  {
+   "At": "2026-03-02T10:22:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 45
+  },
+  {
+   "At": "2026-03-02T10:24:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 46
+  },
+  {
+   "At": "2026-03-02T10:26:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 47
+  },
+  {
+   "At": "2026-03-02T10:28:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 48
+  },
+  {
+   "At": "2026-03-02T10:30:00Z",
+   "Kind": "presence",
+   "Source": "presence",
+   "IdleSeconds": 1,
+   "ID": 49
+  }
+ ],
+ "overrides": []
+}
