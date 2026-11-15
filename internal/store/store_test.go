@@ -106,6 +106,9 @@ func TestEventsAreImmutable(t *testing.T) {
 	allowed := map[string]bool{
 		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
 		"Purge": true, "Close": true,
+		// Ledger and sync history methods never touch the events table.
+		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
+		"LastSyncRun": true, "RevertEntry": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -159,10 +162,19 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 		VALUES ('TICKT-1','2026-01-05','Development','1-1',30,'h',1)`); err != nil {
 		t.Fatal(err)
 	}
+	runID, err := s.BeginSyncRun(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBooking(ctx, runID,
+		LedgerRow{Issue: "TICKT-1", Date: "2026-01-06", Type: "Development", WorkItemID: "1-2", Minutes: 15, ContentHash: "h", BookedAt: base},
+		SyncEntry{Issue: "TICKT-1", Date: "2026-01-06", Type: "Development", Action: "created", WorkItemID: "1-2", NewMinutes: 15}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Purge(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"events", "overrides", "ledger"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries"} {
 		var n int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatal(err)

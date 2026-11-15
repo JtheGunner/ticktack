@@ -107,6 +107,7 @@ type Client struct {
 
 	mu    sync.Mutex
 	types map[string][]WorkItemType // by project key
+	login string                    // token owner, cached by ownLogin
 }
 
 var _ sink.TimeSink = (*Client)(nil)
@@ -229,8 +230,31 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, itemPath(issue, itemID), nil, nil, nil)
 }
 
-// FindByMarker returns the first work item of issue whose text contains marker
-// verbatim. YouTrack does not deduplicate, so matching happens client-side.
+// ownLogin returns the login of the token owner, fetched once per client.
+func (c *Client) ownLogin(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	cached := c.login
+	c.mu.Unlock()
+	if cached != "" {
+		return cached, nil
+	}
+	login, err := c.Me(ctx)
+	if err != nil {
+		return "", err
+	}
+	if login == "" {
+		return "", errors.New("youtrack: current user has no login")
+	}
+	c.mu.Lock()
+	c.login = login
+	c.mu.Unlock()
+	return login, nil
+}
+
+// FindByMarker returns the first work item of issue authored by the token
+// owner whose text contains marker verbatim. Items of other users are ignored:
+// marker keys are identical for every user, and a colleague's item must never
+// be adopted. YouTrack does not deduplicate, so matching happens client-side.
 func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string, bool, error) {
 	if marker == "" {
 		return "", false, errors.New("youtrack: marker must not be empty")
@@ -238,17 +262,24 @@ func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string
 	if _, err := projectKey(issue); err != nil {
 		return "", false, err
 	}
+	me, err := c.ownLogin(ctx)
+	if err != nil {
+		return "", false, err
+	}
 	var items []struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
+		ID     string `json:"id"`
+		Text   string `json:"text"`
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
 	}
 	path := "/api/issues/" + url.PathEscape(issue) + "/timeTracking/workItems"
-	q := url.Values{"fields": {"id,text,duration(minutes),date"}}
+	q := url.Values{"fields": {"id,text,author(login),duration(minutes),date"}}
 	if err := c.do(ctx, http.MethodGet, path, q, nil, &items); err != nil {
 		return "", false, err
 	}
 	for _, it := range items {
-		if strings.Contains(it.Text, marker) {
+		if it.Author.Login == me && strings.Contains(it.Text, marker) {
 			return issue + "/" + it.ID, true, nil
 		}
 	}

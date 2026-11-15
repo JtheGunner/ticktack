@@ -30,7 +30,9 @@ type TimeSink interface {
 	Create(ctx context.Context, w WorkItem) (id string, err error)
 	Update(ctx context.Context, id string, w WorkItem) error
 	Delete(ctx context.Context, id string) error
-	// FindByMarker reports the work item on issue whose text contains marker
-	// verbatim. Sinks do not deduplicate, so this is how callers stay idempotent.
+	// FindByMarker reports the work item on issue, authored by the user the
+	// sink acts for, whose text contains marker verbatim. Items of other users
+	// are never returned. Sinks do not deduplicate, so this is how callers stay
+	// idempotent.
 	FindByMarker(ctx context.Context, issue, marker string) (id string, found bool, err error)
 }

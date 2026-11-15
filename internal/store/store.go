@@ -189,7 +189,7 @@ func (s *Store) Purge(ctx context.Context) error {
 		return fmt.Errorf("begin purge: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, table := range []string{"events", "overrides", "ledger"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_entries", "sync_runs"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("purge %s: %w", table, err)
 		}

@@ -1,0 +1,152 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/zalando/go-keyring"
+
+	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/sink"
+	"github.com/JtheGunner/ticktack/internal/store"
+)
+
+type recordingSink struct {
+	calls []string
+	items map[string]sink.WorkItem
+}
+
+func (r *recordingSink) Create(_ context.Context, w sink.WorkItem) (string, error) {
+	r.calls = append(r.calls, "create")
+	id := w.Issue + "/1"
+	r.items[id] = w
+	return id, nil
+}
+
+func (r *recordingSink) Update(_ context.Context, id string, w sink.WorkItem) error {
+	r.calls = append(r.calls, "update")
+	r.items[id] = w
+	return nil
+}
+
+func (r *recordingSink) Delete(_ context.Context, id string) error {
+	r.calls = append(r.calls, "delete")
+	delete(r.items, id)
+	return nil
+}
+
+func (r *recordingSink) FindByMarker(context.Context, string, string) (string, bool, error) {
+	r.calls = append(r.calls, "find")
+	return "", false, nil
+}
+
+func syncTestDeps(t *testing.T) (syncDeps, *recordingSink) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "ticktack.db")
+	seed, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	if err := seed.Append(ctx, event.Event{At: start, Source: "test", Kind: event.KindContext, Ticket: "ABC-1"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i <= 60; i++ {
+		e := event.Event{At: start.Add(time.Duration(i) * time.Minute), Source: "test", Kind: event.KindPresence}
+		if err := seed.Append(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordingSink{items: map[string]sink.WorkItem{}}
+	return syncDeps{
+		LoadConfig: func() (config.Config, string, error) {
+			return config.Config{YouTrackURL: "https://example.invalid", Location: time.UTC, GapThreshold: 5 * time.Minute, MinBlockDuration: 10 * time.Minute, Rounding: 15 * time.Minute}, "config.toml", nil
+		},
+		OpenStore: func() (*store.Store, error) { return store.Open(dbPath) },
+		NewSink:   func(config.Config, string) (sink.TimeSink, error) { return rec, nil },
+		Now:       func() time.Time { return time.Date(2026, 1, 5, 20, 0, 0, 0, time.UTC) },
+	}, rec
+}
+
+func execCommand(t *testing.T, deps syncDeps, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	root := NewRootCommand()
+	for _, c := range root.Commands() {
+		switch c.Name() {
+		case "sync":
+			root.RemoveCommand(c)
+			root.AddCommand(newSyncCommandWith(deps))
+		case "undo":
+			root.RemoveCommand(c)
+			root.AddCommand(newUndoCommandWith(deps))
+		}
+	}
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs(args)
+	err = root.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func TestSyncPrintsPlanWithoutUnreviewedFlag(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ABC-1:2026-01-05:Development") || !strings.Contains(out, "dry-run-would-create") {
+		t.Fatalf("plan missing:\n%s", out)
+	}
+	for _, c := range rec.calls {
+		if c != "find" {
+			t.Fatalf("mutating call without --unreviewed: %v", rec.calls)
+		}
+	}
+}
+
+func TestSyncUnreviewedBooksWarnsAndUndoReverts(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	out, errOut, err := execCommand(t, deps, "sync", "--day", "2026-01-05", "--unreviewed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "WARNING") || !strings.Contains(out, "Created 1") || len(rec.items) != 1 {
+		t.Fatalf("stdout:\n%s\nstderr:\n%s\nitems=%d", out, errOut, len(rec.items))
+	}
+	out, _, err = execCommand(t, deps, "undo")
+	if err != nil || !strings.Contains(out, "Deleted 1") || len(rec.items) != 0 {
+		t.Fatalf("undo: %q err=%v items=%d", out, err, len(rec.items))
+	}
+	out, _, err = execCommand(t, deps, "undo")
+	if err != nil || !strings.Contains(out, "Nothing to undo") {
+		t.Fatalf("second undo: %q err=%v", out, err)
+	}
+}
+
+func TestSyncRejectsInvalidDay(t *testing.T) {
+	deps, _ := syncTestDeps(t)
+	if _, _, err := execCommand(t, deps, "sync", "--day", "05.01.2026"); err == nil {
+		t.Fatal("expected error for invalid day")
+	}
+}
+
+func TestNewYouTrackSinkErrors(t *testing.T) {
+	keyring.MockInit()
+	if _, err := newYouTrackSink(config.Config{}, "config.toml"); err == nil || !strings.Contains(err.Error(), "youtrack_url") {
+		t.Fatalf("missing URL error = %v", err)
+	}
+	_, err := newYouTrackSink(config.Config{YouTrackURL: "https://example.invalid"}, "config.toml")
+	if err == nil || !strings.Contains(err.Error(), "ticktack init") {
+		t.Fatalf("missing token error = %v", err)
+	}
+}
