@@ -12,6 +12,12 @@ const (
 	KindPresence Kind = "presence"
 	// KindContext marks events that say what the user was working on.
 	KindContext Kind = "context"
+	// KindGap marks a hole in the presence signal, for example because the
+	// machine slept. At is the time the agent resumed and IdleSeconds is the
+	// gap length in seconds (rounded), so the gap started at At minus
+	// IdleSeconds. No presence samples exist inside a gap; the sessionizer
+	// must not bridge it.
+	KindGap Kind = "gap"
 )
 
 // Event is a single immutable signal. It never carries window titles,
