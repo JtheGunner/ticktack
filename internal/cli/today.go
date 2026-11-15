@@ -54,7 +54,11 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	if err != nil {
 		return err
 	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), resolverRules(cfg))
+	rules, err := resolverRules(ctx, st, cfg)
+	if err != nil {
+		return err
+	}
+	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
 	label := start.Format(dayLayout)
 	if len(blocks) == 0 {
 		_, err = fmt.Fprintf(deps.Out, msgNoBlocks+"\n", label)

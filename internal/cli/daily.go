@@ -23,6 +23,7 @@ type dailyStore interface {
 	Append(ctx context.Context, e event.Event) error
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
+	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
 	Purge(ctx context.Context) error
 	Close() error
 }
@@ -85,9 +86,10 @@ func addDailyCommands(root *cobra.Command) {
 	)
 }
 
-// resolverRules converts the configuration into resolver rules.
-func resolverRules(cfg config.Config) resolver.Rules {
-	return review.RulesFrom(cfg)
+// resolverRules combines the configured rules with the learned rules in st,
+// so today, status, review and sync attribute time identically.
+func resolverRules(ctx context.Context, st dailyStore, cfg config.Config) (resolver.Rules, error) {
+	return review.LoadRules(ctx, st, cfg)
 }
 
 // isPaused reports whether the pause flag file exists.

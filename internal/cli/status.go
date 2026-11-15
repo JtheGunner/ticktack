@@ -48,7 +48,11 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 		return err
 	}
 
-	current, ok := sessionizer.LatestContext(events, resolverRules(cfg))
+	rules, err := resolverRules(ctx, st, cfg)
+	if err != nil {
+		return err
+	}
+	current, ok := sessionizer.LatestContext(events, rules)
 	if !ok {
 		_, err = fmt.Fprintln(deps.Out, msgNothingRecorded)
 		return err
