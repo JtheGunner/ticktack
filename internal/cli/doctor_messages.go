@@ -1,0 +1,67 @@
+package cli
+
+// User-facing strings of the doctor checks (see messages.go).
+const (
+	msgCheckConfig   = "config"
+	msgConfigOK      = "valid: %s"
+	msgConfigBad     = "%v"
+	msgConfigFix     = "run `ticktack init` to create the config, or fix the reported key in %s"
+	msgConfigPathBad = "cannot resolve the config path: %v"
+	msgConfigPathFix = "set HOME or XDG_CONFIG_HOME"
+
+	msgCheckHook        = "shell hook"
+	msgHookOK           = "installed in %s and fired %s ago"
+	msgHookBlockMissing = "no managed block in any shell rc file"
+	msgHookBlockFix     = "run `ticktack init` and keep the shell hook step"
+	msgHookNoEvent      = "installed in %s, but no shell event in the last 24h"
+	msgHookNoEventFix   = "open a new shell, cd into a git repository and press enter; if it stays empty check the log file"
+	msgHookStoreErr     = "installed in %s, but the event store cannot be read: %v"
+	msgHookStoreFix     = "see the database check below"
+
+	msgCheckAgent       = "agent"
+	msgAgentOK          = "plist present and last presence sample %s ago"
+	msgAgentNoPlist     = "launchd plist missing: %s"
+	msgAgentNoPlistFix  = "run `ticktack init` and keep the agent step"
+	msgAgentNoSample    = "plist present, but no presence sample in the last %s"
+	msgAgentNoSampleFix = "load the agent with `launchctl bootstrap gui/%d %s` or rerun `ticktack init`; check the log file"
+	msgAgentStoreErr    = "plist present, but the event store cannot be read: %v"
+	msgAgentNotMac      = "launchd is macOS-only"
+
+	msgCheckToken        = "token"
+	msgTokenOK           = "valid (user %s)"
+	msgTokenNone         = "no token in the keychain"
+	msgTokenNoneFix      = "run `ticktack init` and enter the token"
+	msgTokenKeychain     = "cannot read the keychain: %v"
+	msgTokenKeychainFix  = "unlock the keychain and allow access for ticktack"
+	msgTokenNoURL        = "config has no youtrack_url, so the token cannot be validated"
+	msgTokenNoURLFix     = "set youtrack_url in %s"
+	msgTokenUnauthorized = "YouTrack rejected the token (401)"
+	msgTokenUnauthFix    = "create a new permanent token in your YouTrack profile and store it with `ticktack init`"
+	msgTokenForbidden    = "token is valid but lacks permission (403)"
+	msgTokenForbiddenFix = "grant the token owner read access and time tracking rights in YouTrack"
+	msgTokenUnreachable  = "YouTrack request failed: %v"
+	msgTokenUnreachFix   = "see the reachability check; verify network and youtrack_url"
+
+	msgCheckReachable    = "youtrack"
+	msgReachableOK       = "%s answered with HTTP %d"
+	msgReachableNoURL    = "no youtrack_url configured"
+	msgReachableNoURLFix = "set youtrack_url in the config file"
+	msgReachableFail     = "%s is not reachable: %v"
+	msgReachableFix      = "check network, VPN and youtrack_url"
+
+	msgCheckDB = "database"
+	msgDBOK    = "writable: %s"
+	msgDBFail  = "cannot open %s: %v"
+	msgDBFix   = "check permissions of the data directory or remove a corrupt database file"
+
+	msgCheckTools   = "presence tools"
+	msgToolsOK      = "ioreg and lsappinfo found"
+	msgToolsMissing = "%s not found in PATH"
+	msgToolsFix     = "ticktack needs the macOS system tools ioreg and lsappinfo; check that /usr/sbin and /usr/bin are in PATH"
+	msgToolsNotMac  = "macOS-only"
+
+	msgStatusOK   = "OK  "
+	msgStatusFail = "FAIL"
+	msgStatusSkip = "SKIP"
+	msgFixPrefix  = "     fix: "
+)

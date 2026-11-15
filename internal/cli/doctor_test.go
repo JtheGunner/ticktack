@@ -1,0 +1,266 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/shellhook"
+	"github.com/JtheGunner/ticktack/internal/token"
+)
+
+func TestDoctorReportsEachCheckIndependently(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	doc := env.deps.Doctor
+	doc.LookPath = func(string) (string, error) { return "", errors.New("missing") }
+	doc.OpenStore = func(string) (eventReader, error) { return nil, errors.New("disk full") }
+
+	var out bytes.Buffer
+	err := runDoctor(context.Background(), doc, &out)
+	if !errors.Is(err, ErrChecksFailed) {
+		t.Fatalf("err = %v", err)
+	}
+	text := out.String()
+	for _, name := range []string{"config:", "shell hook:", "agent:", "token:", "youtrack:", "database:", "presence tools:"} {
+		if !strings.Contains(text, "FAIL "+name) {
+			t.Errorf("missing failing line for %s:\n%s", name, text)
+		}
+	}
+	if got := strings.Count(text, "     fix: "); got != 7 {
+		t.Errorf("fix hints = %d, want 7:\n%s", got, text)
+	}
+	if !strings.Contains(text, "7 of 7 checks failed.") {
+		t.Errorf("summary missing:\n%s", text)
+	}
+}
+
+func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	// Only the token is missing; everything else is set up.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"login":"jane"}`))
+	}))
+	t.Cleanup(srv.Close)
+	cfgPath, _ := config.DefaultPath()
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte(config.DefaultTOML(srv.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script, _ := shellhook.Script("zsh")
+	if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dbPath, _ := paths.DBPath()
+	now := time.Now()
+	seedEvents(t, dbPath,
+		event.Event{At: now.Add(-time.Hour), Source: "shell", Kind: event.KindPresence},
+		event.Event{At: now.Add(-10 * time.Second), Source: "presence", Kind: event.KindPresence},
+	)
+
+	var out bytes.Buffer
+	err := runDoctor(context.Background(), env.deps.Doctor, &out)
+	if !errors.Is(err, ErrChecksFailed) {
+		t.Fatalf("err = %v\n%s", err, out.String())
+	}
+	text := out.String()
+	for _, name := range []string{"config:", "shell hook:", "agent:", "youtrack:", "database:", "presence tools:"} {
+		if !strings.Contains(text, "OK   "+name) {
+			t.Errorf("expected OK for %s:\n%s", name, text)
+		}
+	}
+	if !strings.Contains(text, "FAIL token:") || !strings.Contains(text, "1 of 7 checks failed.") {
+		t.Errorf("token failure not reported alone:\n%s", text)
+	}
+
+	// With a token stored, everything passes and the exit is clean.
+	if err := token.Set(testSecret); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runDoctor(context.Background(), env.deps.Doctor, &out); err != nil {
+		t.Fatalf("all checks should pass: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), testSecret) || !strings.Contains(out.String(), "All 7 checks passed.") {
+		t.Errorf("unexpected output:\n%s", out.String())
+	}
+}
+
+func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
+	newTestEnv(t, "", "") // temp HOME and mock keychain; nothing is set up
+	root := NewRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"doctor"})
+	err := root.Execute()
+	if !errors.Is(err, ErrChecksFailed) {
+		t.Fatalf("err = %v\n%s", err, out.String())
+	}
+	if ExitCode(err) == 0 {
+		t.Error("exit code is 0 although checks failed")
+	}
+	if !IsSilent(err) {
+		t.Error("main would print the error a second time")
+	}
+	if ExitCode(nil) != 0 {
+		t.Error("exit code for success is not 0")
+	}
+}
+
+func TestCheckTokenMapsStatusCodesToHints(t *testing.T) {
+	tests := []struct {
+		status int
+		want   string
+	}{
+		{http.StatusUnauthorized, "rejected the token"},
+		{http.StatusForbidden, "lacks permission"},
+	}
+	for _, tc := range tests {
+		env := newTestEnv(t, "", "")
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		cfgPath, _ := config.DefaultPath()
+		_ = os.MkdirAll(filepath.Dir(cfgPath), 0o700)
+		_ = os.WriteFile(cfgPath, []byte(config.DefaultTOML(srv.URL)), 0o600)
+		_ = token.Set(testSecret)
+		res := checkToken(context.Background(), env.deps.Doctor)
+		srv.Close()
+		if res.Status != statusFail || !strings.Contains(res.Detail, tc.want) || res.Hint == "" {
+			t.Errorf("status %d: %+v", tc.status, res)
+		}
+		if strings.Contains(res.Detail+res.Hint, testSecret) {
+			t.Error("token leaked into the result")
+		}
+	}
+}
+
+func TestCheckTokenReportsUnreachableServer(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+	cfgPath, _ := config.DefaultPath()
+	_ = os.MkdirAll(filepath.Dir(cfgPath), 0o700)
+	_ = os.WriteFile(cfgPath, []byte(config.DefaultTOML(url)), 0o600)
+	_ = token.Set(testSecret)
+	res := checkToken(context.Background(), env.deps.Doctor)
+	if res.Status != statusFail || !strings.Contains(res.Detail, "request failed") {
+		t.Errorf("%+v", res)
+	}
+	if strings.Contains(res.Detail, testSecret) {
+		t.Error("token leaked")
+	}
+	if reach := checkReachable(context.Background(), env.deps.Doctor); reach.Status != statusFail {
+		t.Errorf("reachability: %+v", reach)
+	}
+}
+
+func TestCheckReachableAcceptsAnyHTTPResponse(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("reachability check must be unauthenticated")
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	cfgPath, _ := config.DefaultPath()
+	_ = os.MkdirAll(filepath.Dir(cfgPath), 0o700)
+	_ = os.WriteFile(cfgPath, []byte(config.DefaultTOML(srv.URL)), 0o600)
+	if res := checkReachable(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Errorf("%+v", res)
+	}
+}
+
+func TestCheckHookNamesTheMissingHalf(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	script, _ := shellhook.Script("zsh")
+	if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := checkHook(context.Background(), env.deps.Doctor)
+	if res.Status != statusFail || !strings.Contains(res.Detail, "no shell event") {
+		t.Errorf("block present, no event: %+v", res)
+	}
+
+	dbPath, _ := paths.DBPath()
+	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-48 * time.Hour), Source: "shell", Kind: event.KindPresence})
+	if res := checkHook(context.Background(), env.deps.Doctor); res.Status != statusFail {
+		t.Errorf("stale event accepted: %+v", res)
+	}
+
+	if err := os.Remove(filepath.Join(env.home, ".zshrc")); err != nil {
+		t.Fatal(err)
+	}
+	seedEvents(t, dbPath, event.Event{At: time.Now(), Source: "shell", Kind: event.KindPresence})
+	res = checkHook(context.Background(), env.deps.Doctor)
+	if res.Status != statusFail || !strings.Contains(res.Detail, "no managed block") {
+		t.Errorf("event present, no block: %+v", res)
+	}
+}
+
+func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dbPath, _ := paths.DBPath()
+	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Minute), Source: "presence", Kind: event.KindPresence})
+	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusFail {
+		t.Errorf("stale sample accepted: %+v", res)
+	}
+	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Second), Source: "presence", Kind: event.KindPresence})
+	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Errorf("%+v", res)
+	}
+}
+
+func TestCheckToolsAndAgentAreSkippedOffMac(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	doc := env.deps.Doctor
+	doc.GOOS = "linux"
+	if res := checkTools(context.Background(), doc); res.Status != statusSkip {
+		t.Errorf("%+v", res)
+	}
+	if res := checkAgent(context.Background(), doc); res.Status != statusSkip {
+		t.Errorf("%+v", res)
+	}
+}
+
+func TestCheckDBDoesNotAddEvents(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	if res := checkDB(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Fatalf("%+v", res)
+	}
+	dbPath, _ := paths.DBPath()
+	st, err := env.deps.Doctor.OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	events, err := st.Events(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour))
+	if err != nil || len(events) != 0 {
+		t.Errorf("events=%v err=%v", events, err)
+	}
+}
