@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -39,7 +41,7 @@ func TestDoctorReportsEachCheckIndependently(t *testing.T) {
 	if got := strings.Count(text, "     fix: "); got != 7 {
 		t.Errorf("fix hints = %d, want 7:\n%s", got, text)
 	}
-	if !strings.Contains(text, "7 of 7 checks failed.") {
+	if !strings.Contains(text, "7 of 8 checks failed.") {
 		t.Errorf("summary missing:\n%s", text)
 	}
 }
@@ -86,7 +88,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 			t.Errorf("expected OK for %s:\n%s", name, text)
 		}
 	}
-	if !strings.Contains(text, "FAIL token:") || !strings.Contains(text, "1 of 7 checks failed.") {
+	if !strings.Contains(text, "FAIL token:") || !strings.Contains(text, "1 of 8 checks failed.") {
 		t.Errorf("token failure not reported alone:\n%s", text)
 	}
 
@@ -98,7 +100,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 	if err := runDoctor(context.Background(), env.deps.Doctor, &out); err != nil {
 		t.Fatalf("all checks should pass: %v\n%s", err, out.String())
 	}
-	if strings.Contains(out.String(), testSecret) || !strings.Contains(out.String(), "All 7 checks passed.") {
+	if strings.Contains(out.String(), testSecret) || !strings.Contains(out.String(), "All 8 checks passed.") {
 		t.Errorf("unexpected output:\n%s", out.String())
 	}
 }
@@ -262,5 +264,79 @@ func TestCheckDBDoesNotAddEvents(t *testing.T) {
 	events, err := st.Events(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour))
 	if err != nil || len(events) != 0 {
 		t.Errorf("events=%v err=%v", events, err)
+	}
+}
+
+func writeTitleHintConfig(t *testing.T, enabled bool) {
+	t.Helper()
+	cfgPath, _ := config.DefaultPath()
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf("[titlehint]\nenabled = %t\n", enabled)
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckTitleHintIsSkippedWhenDisabled(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	doc := env.deps.Doctor
+	doc.TitleSource = func() title.Source { t.Fatal("source must not be read when disabled"); return nil }
+
+	if res := checkTitleHint(context.Background(), doc); res.Status != statusSkip {
+		t.Errorf("no config file: %+v", res)
+	}
+	writeTitleHintConfig(t, false)
+	if res := checkTitleHint(context.Background(), doc); res.Status != statusSkip || !strings.Contains(res.Detail, "disabled") {
+		t.Errorf("disabled: %+v", res)
+	}
+}
+
+func TestCheckTitleHintReportsPermissionState(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	writeTitleHintConfig(t, true)
+	doc := env.deps.Doctor
+
+	granted := &title.Fake{}
+	granted.Push("com.jetbrains.goland", "SECRET-TITLE – main.go")
+	doc.TitleSource = func() title.Source { return granted }
+	res := checkTitleHint(context.Background(), doc)
+	if res.Status != statusOK || strings.Contains(res.Detail, "SECRET") {
+		t.Errorf("granted: %+v", res)
+	}
+
+	denied := &title.Fake{}
+	denied.PushError(title.ErrPermission)
+	doc.TitleSource = func() title.Source { return denied }
+	res = checkTitleHint(context.Background(), doc)
+	if res.Status != statusFail || !strings.Contains(res.Hint, "Accessibility") {
+		t.Errorf("denied: %+v", res)
+	}
+
+	broken := &title.Fake{}
+	broken.PushError(errors.New("osascript could not run"))
+	doc.TitleSource = func() title.Source { return broken }
+	if res = checkTitleHint(context.Background(), doc); res.Status != statusFail || res.Hint == "" {
+		t.Errorf("broken: %+v", res)
+	}
+}
+
+func TestCheckTitleHintSkippedOffMac(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	writeTitleHintConfig(t, true)
+	doc := env.deps.Doctor
+	doc.GOOS = "linux"
+	if res := checkTitleHint(context.Background(), doc); res.Status != statusSkip {
+		t.Errorf("%+v", res)
+	}
+}
+
+func TestDoctorRunsTitleHintCheck(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	var out bytes.Buffer
+	_ = runDoctor(context.Background(), env.deps.Doctor, &out)
+	if !strings.Contains(out.String(), "SKIP window title hints:") {
+		t.Errorf("doctor output lacks the title hint line:\n%s", out.String())
 	}
 }
