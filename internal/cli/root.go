@@ -18,5 +18,6 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newAgentCommand())
 	root.AddCommand(newHookCommand())
+	addDailyCommands(root)
 	return root
 }
