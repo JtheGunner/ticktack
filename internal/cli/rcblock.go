@@ -55,8 +55,12 @@ func upsertManagedBlock(content, block string) (string, error) {
 // writeFileAtomic writes data to path through a temp file and a rename. An
 // existing file keeps its mode; a symlink is followed so it stays a symlink.
 func writeFileAtomic(path string, data []byte, defaultMode os.FileMode) error {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+	resolved, err := filepath.EvalSymlinks(path)
+	switch {
+	case err == nil:
 		path = resolved
+	case isSymlink(path):
+		return fmt.Errorf("%s is a dangling symlink; refusing to replace it", path)
 	}
 	mode := defaultMode
 	if info, err := os.Stat(path); err == nil {
@@ -104,6 +108,11 @@ func rcFileFor(home, goos, shell string) (string, error) {
 		return filepath.Join(home, ".config", "fish", "config.fish"), nil
 	}
 	return "", fmt.Errorf("unsupported shell %q", shell)
+}
+
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 func fileExists(path string) bool {

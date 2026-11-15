@@ -337,3 +337,26 @@ func seedEvents(t *testing.T, dbPath string, events ...event.Event) {
 		}
 	}
 }
+
+func TestInitHookRefusesDanglingSymlink(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	rc := filepath.Join(env.home, ".zshrc")
+	target := filepath.Join(env.home, "missing", "zshrc")
+	if err := os.Symlink(target, rc); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
+	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "dangling symlink") {
+		t.Errorf("no clear error:\n%s", out.String())
+	}
+	if dest, err := os.Readlink(rc); err != nil || dest != target {
+		t.Errorf("symlink changed: %q, %v", dest, err)
+	}
+	if fileExists(filepath.Join(env.home, "missing")) {
+		t.Error("filesystem touched")
+	}
+}
