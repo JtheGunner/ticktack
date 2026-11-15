@@ -63,7 +63,9 @@ func (a *Agent) Run(ctx context.Context) error {
 // previous tick) is recorded as a single KindGap event; no samples are
 // invented for it.
 func (a *Agent) Tick(ctx context.Context) {
-	now := a.Now()
+	// Strip the monotonic clock reading: on macOS it does not advance while
+	// the system sleeps, so gap detection must compare wall-clock times.
+	now := a.Now().Round(0)
 	previous := a.lastTick
 	a.lastTick = now
 

@@ -72,7 +72,9 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 		Sampler:  presence.NewSampler(),
 		Sink:     st,
 		Interval: interval,
-		Now:      time.Now,
+		// Round(0) strips the monotonic reading, which stops during system
+		// sleep on macOS and would hide sleep gaps.
+		Now: func() time.Time { return time.Now().Round(0) },
 		Paused: func() bool {
 			_, err := os.Stat(pausePath)
 			return err == nil

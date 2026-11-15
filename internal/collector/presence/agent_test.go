@@ -3,6 +3,7 @@ package presence
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -195,5 +196,21 @@ func TestAgentRunStopsOnContextCancel(t *testing.T) {
 	}
 	if len(h.sink.events) < 1 {
 		t.Fatal("expected at least the immediate sample")
+	}
+}
+
+// A monotonic clock reading does not advance during macOS sleep, so the agent
+// must work on wall-clock times only. Such a reading cannot be forged without
+// real sleeping, so the test asserts that no monotonic reading survives.
+func TestAgentUsesWallClockOnly(t *testing.T) {
+	h := newHarness()
+	h.agent.Now = time.Now // carries a monotonic reading
+	h.fake.Push(Sample{App: "a"})
+	h.agent.Tick(context.Background())
+	if len(h.sink.events) != 1 {
+		t.Fatalf("got %+v", h.sink.events)
+	}
+	if s := h.sink.events[0].At.String(); strings.Contains(s, "m=") {
+		t.Fatalf("stored time carries a monotonic reading: %s", s)
 	}
 }
