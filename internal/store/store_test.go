@@ -109,6 +109,10 @@ func TestEventsAreImmutable(t *testing.T) {
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
+		// Review state (confirmations and cap acknowledgements) lives in its
+		// own tables and never touches events.
+		"Confirm": true, "Confirmations": true,
+		"AcknowledgeCap": true, "CapAcknowledgementFor": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -171,10 +175,16 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 		SyncEntry{Issue: "TICKT-1", Date: "2026-01-06", Type: "Development", Action: "created", WorkItemID: "1-2", NewMinutes: 15}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Confirm(ctx, Confirmation{Day: "2026-01-06", Issue: "TICKT-1", Type: "Development", Minutes: 15, ConfirmedAt: base}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcknowledgeCap(ctx, CapAcknowledgement{Day: "2026-01-06", TotalMinutes: 700, AcknowledgedAt: base}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Purge(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements"} {
 		var n int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatal(err)

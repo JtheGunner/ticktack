@@ -14,6 +14,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/resolver"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
 
@@ -86,11 +87,7 @@ func addDailyCommands(root *cobra.Command) {
 
 // resolverRules converts the configuration into resolver rules.
 func resolverRules(cfg config.Config) resolver.Rules {
-	rules := resolver.Rules{TicketPattern: cfg.TicketPattern}
-	for _, r := range cfg.Rules {
-		rules.Repos = append(rules.Repos, resolver.RepoRule(r))
-	}
-	return rules
+	return review.RulesFrom(cfg)
 }
 
 // isPaused reports whether the pause flag file exists.

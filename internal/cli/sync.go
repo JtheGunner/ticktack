@@ -15,8 +15,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/paths"
-	"github.com/JtheGunner/ticktack/internal/resolver"
-	"github.com/JtheGunner/ticktack/internal/sessionizer"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
@@ -29,8 +28,9 @@ const (
 	msgConfigMissing = "no configuration found at %s: run `ticktack init` first"
 	msgNoURL         = "youtrack_url is not set in the configuration: run `ticktack init` or add it to %s"
 	msgNoToken       = "no YouTrack token in the keychain: run `ticktack init` to store one"
-	msgUnreviewed    = "WARNING: booking time that has not been reviewed. Nothing is confirmed yet; check the plan above."
-	msgPlanOnly      = "Plan only: nothing was booked. Review is not available yet; pass --unreviewed to book the derived time anyway."
+	msgCapBlocked    = "%s: the day total %s exceeds the daily cap of %s and was not acknowledged: run `ticktack review` and acknowledge it (a)"
+
+	msgNothingConfirmed = "Nothing is confirmed for %s, so nothing was booked. Run `ticktack review` first."
 )
 
 // syncDeps holds everything the sync and undo commands touch outside pure logic.
@@ -99,29 +99,25 @@ func newSyncCommand() *cobra.Command {
 
 func newSyncCommandWith(deps syncDeps) *cobra.Command {
 	var dayFlag string
-	var dryRun, unreviewed bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Book the derived time of a day in YouTrack",
-		Long: `Derive the time of one day from the recorded events and book it in YouTrack,
-one work item per ticket, day and type. Repeated runs update instead of
-duplicating.
-
-Review is not available yet, so sync only prints its plan (as with --dry-run)
-unless --unreviewed is given. With --unreviewed the derived, unconfirmed time
-is booked for real; a later release replaces this with reviewed items.`,
+		Short: "Book the confirmed time of a day in YouTrack",
+		Long: `Book the items confirmed in "ticktack review" for one day in YouTrack, one
+work item per ticket, day and type. Repeated runs update instead of
+duplicating. Unconfirmed items are never booked; a day above the daily cap is
+only booked after the cap warning was acknowledged in review.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSync(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), deps, dayFlag, dryRun, unreviewed)
+			return runSync(cmd.Context(), cmd.OutOrStdout(), deps, dayFlag, dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&dayFlag, "day", "", "local day to book as YYYY-MM-DD (default: today)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan without booking anything")
-	cmd.Flags().BoolVar(&unreviewed, "unreviewed", false, "book derived time without review (temporary until review exists)")
 	return cmd
 }
 
-func runSync(ctx context.Context, out, errOut io.Writer, deps syncDeps, dayFlag string, dryRun, unreviewed bool) error {
+func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, dryRun bool) error {
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err
@@ -140,27 +136,25 @@ func runSync(ctx context.Context, out, errOut io.Writer, deps syncDeps, dayFlag 
 	}
 	defer func() { _ = st.Close() }()
 
-	items, err := dayItems(ctx, st, cfg, day, loc)
+	// Only confirmed items are ever booked.
+	items, err := review.ConfirmedItems(ctx, st, cfg, day)
+	var blocked *review.CapBlockedError
+	if errors.As(err, &blocked) {
+		return fmt.Errorf(msgCapBlocked, blocked.Day, formatMinutes(blocked.TotalMinutes), formatMinutes(blocked.CapMinutes))
+	}
 	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		_, err = fmt.Fprintf(out, msgNothingConfirmed+"\n", day)
 		return err
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
 	if err != nil {
 		return err
 	}
-
-	// Nothing may be booked without review. Until the review command exists,
-	// a real booking needs the explicit --unreviewed opt-in.
-	// TODO(T14): replace this gate with confirmed items from review.
-	book := unreviewed && !dryRun
-	if book {
-		_, _ = fmt.Fprintln(errOut, msgUnreviewed)
-	}
-	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{Repo: st, DryRun: !book, Now: deps.Now})
-	printReport(out, report, !book)
-	if !book && !dryRun {
-		_, _ = fmt.Fprintln(out, msgPlanOnly)
-	}
+	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
+	printReport(out, report, dryRun)
 	return syncErr
 }
 
@@ -173,32 +167,6 @@ func parseDay(flag string, now time.Time) (civil.Date, error) {
 		return civil.Date{}, fmt.Errorf("invalid --day %q: expected YYYY-MM-DD", flag)
 	}
 	return d, nil
-}
-
-// dayItems derives the aggregated items of one local day from the store.
-func dayItems(ctx context.Context, st *store.Store, cfg config.Config, day civil.Date, loc *time.Location) ([]sessionizer.DayItem, error) {
-	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, loc)
-	to := time.Date(day.Year, day.Month, day.Day+1, 0, 0, 0, 0, loc)
-	events, err := st.Events(ctx, from, to)
-	if err != nil {
-		return nil, err
-	}
-	overrides, err := st.Overrides(ctx, from, to)
-	if err != nil {
-		return nil, err
-	}
-	rules := resolver.Rules{TicketPattern: cfg.TicketPattern}
-	for _, r := range cfg.Rules {
-		rules.Repos = append(rules.Repos, resolver.RepoRule(r))
-	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
-	var items []sessionizer.DayItem
-	for _, it := range sessionizer.Aggregate(blocks, sessionizer.RoundingConfigFrom(cfg), loc) {
-		if it.Date == day {
-			items = append(items, it)
-		}
-	}
-	return items, nil
 }
 
 func printReport(out io.Writer, r ledger.Report, planOnly bool) {
