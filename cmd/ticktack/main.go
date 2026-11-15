@@ -10,7 +10,9 @@ import (
 
 func main() {
 	if err := cli.NewRootCommand().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		if !cli.IsSilent(err) {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
+		os.Exit(cli.ExitCode(err))
 	}
 }
