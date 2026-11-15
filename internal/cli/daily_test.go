@@ -250,12 +250,13 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	hook.OpenStore = func() (eventSink, error) { return nopCloseStore{st}, nil }
 	hook.Git = func(context.Context, string) (string, error) { return "/work/api\nABC-7-fix\n", nil }
 	hook.Now = func() time.Time { return dailyNow }
-	agent := &presence.Agent{
-		Sampler: fakeSampler{},
-		Sink:    st,
-		Now:     func() time.Time { return dailyNow },
-		Paused:  hook.Paused,
+	pausePath, err := paths.PausePath()
+	if err != nil {
+		t.Fatal(err)
 	}
+	// Production wiring of the agent; only the clock is replaced.
+	agent := newPresenceAgent(fakeSampler{}, st, presence.DefaultInterval, pausePath, nil)
+	agent.Now = func() time.Time { return dailyNow }
 
 	if err := runPause(deps); err != nil {
 		t.Fatal(err)
