@@ -31,6 +31,10 @@ func DefaultTOML(youTrackURL string) string {
 	fmt.Fprintf(&b, "# ticket_pattern = %s\n\n", strconv.Quote(DefaultTicketPattern))
 	b.WriteString("# Repositories scanned for git history.\n# repo_paths = [\"~/Projects\"]\n\n")
 	b.WriteString("# Time zone for day boundaries (default: system zone).\n# time_zone = \"Europe/Zurich\"\n\n")
+	b.WriteString("# Optional window-title hints (off by default). Needs the macOS Accessibility\n")
+	b.WriteString("# permission; titles are read in memory and never stored. Maps an IDE project\n")
+	b.WriteString("# name to the absolute path of its repository.\n")
+	b.WriteString("# [titlehint]\n# enabled = true\n#\n# [titlehint.projects]\n# \"my-ide-project\" = \"/abs/path/to/repo\"\n\n")
 	b.WriteString("# Fixed repository to ticket mappings.\n# [[rules]]\n# repo = \"/path/to/repo\"\n# ticket = \"ABC-1\"\n")
 	return b.String()
 }
