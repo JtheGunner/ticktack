@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/token"
 	"github.com/zalando/go-keyring"
 )
 
@@ -110,6 +110,25 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsForOptionalLists(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `youtrack_url = "https://yt.example.com"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rules) != 0 || len(cfg.RepoPaths) != 0 {
+		t.Errorf("rules and repo_paths should default to empty: %+v", cfg)
+	}
+	if cfg.Location != time.Local {
+		t.Errorf("Location = %v, want time.Local", cfg.Location)
+	}
+}
+
+func TestLoadRejectsInvalidTimeZone(t *testing.T) {
+	if _, err := Load(writeConfig(t, `time_zone = "Mars/Olympus"`)); err == nil {
+		t.Fatal("expected error for unknown time zone")
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope.toml")); err == nil {
 		t.Fatal("expected error for missing file")
@@ -130,27 +149,10 @@ func TestDefaultPath(t *testing.T) {
 	}
 }
 
-func TestTokenRoundTrip(t *testing.T) {
-	keyring.MockInit()
-	if _, err := GetToken(); !errors.Is(err, ErrTokenNotSet) {
-		t.Fatalf("want ErrTokenNotSet, got %v", err)
-	}
-	if err := SetToken(""); err == nil {
-		t.Fatal("empty token must be rejected")
-	}
-	if err := SetToken("perm:secret"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := GetToken()
-	if err != nil || got != "perm:secret" {
-		t.Fatalf("got %q, %v", got, err)
-	}
-}
-
 func TestTokenNeverWrittenToConfig(t *testing.T) {
 	keyring.MockInit()
 	const secret = "perm:super-secret-token"
-	if err := SetToken(secret); err != nil {
+	if err := token.Set(secret); err != nil {
 		t.Fatal(err)
 	}
 	path := writeConfig(t, `youtrack_url = "https://yt.example.com"`)

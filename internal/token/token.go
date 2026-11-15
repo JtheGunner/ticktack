@@ -1,4 +1,5 @@
-package config
+// Package token stores the YouTrack token exclusively in the OS keychain.
+package token
 
 import (
 	"errors"
@@ -12,14 +13,14 @@ const (
 	keychainUser    = "youtrack-token"
 )
 
-// ErrTokenNotSet is returned by GetToken when no token is stored in the keychain.
-var ErrTokenNotSet = errors.New("no YouTrack token stored in the keychain")
+// ErrNotSet is returned by Get when no token is stored in the keychain.
+var ErrNotSet = errors.New("no YouTrack token stored in the keychain")
 
-// GetToken reads the YouTrack token from the OS keychain.
-func GetToken() (string, error) {
+// Get reads the YouTrack token from the OS keychain.
+func Get() (string, error) {
 	secret, err := keyring.Get(keychainService, keychainUser)
 	if errors.Is(err, keyring.ErrNotFound) {
-		return "", ErrTokenNotSet
+		return "", ErrNotSet
 	}
 	if err != nil {
 		return "", fmt.Errorf("read token from keychain: %w", err)
@@ -27,9 +28,9 @@ func GetToken() (string, error) {
 	return secret, nil
 }
 
-// SetToken stores the YouTrack token in the OS keychain. The token is never
+// Set stores the YouTrack token in the OS keychain. The token is never
 // persisted anywhere else and is not included in returned errors.
-func SetToken(secret string) error {
+func Set(secret string) error {
 	if secret == "" {
 		return errors.New("token must not be empty")
 	}
