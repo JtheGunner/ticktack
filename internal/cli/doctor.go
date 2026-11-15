@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/collector/activitywatch"
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -83,6 +84,14 @@ type doctorDeps struct {
 	HTTP       *http.Client
 	OpenStore  func(path string) (eventReader, error)
 	LookPath   func(file string) (string, error)
+	// NewActivityWatch builds the bucket lister for the optional ActivityWatch
+	// check; tests inject a client bound to an httptest server.
+	NewActivityWatch func(url string) (bucketLister, error)
+}
+
+// bucketLister is the part of the ActivityWatch client the doctor needs.
+type bucketLister interface {
+	Buckets(ctx context.Context) ([]activitywatch.Bucket, error)
 }
 
 func defaultDoctorDeps() doctorDeps {
@@ -112,6 +121,9 @@ func defaultDoctorDeps() doctorDeps {
 			return st, nil
 		},
 		LookPath: exec.LookPath,
+		NewActivityWatch: func(url string) (bucketLister, error) {
+			return activitywatch.New(url)
+		},
 	}
 }
 
@@ -137,6 +149,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkReachable,
 		checkDB,
 		checkTools,
+		checkActivityWatch,
 	}
 	failed := 0
 	for _, check := range checks {
@@ -346,4 +359,27 @@ func checkTools(_ context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckTools, fmt.Sprintf(msgToolsMissing, strings.Join(missing, ", ")), msgToolsFix)
 	}
 	return okResult(msgCheckTools, msgToolsOK)
+}
+
+// checkActivityWatch is independent of the other checks and is skipped, never
+// failed, while the optional importer is disabled.
+func checkActivityWatch(ctx context.Context, deps doctorDeps) checkResult {
+	cfg, _, err := loadConfig(deps)
+	if err != nil || !cfg.ActivityWatch.Enabled {
+		return skipResult(msgCheckActivityWatch, msgAWDisabled)
+	}
+	aw := cfg.ActivityWatch
+	client, err := deps.NewActivityWatch(aw.URL)
+	if err != nil {
+		return failResult(msgCheckActivityWatch, fmt.Sprintf(msgAWBadURL, err), msgAWBadURLFix)
+	}
+	buckets, err := client.Buckets(ctx)
+	if err != nil {
+		return failResult(msgCheckActivityWatch, fmt.Sprintf(msgAWUnreachable, aw.URL, err), msgAWUnreachableFix)
+	}
+	afk, window := activitywatch.SelectBuckets(buckets, aw.Hostname)
+	if len(afk)+len(window) == 0 {
+		return failResult(msgCheckActivityWatch, fmt.Sprintf(msgAWNoBuckets, aw.URL), msgAWNoBucketsFix)
+	}
+	return okResult(msgCheckActivityWatch, fmt.Sprintf(msgAWOK, aw.URL, len(afk)+len(window)))
 }

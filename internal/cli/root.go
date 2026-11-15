@@ -24,5 +24,6 @@ func NewRootCommand() *cobra.Command {
 	addDailyCommands(root)
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newDoctorCommand())
+	root.AddCommand(newImportCommand())
 	return root
 }
