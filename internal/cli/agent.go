@@ -68,18 +68,30 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	agent := &presence.Agent{
-		Sampler:  presence.NewSampler(),
-		Sink:     st,
+	agent := newPresenceAgent(presence.NewSampler(), st, interval, pausePath, logger.Printf)
+	return agent.Run(ctx)
+}
+
+// newPresenceAgent builds the production presence agent. It stores nothing
+// while the pause flag file at pausePath exists.
+func newPresenceAgent(sampler presence.Sampler, sink presence.Appender, interval time.Duration, pausePath string, logf func(format string, args ...any)) *presence.Agent {
+	return &presence.Agent{
+		Sampler:  sampler,
+		Sink:     sink,
 		Interval: interval,
 		// Round(0) strips the monotonic reading, which stops during system
 		// sleep on macOS and would hide sleep gaps.
-		Now: func() time.Time { return time.Now().Round(0) },
-		Paused: func() bool {
-			_, err := os.Stat(pausePath)
-			return err == nil
-		},
-		Logf: logger.Printf,
+		Now:    func() time.Time { return time.Now().Round(0) },
+		Paused: pauseFlagCheck(pausePath),
+		Logf:   logf,
 	}
-	return agent.Run(ctx)
+}
+
+// pauseFlagCheck returns a function that reports whether the pause flag file
+// exists at path. The hook and the agent share it.
+func pauseFlagCheck(path string) func() bool {
+	return func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}
 }

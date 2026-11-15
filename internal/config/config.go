@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -83,6 +84,16 @@ func Load(path string) (Config, error) {
 		return Config{}, describeDecodeError(err)
 	}
 	return build(raw)
+}
+
+// LoadOrDefault behaves like Load but returns the defaults when no file
+// exists at path. An unreadable or invalid file is still an error.
+func LoadOrDefault(path string) (Config, error) {
+	cfg, err := Load(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return build(fileConfig{})
+	}
+	return cfg, err
 }
 
 // describeDecodeError builds a parse error from key names, positions and the
