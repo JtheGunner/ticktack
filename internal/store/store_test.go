@@ -1,0 +1,224 @@
+package store
+
+import (
+	"context"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/JtheGunner/ticktack/internal/event"
+)
+
+func openTemp(t *testing.T) (*Store, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ticktack.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s, path
+}
+
+var base = time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
+
+func ev(offset time.Duration) event.Event {
+	return event.Event{At: base.Add(offset), Source: "git", Kind: event.KindContext, Repo: "r", Branch: "b", Ticket: "TICKT-1", App: "term", IdleSeconds: 3}
+}
+
+func TestAppendIsOrderedByTime(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	for _, off := range []time.Duration{3 * time.Minute, time.Minute, 2 * time.Minute} {
+		if err := s.Append(ctx, ev(off)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Events(ctx, base, base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d events", len(got))
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].At.Before(got[i-1].At) {
+			t.Fatalf("events not ordered: %v", got)
+		}
+	}
+	want := ev(time.Minute)
+	want.ID = got[0].ID
+	if got[0].ID == 0 || !got[0].At.Equal(want.At) {
+		t.Fatalf("unexpected first event: %+v", got[0])
+	}
+	got[0].At, want.At = time.Time{}, time.Time{}
+	if !reflect.DeepEqual(got[0], want) {
+		t.Fatalf("round trip mismatch: %+v vs %+v", got[0], want)
+	}
+}
+
+func TestEventsRangeIsHalfOpen(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	for _, off := range []time.Duration{0, time.Minute, 2 * time.Minute} {
+		if err := s.Append(ctx, ev(off)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Events(ctx, base, base.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].At.Equal(base) || !got[1].At.Equal(base.Add(time.Minute)) {
+		t.Fatalf("want [from,to), got %+v", got)
+	}
+}
+
+func TestAppendIgnoresDuplicateKey(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	keyed := ev(0)
+	keyed.Key = "abc"
+	for i := 0; i < 2; i++ {
+		if err := s.Append(ctx, keyed); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+	// Empty keys are never deduplicated.
+	for i := 0; i < 2; i++ {
+		if err := s.Append(ctx, ev(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Events(ctx, base, base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 events, got %d", len(got))
+	}
+}
+
+func TestEventsAreImmutable(t *testing.T) {
+	typ := reflect.TypeOf(&Store{})
+	allowed := map[string]bool{
+		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
+		"Purge": true, "Close": true,
+	}
+	for i := 0; i < typ.NumMethod(); i++ {
+		name := typ.Method(i).Name
+		if !allowed[name] {
+			t.Errorf("unexpected exported method %q: events must stay immutable", name)
+		}
+	}
+}
+
+func TestMigrationsAreIdempotent(t *testing.T) {
+	s, path := openTemp(t)
+	ctx := context.Background()
+	if err := s.Append(ctx, ev(0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = s2.Close() }()
+	got, err := s2.Events(ctx, base, base.Add(time.Hour))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("data lost after reopen: %v %v", got, err)
+	}
+	var applied int
+	if err := s2.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != len(entries) {
+		t.Fatalf("applied %d migrations, have %d files", applied, len(entries))
+	}
+}
+
+func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	if err := s.Append(ctx, ev(0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddOverride(ctx, event.Override{Start: base, End: base.Add(time.Hour), Ticket: "TICKT-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO ledger (issue, date, type, work_item_id, minutes, content_hash, booked_at)
+		VALUES ('TICKT-1','2026-01-05','Development','1-1',30,'h',1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Purge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"events", "overrides", "ledger"} {
+		var n int
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%s has %d rows after purge", table, n)
+		}
+	}
+}
+
+func TestOverridesRangeAndRoundTrip(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	in := event.Override{Start: base, End: base.Add(time.Hour), Ticket: "TICKT-2"}
+	disc := event.Override{Start: base.Add(5 * time.Hour), End: base.Add(6 * time.Hour), Discard: true}
+	for _, o := range []event.Override{in, disc} {
+		if err := s.AddOverride(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Overrides(ctx, base, base.Add(2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Ticket != "TICKT-2" || !got[0].Start.Equal(in.Start) || !got[0].End.Equal(in.End) || got[0].Discard {
+		t.Fatalf("got %+v", got)
+	}
+	got, err = s.Overrides(ctx, base, base.Add(24*time.Hour))
+	if err != nil || len(got) != 2 || !got[1].Discard {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+}
+
+func TestNoWindowTitleColumn(t *testing.T) {
+	s, _ := openTemp(t)
+	rows, err := s.db.Query("SELECT name FROM pragma_table_info('events')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	n := 0
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		n++
+		l := strings.ToLower(name)
+		if strings.Contains(l, "title") || strings.Contains(l, "text") {
+			t.Errorf("forbidden column %q on events", name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("events table has no columns")
+	}
+}
