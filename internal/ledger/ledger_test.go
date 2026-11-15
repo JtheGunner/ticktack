@@ -19,6 +19,9 @@ import (
 
 type fakeItem struct {
 	item sink.WorkItem
+	// foreign marks an item authored by another user; FindByMarker must not
+	// return it.
+	foreign bool
 }
 
 // fakeSink is an in-memory TimeSink that records every call.
@@ -76,7 +79,7 @@ func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		if it := f.items[id].item; it.Issue == issue && strings.Contains(it.Text, marker) {
+		if fi := f.items[id]; !fi.foreign && fi.item.Issue == issue && strings.Contains(fi.item.Text, marker) {
 			return id, true, nil
 		}
 	}
@@ -313,6 +316,55 @@ func TestSyncRecoversAfterAmbiguousCreateFailure(t *testing.T) {
 	}
 	if len(repo.rows) != 1 {
 		t.Fatalf("ledger rows = %d", len(repo.rows))
+	}
+	s.calls = nil
+	res, err := Undo(context.Background(), s, repo, opts(repo).Now)
+	if err != nil || res.Forgotten != 1 || res.Deleted != 0 {
+		t.Fatalf("undo = %+v err=%v", res, err)
+	}
+	for _, c := range s.calls {
+		if strings.HasPrefix(c, "delete:") {
+			t.Fatalf("undo deleted a recovered item: %v", s.calls)
+		}
+	}
+	if len(s.items) != 1 || len(repo.rows) != 0 {
+		t.Fatalf("items=%d rows=%d", len(s.items), len(repo.rows))
+	}
+}
+
+func TestSyncIgnoresMarkerMatchOfAnotherAuthor(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	s.items["ABC-1/colleague"] = fakeItem{
+		item:    sink.WorkItem{Issue: "ABC-1", Minutes: 99, Text: "theirs " + Marker(Key("ABC-1", "2026-01-05", "Development"))},
+		foreign: true,
+	}
+	rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 30)}, s, opts(repo))
+	if rep.Created != 1 || rep.Recovered != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if got := s.items["ABC-1/colleague"].item.Minutes; got != 99 {
+		t.Fatalf("colleague item was modified: %d", got)
+	}
+	if len(s.items) != 2 {
+		t.Fatalf("sink items = %d, want colleague item plus own", len(s.items))
+	}
+}
+
+func TestSyncDoesNotLookUpAfterRateLimitedCreate(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	s.createErr["ABC-1"] = youtrack.ErrRateLimited
+	rep, err := Sync(context.Background(), []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30)}, s, opts(repo))
+	if !errors.Is(err, youtrack.ErrRateLimited) || rep.NotSent != 1 {
+		t.Fatalf("report=%+v err=%v", rep, err)
+	}
+	finds := 0
+	for _, c := range s.calls {
+		if c == "find:ABC-1" {
+			finds++
+		}
+	}
+	if finds != 1 {
+		t.Fatalf("FindByMarker called %d times for ABC-1, want 1 (before create only): %v", finds, s.calls)
 	}
 }
 

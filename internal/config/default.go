@@ -1,0 +1,36 @@
+package config
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// DefaultTOML renders a configuration file with every default spelled out in
+// a comment. When youTrackURL is non-empty it is written as an active
+// setting; otherwise the key is left commented out.
+func DefaultTOML(youTrackURL string) string {
+	var b strings.Builder
+	b.WriteString("# ticktack configuration. Uncomment a line to change a default.\n")
+	b.WriteString("# The YouTrack token is not stored here; it lives in the OS keychain.\n\n")
+	b.WriteString("# Base URL of your YouTrack instance.\n")
+	if youTrackURL != "" {
+		fmt.Fprintf(&b, "youtrack_url = %s\n\n", strconv.Quote(youTrackURL))
+	} else {
+		b.WriteString("# youtrack_url = \"https://example.youtrack.cloud\"\n\n")
+	}
+	b.WriteString("# Presence gaps longer than this end a work block.\n")
+	fmt.Fprintf(&b, "# gap_threshold = %q\n\n", DefaultGapThreshold.String())
+	b.WriteString("# Blocks shorter than this are dropped.\n")
+	fmt.Fprintf(&b, "# min_block_duration = %q\n\n", DefaultMinBlockDuration.String())
+	b.WriteString("# Booked durations are rounded to a multiple of this.\n")
+	fmt.Fprintf(&b, "# rounding = %q\n\n", DefaultRounding.String())
+	b.WriteString("# Maximum time booked per day.\n")
+	fmt.Fprintf(&b, "# daily_cap = %q\n\n", DefaultDailyCap.String())
+	b.WriteString("# Regular expression that extracts a ticket id from a branch name.\n")
+	fmt.Fprintf(&b, "# ticket_pattern = %s\n\n", strconv.Quote(DefaultTicketPattern))
+	b.WriteString("# Repositories scanned for git history.\n# repo_paths = [\"~/Projects\"]\n\n")
+	b.WriteString("# Time zone for day boundaries (default: system zone).\n# time_zone = \"Europe/Zurich\"\n\n")
+	b.WriteString("# Fixed repository to ticket mappings.\n# [[rules]]\n# repo = \"/path/to/repo\"\n# ticket = \"ABC-1\"\n")
+	return b.String()
+}

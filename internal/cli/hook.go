@@ -76,8 +76,7 @@ func defaultHookDeps() hookDeps {
 			if err != nil {
 				return false
 			}
-			_, err = os.Stat(p)
-			return err == nil
+			return pauseFlagCheck(p)()
 		},
 		Logf: fileLogf,
 	}

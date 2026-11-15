@@ -19,6 +19,11 @@
 //     (carried forward until it changes). The resolver turns it into ticket,
 //     tier and reason. Presence before the first context event yields an
 //     unknown block with an empty ticket, so it can be assigned in review.
+//   - A context event from ManualSource with a ticket (`ticktack switch`)
+//     pins the attribution: later non-manual context events no longer change
+//     it until the next manual event. A manual event with an empty ticket
+//     clears the pin and restores the latest automatic context. Pinned time
+//     is attributed with tier explicit and reason "manual switch to <ID>".
 //   - Blocks are split whenever the attributed ticket or the context changes;
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
@@ -33,6 +38,7 @@ package sessionizer
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/JtheGunner/ticktack/internal/config"
@@ -124,7 +130,8 @@ func Derive(events []event.Event, ov []event.Override, cfg Config, rules resolve
 	if len(spans) == 0 {
 		return nil
 	}
-	blocks := attribute(spans, contextTimeline(sorted), rules)
+	steps, _ := contextTimeline(sorted)
+	blocks := attribute(spans, steps, rules)
 	blocks = mergeTouching(blocks)
 	blocks = resolveShortBlocks(blocks, cfg.MinBlock)
 	blocks = mergeTouching(blocks)
@@ -193,20 +200,82 @@ func presenceSpans(sorted []event.Event, cfg Config) []interval {
 	return spans
 }
 
+// ManualSource is the event source of context events written by
+// `ticktack switch`.
+const ManualSource = "manual"
+
 type contextStep struct {
 	at     time.Time
 	signal resolver.ContextSignal
+	// manualTicket is set while a manual switch is in effect.
+	manualTicket string
 }
 
-func contextTimeline(sorted []event.Event) []contextStep {
+// attribution resolves the step. A manual switch is explicit by definition.
+func (s contextStep) attribution(rules resolver.Rules) resolver.Attribution {
+	if s.manualTicket != "" {
+		return resolver.Attribution{
+			Ticket: s.manualTicket,
+			Tier:   resolver.TierExplicit,
+			Reason: "manual switch to " + s.manualTicket,
+		}
+	}
+	return resolver.Resolve(s.signal, rules)
+}
+
+// contextTimeline folds the sorted context events into steps. After a manual
+// event with a ticket, non-manual context events produce no steps until the
+// next manual event: a new switch, or a clear event with an empty ticket,
+// which restores the latest automatic signal. It also returns the latest
+// non-manual signal.
+func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSignal) {
 	var steps []contextStep
+	var latestAuto resolver.ContextSignal
+	manualTicket := ""
 	for _, e := range sorted {
 		if e.Kind != event.KindContext {
 			continue
 		}
-		steps = append(steps, contextStep{at: e.At, signal: resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}})
+		if e.Source == ManualSource {
+			manualTicket = strings.ToUpper(strings.TrimSpace(e.Ticket))
+			steps = append(steps, contextStep{at: e.At, signal: latestAuto, manualTicket: manualTicket})
+			continue
+		}
+		latestAuto = resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}
+		if manualTicket == "" {
+			steps = append(steps, contextStep{at: e.At, signal: latestAuto})
+		}
 	}
-	return steps
+	return steps, latestAuto
+}
+
+// CurrentContext is the context in effect after a list of events.
+type CurrentContext struct {
+	// At is the time of the event that set the current attribution.
+	At time.Time
+	// Signal is the latest automatically detected repo, branch and ticket. It
+	// stays up to date while a manual switch overrides the attribution.
+	Signal resolver.ContextSignal
+	// Attribution is the effective verdict, honouring manual switches.
+	Attribution resolver.Attribution
+	// Manual reports whether a manual switch determines the attribution.
+	Manual bool
+}
+
+// LatestContext returns the context in effect after all events, applying the
+// same manual-switch rule as Derive. ok is false without any context event.
+func LatestContext(events []event.Event, rules resolver.Rules) (CurrentContext, bool) {
+	steps, latestAuto := contextTimeline(sortedEvents(events))
+	if len(steps) == 0 {
+		return CurrentContext{}, false
+	}
+	last := steps[len(steps)-1]
+	return CurrentContext{
+		At:          last.at,
+		Signal:      latestAuto,
+		Attribution: last.attribution(rules),
+		Manual:      last.manualTicket != "",
+	}, true
 }
 
 // attribute intersects every span with the context timeline.
@@ -240,9 +309,9 @@ func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rul
 	if n == 0 {
 		return Block{Start: from, End: to, Tier: resolver.TierUnknown, Reason: noContextReason}
 	}
-	signal := steps[n-1].signal
-	a := resolver.Resolve(signal, rules)
-	return Block{Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Repo: signal.Repo}
+	step := steps[n-1]
+	a := step.attribution(rules)
+	return Block{Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Repo: step.signal.Repo}
 }
 
 func sameAttribution(a, b Block) bool {

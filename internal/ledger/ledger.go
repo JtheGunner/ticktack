@@ -180,10 +180,12 @@ func isStopError(err error) bool {
 	return errors.Is(err, youtrack.ErrUnauthorized) || errors.Is(err, youtrack.ErrRateLimited)
 }
 
+// isClientError reports errors after which Create certainly stored nothing or
+// retrying the lookup is pointless (rate limits stop the run).
 func isClientError(err error) bool {
 	for _, target := range []error{
 		youtrack.ErrUnauthorized, youtrack.ErrForbidden, youtrack.ErrIssueNotFound,
-		youtrack.ErrTimeTrackingDisabled, youtrack.ErrWorkItemTypeNotFound,
+		youtrack.ErrTimeTrackingDisabled, youtrack.ErrWorkItemTypeNotFound, youtrack.ErrRateLimited,
 	} {
 		if errors.Is(err, target) {
 			return true
@@ -253,7 +255,7 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 	}
 
 	id, err = r.sink.Create(ctx, work)
-	action := ActionCreated
+	action, entryAction := ActionCreated, entryActionCreated
 	if err != nil {
 		if isClientError(err) {
 			return failItem(err)
@@ -265,9 +267,11 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 			return failItem(err)
 		}
 		id = recovered
-		action = ActionRecovered
+		// Every item found by marker is recorded as recovered, never as
+		// created: undo must not delete an item that may predate this run.
+		action, entryAction = ActionRecovered, entryActionRecovered
 	}
-	if err := r.record(ctx, work, key, id, entryActionCreated, 0); err != nil {
+	if err := r.record(ctx, work, key, id, entryAction, 0); err != nil {
 		return failItem(err)
 	}
 	res.Action = action

@@ -12,6 +12,19 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+func TestDefaultTOMLRoundTripsThroughLoad(t *testing.T) {
+	for _, url := range []string{"", "https://example.youtrack.cloud"} {
+		path := writeConfig(t, DefaultTOML(url))
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("url %q: %v", url, err)
+		}
+		if cfg.YouTrackURL != url || cfg.GapThreshold != DefaultGapThreshold || cfg.DailyCap != DefaultDailyCap {
+			t.Errorf("url %q: unexpected config %+v", url, cfg)
+		}
+	}
+}
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")

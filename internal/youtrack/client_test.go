@@ -175,12 +175,24 @@ func TestDeleteUsesIssueAndItemID(t *testing.T) {
 }
 
 func TestFindByMarkerMatchesVerbatim(t *testing.T) {
+	var meCalls atomic.Int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/users/me" {
+			meCalls.Add(1)
+			_, _ = io.WriteString(w, `{"login":"me"}`)
+			return
+		}
 		_, _ = io.WriteString(w, `[
-			{"id":"1-1","text":"x [ticktack:ABC-10]"},
-			{"id":"1-2","text":"no marker"},
-			{"id":"1-3","text":"work [ticktack:ABC-1] more"}]`)
+			{"id":"1-0","text":"colleague [ticktack:ABC-1]","author":{"login":"colleague"}},
+			{"id":"1-1","text":"x [ticktack:ABC-10]","author":{"login":"me"}},
+			{"id":"1-2","text":"no marker","author":{"login":"me"}},
+			{"id":"1-3","text":"work [ticktack:ABC-1] more","author":{"login":"me"}}]`)
 	}))
+	defer func() {
+		if meCalls.Load() != 1 {
+			t.Errorf("current user fetched %d times, want 1 (cached)", meCalls.Load())
+		}
+	}()
 	id, found, err := c.FindByMarker(context.Background(), "ABC-1", "[ticktack:ABC-1]")
 	if err != nil || !found || id != "ABC-1/1-3" {
 		t.Fatalf("id=%q found=%v err=%v", id, found, err)
@@ -328,6 +340,39 @@ func TestTokenNeverAppearsInErrorsOrLogs(t *testing.T) {
 	}
 	if logs.Len() == 0 {
 		t.Error("expected some log output")
+	}
+}
+
+func TestMeReturnsLoginAndRequestsOnlyLogin(t *testing.T) {
+	var gotPath, gotFields string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotFields = r.URL.Path, r.URL.Query().Get("fields")
+		_, _ = io.WriteString(w, `{"login":"jane"}`)
+	}))
+	login, err := c.Me(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if login != "jane" || gotPath != "/api/users/me" || gotFields != "login" {
+		t.Fatalf("login=%q path=%q fields=%q", login, gotPath, gotFields)
+	}
+}
+
+func TestMeMapsStatusCodesToTypedErrors(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusUnauthorized, ErrUnauthorized},
+		{http.StatusForbidden, ErrForbidden},
+	}
+	for _, tc := range tests {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		if _, err := c.Me(context.Background()); !errors.Is(err, tc.want) {
+			t.Errorf("status %d: got %v, want %v", tc.status, err, tc.want)
+		}
 	}
 }
 
