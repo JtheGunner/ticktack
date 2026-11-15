@@ -1,0 +1,3 @@
+# Commands the read-only ticket reviewer may run (exact match, one per line).
+make build
+./bin/ticktack version
