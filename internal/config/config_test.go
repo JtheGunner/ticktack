@@ -129,6 +129,34 @@ func TestLoadRejectsInvalidTimeZone(t *testing.T) {
 	}
 }
 
+func TestLoadErrorsNeverEchoSourceLines(t *testing.T) {
+	const secret = "SECRET123"
+	cases := map[string]string{
+		"unknown token key": `token = "perm:` + secret + `"`,
+		"syntax error":      `token = "perm:` + secret + `" oops`,
+		"unterminated":      `youtrack_url = "perm:` + secret,
+		"wrong type":        `gap_threshold = ["perm:` + secret + `"]`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, content))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("error echoes source line: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadUnknownKeysListsNamesAndPositions(t *testing.T) {
+	_, err := Load(writeConfig(t, "bogus_key = 1"))
+	if err == nil || !strings.Contains(err.Error(), "bogus_key") || !strings.Contains(err.Error(), "line 1") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope.toml")); err == nil {
 		t.Fatal("expected error for missing file")

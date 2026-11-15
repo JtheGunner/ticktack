@@ -1,5 +1,5 @@
-// Package config loads and validates the ticktack configuration file and
-// manages the YouTrack token in the OS keychain.
+// Package config loads and validates the ticktack configuration file. The
+// YouTrack token is not part of the configuration; see package token.
 package config
 
 import (
@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -79,13 +80,32 @@ func Load(path string) (Config, error) {
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
-		var strict *toml.StrictMissingError
-		if errors.As(err, &strict) {
-			return Config{}, fmt.Errorf("parse config: unknown keys:\n%s", strict.String())
-		}
-		return Config{}, fmt.Errorf("parse config: %w", err)
+		return Config{}, describeDecodeError(err)
 	}
 	return build(raw)
+}
+
+// describeDecodeError builds a parse error from key names, positions and the
+// short message only. go-toml's human-readable context quotes the source
+// line, which could echo a secret, so it is never used and the original error
+// is not wrapped.
+func describeDecodeError(err error) error {
+	var strict *toml.StrictMissingError
+	if errors.As(err, &strict) {
+		var b strings.Builder
+		b.WriteString("parse config: unknown keys:")
+		for i := range strict.Errors {
+			line, column := strict.Errors[i].Position()
+			fmt.Fprintf(&b, "\n  %s (line %d, column %d)", strings.Join(strict.Errors[i].Key(), "."), line, column)
+		}
+		return errors.New(b.String())
+	}
+	var decodeErr *toml.DecodeError
+	if errors.As(err, &decodeErr) {
+		line, column := decodeErr.Position()
+		return fmt.Errorf("parse config: line %d, column %d: %s", line, column, decodeErr.Error())
+	}
+	return fmt.Errorf("parse config: %w", err)
 }
 
 func build(raw fileConfig) (Config, error) {
