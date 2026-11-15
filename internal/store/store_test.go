@@ -222,3 +222,19 @@ func TestNoWindowTitleColumn(t *testing.T) {
 		t.Fatal("events table has no columns")
 	}
 }
+
+func TestAppendStoresGapEvent(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	gap := event.Event{At: base, Source: "presence", Kind: event.KindGap, IdleSeconds: 3600}
+	if err := s.Append(ctx, gap); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Events(ctx, base, base.Add(time.Hour))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+	if got[0].Kind != event.KindGap || got[0].IdleSeconds != 3600 {
+		t.Fatalf("unexpected gap event %+v", got[0])
+	}
+}
