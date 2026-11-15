@@ -3,6 +3,7 @@ module github.com/JtheGunner/ticktack
 go 1.27.3
 
 require (
+	cloud.google.com/go v0.123.0
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.62.0
 )
