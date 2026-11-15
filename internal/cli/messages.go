@@ -1,51 +1,40 @@
 package cli
 
-import (
-	"fmt"
-	"time"
-)
-
-// User-facing strings of the daily commands live here so a German variant can
-// be added later.
+// User-facing strings of `init` and `doctor`, kept together so a German
+// variant can be added later.
 const (
-	msgNothingRecorded = "Nothing recorded yet. Open a shell prompt in a git repository to start."
-	msgCapturePaused   = "Capture:   paused (run `ticktack resume` to continue)"
-	msgCaptureActive   = "Capture:   active"
-	msgNoPresence      = "Presence:  never seen"
-	msgPaused          = "Capture paused."
-	msgResumed         = "Capture resumed."
-	msgSwitchCleared   = "Back to automatic ticket detection."
-	msgNoBlocks        = "No time recorded for %s."
-	msgPurgePrompt     = "Delete ALL local ticktack data (events, overrides, ledger)? [y/N] "
-	msgPurgeAborted    = "Aborted. Nothing was deleted."
-	msgPurged          = "All local ticktack data deleted."
-	msgNotInteractive  = "cannot ask for confirmation: stdin is not interactive; pass --yes to purge"
-	msgUnassigned      = "(unassigned)"
-	msgNoRepo          = "(none)"
+	msgInitConfigIntro   = "Step 1/4 - config: create the config file with commented defaults at %s"
+	msgInitConfigKept    = "  config exists, kept: %s"
+	msgInitConfigWritten = "  config written: %s"
+	msgInitConfigURL     = "YouTrack base URL (empty to set it later): "
+	msgInitConfigBadURL  = "  config not written: %q is not an absolute URL"
+	msgInitConfigFailed  = "  config failed: %v"
+
+	msgInitTokenIntro    = "Step 2/4 - token: store the YouTrack permanent token in the OS keychain"
+	msgInitTokenPrompt   = "Token (input hidden, empty to skip): "
+	msgInitTokenSkipped  = "  no token entered, skipped"
+	msgInitTokenStored   = "  token stored in the keychain"
+	msgInitTokenFailed   = "  token not stored: %v"
+	msgInitTokenValidate = "Validate the token against YouTrack now?"
+
+	msgInitHookIntro       = "Step 3/4 - shell hook: add a managed block to %s"
+	msgInitHookUnsupported = "  shell %q is not supported (use --shell zsh|bash|fish); skipped"
+	msgInitHookUnchanged   = "  shell hook already up to date: %s"
+	msgInitHookWritten     = "  shell hook written: %s (open a new shell to activate it)"
+	msgInitHookFailed      = "  shell hook failed: %v"
+
+	msgInitAgentIntro   = "Step 4/4 - agent: install and load the launchd agent at %s"
+	msgInitAgentNotMac  = "  launchd agent is macOS-only; skipped"
+	msgInitAgentWritten = "  plist written: %s"
+	msgInitAgentKept    = "  plist unchanged: %s"
+	msgInitAgentLoaded  = "  agent loaded"
+	msgInitAgentFailed  = "  agent step failed: %v"
+	msgInitAgentHint    = "  hint: run `launchctl bootstrap gui/%d %s` manually, then `ticktack doctor`"
+
+	msgInitSkipped  = "  skipped"
+	msgInitConfirm  = "Proceed?"
+	msgInitFinished = "Done. Run `ticktack doctor` to verify the setup."
+
+	msgDoctorSummaryOK     = "All %d checks passed."
+	msgDoctorSummaryFailed = "%d of %d checks failed."
 )
-
-func msgSwitched(ticket string) string { return "Switched to " + ticket + "." }
-
-func msgInvalidTicket(arg, pattern string) error {
-	return fmt.Errorf("%q is not a valid ticket ID (pattern %s)", arg, pattern)
-}
-
-func msgPresenceSeen(at, now time.Time, loc *time.Location) string {
-	ago := now.Sub(at).Round(time.Second)
-	if ago < 0 {
-		ago = 0
-	}
-	return fmt.Sprintf("Presence:  last seen %s (%s ago)", at.In(loc).Format("2006-01-02 15:04:05"), ago)
-}
-
-func formatMinutes(minutes int) string {
-	h, m := minutes/60, minutes%60
-	switch {
-	case h == 0:
-		return fmt.Sprintf("%dm", m)
-	case m == 0:
-		return fmt.Sprintf("%dh", h)
-	default:
-		return fmt.Sprintf("%dh%02dm", h, m)
-	}
-}

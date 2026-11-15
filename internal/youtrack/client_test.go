@@ -331,6 +331,39 @@ func TestTokenNeverAppearsInErrorsOrLogs(t *testing.T) {
 	}
 }
 
+func TestMeReturnsLoginAndRequestsOnlyLogin(t *testing.T) {
+	var gotPath, gotFields string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotFields = r.URL.Path, r.URL.Query().Get("fields")
+		_, _ = io.WriteString(w, `{"login":"jane"}`)
+	}))
+	login, err := c.Me(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if login != "jane" || gotPath != "/api/users/me" || gotFields != "login" {
+		t.Fatalf("login=%q path=%q fields=%q", login, gotPath, gotFields)
+	}
+}
+
+func TestMeMapsStatusCodesToTypedErrors(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusUnauthorized, ErrUnauthorized},
+		{http.StatusForbidden, ErrForbidden},
+	}
+	for _, tc := range tests {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		if _, err := c.Me(context.Background()); !errors.Is(err, tc.want) {
+			t.Errorf("status %d: got %v, want %v", tc.status, err, tc.want)
+		}
+	}
+}
+
 func TestNewValidatesInput(t *testing.T) {
 	if _, err := New("", testToken); err == nil {
 		t.Error("empty base URL accepted")

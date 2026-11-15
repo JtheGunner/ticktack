@@ -161,6 +161,18 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// Me returns the login of the token owner. It is the cheapest authenticated
+// call and serves as a token check.
+func (c *Client) Me(ctx context.Context) (string, error) {
+	var out struct {
+		Login string `json:"login"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/users/me", url.Values{"fields": {"login"}}, nil, &out); err != nil {
+		return "", err
+	}
+	return out.Login, nil
+}
+
 // Create books w and returns its id. The work item type name is resolved to
 // the project's type id first.
 func (c *Client) Create(ctx context.Context, w sink.WorkItem) (string, error) {
