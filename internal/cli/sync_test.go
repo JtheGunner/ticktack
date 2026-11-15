@@ -98,9 +98,60 @@ func execCommand(t *testing.T, deps syncDeps, args ...string) (stdout, stderr st
 	return out.String(), errOut.String(), err
 }
 
-func TestSyncPrintsPlanWithoutUnreviewedFlag(t *testing.T) {
+// confirmDay confirms every attributed item of the seeded day through the
+// review command, as a user would.
+func confirmDay(t *testing.T, deps syncDeps, extra ...string) string {
+	t.Helper()
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ := deps.LoadConfig()
+	input := strings.Join(append(extra, "y", "q"), "\n") + "\n"
+	out := &bytes.Buffer{}
+	rd := reviewDeps{
+		OpenStore:  func() (reviewStore, error) { return st, nil },
+		LoadConfig: func() (config.Config, error) { return cfg, nil },
+		Now:        deps.Now,
+		In:         strings.NewReader(input),
+		Out:        out,
+	}
+	if err := runReview(context.Background(), rd, "2026-01-05"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
+func TestSyncBooksNothingWithoutConfirmation(t *testing.T) {
 	deps, rec := syncTestDeps(t)
-	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	for _, args := range [][]string{{"sync", "--day", "2026-01-05"}, {"sync", "--day", "2026-01-05", "--dry-run"}} {
+		out, _, err := execCommand(t, deps, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "ticktack review") {
+			t.Fatalf("missing review hint:\n%s", out)
+		}
+	}
+	if len(rec.calls) != 0 || len(rec.items) != 0 {
+		t.Fatalf("unconfirmed day touched the sink: %v", rec.calls)
+	}
+}
+
+func TestSyncRejectsRemovedUnreviewedFlag(t *testing.T) {
+	deps, _ := syncTestDeps(t)
+	if _, _, err := execCommand(t, deps, "sync", "--unreviewed"); err == nil {
+		t.Fatal("--unreviewed must not exist any more")
+	}
+}
+
+func TestSyncDryRunPlansConfirmedItems(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	confirmDay(t, deps)
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,19 +160,20 @@ func TestSyncPrintsPlanWithoutUnreviewedFlag(t *testing.T) {
 	}
 	for _, c := range rec.calls {
 		if c != "find" {
-			t.Fatalf("mutating call without --unreviewed: %v", rec.calls)
+			t.Fatalf("mutating call in dry run: %v", rec.calls)
 		}
 	}
 }
 
-func TestSyncUnreviewedBooksWarnsAndUndoReverts(t *testing.T) {
+func TestSyncBooksConfirmedAndUndoReverts(t *testing.T) {
 	deps, rec := syncTestDeps(t)
-	out, errOut, err := execCommand(t, deps, "sync", "--day", "2026-01-05", "--unreviewed")
+	confirmDay(t, deps)
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(errOut, "WARNING") || !strings.Contains(out, "Created 1") || len(rec.items) != 1 {
-		t.Fatalf("stdout:\n%s\nstderr:\n%s\nitems=%d", out, errOut, len(rec.items))
+	if !strings.Contains(out, "Created 1") || len(rec.items) != 1 {
+		t.Fatalf("stdout:\n%s\nitems=%d", out, len(rec.items))
 	}
 	out, _, err = execCommand(t, deps, "undo")
 	if err != nil || !strings.Contains(out, "Deleted 1") || len(rec.items) != 0 {
@@ -130,6 +182,25 @@ func TestSyncUnreviewedBooksWarnsAndUndoReverts(t *testing.T) {
 	out, _, err = execCommand(t, deps, "undo")
 	if err != nil || !strings.Contains(out, "Nothing to undo") {
 		t.Fatalf("second undo: %q err=%v", out, err)
+	}
+}
+
+func TestSyncCapBlockedUntilAcknowledged(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	inner := deps.LoadConfig
+	deps.LoadConfig = func() (config.Config, string, error) {
+		cfg, path, err := inner()
+		cfg.DailyCap = 30 * time.Minute
+		return cfg, path, err
+	}
+	confirmDay(t, deps)
+	_, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err == nil || !strings.Contains(err.Error(), "daily cap") || len(rec.calls) != 0 {
+		t.Fatalf("err=%v calls=%v", err, rec.calls)
+	}
+	confirmDay(t, deps, "a")
+	if _, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05"); err != nil || len(rec.items) != 1 {
+		t.Fatalf("after ack err=%v items=%d", err, len(rec.items))
 	}
 }
 
