@@ -117,6 +117,10 @@ func TestEventsAreImmutable(t *testing.T) {
 		// map command edits them. They never touch events.
 		"AddLearnedRule": true, "LearnedRules": true,
 		"UpdateLearnedRule": true, "DeleteLearnedRule": true,
+		// The review log (track record for auto mode) and the digests of auto
+		// runs live in their own tables and never touch events.
+		"SaveReviewRecord": true, "ReviewRecords": true,
+		"AddDigest": true, "LastDigest": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -188,10 +192,16 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	if _, err := s.AddLearnedRule(ctx, LearnedRule{Repo: "/work/app", Ticket: "TICKT-1", CreatedAt: base}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.SaveReviewRecord(ctx, ReviewRecord{Day: "2026-01-06", SessionStart: base, FinishedAt: base, Confirmed: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddDigest(ctx, Digest{Day: "2026-01-06", CreatedAt: base, Text: "digest"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Purge(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements", "learned_rules"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements", "learned_rules", "review_log", "digests"} {
 		var n int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatal(err)

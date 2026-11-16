@@ -42,6 +42,7 @@ type Store interface {
 	Confirmations(ctx context.Context, day string) ([]store.Confirmation, error)
 	AcknowledgeCap(ctx context.Context, a store.CapAcknowledgement) error
 	CapAcknowledgementFor(ctx context.Context, day string) (store.CapAcknowledgement, bool, error)
+	SaveReviewRecord(ctx context.Context, r store.ReviewRecord) (int64, error)
 }
 
 // Errors returned by session actions.
@@ -272,11 +273,19 @@ type Session struct {
 	pending    *RememberOffer
 
 	discarded int
+	// started identifies the session in the review log; corrections counts
+	// what it changed so far.
+	started     time.Time
+	corrections int
+	// logID is the session's review_log row, zero until first written.
+	logID int64
+	// confirmedHere holds the items this session confirmed itself.
+	confirmedHere map[itemKey]struct{}
 }
 
 // NewSession derives the day and prepares its entries.
 func NewSession(ctx context.Context, st Store, cfg config.Config, day civil.Date, now func() time.Time, opts ...Option) (*Session, error) {
-	s := &Session{st: st, cfg: cfg, day: day, now: now}
+	s := &Session{st: st, cfg: cfg, day: day, now: now, started: now()}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -375,7 +384,7 @@ func (s *Session) Confirm(ctx context.Context, n int) error {
 	if err := s.confirmItem(ctx, e.Ticket); err != nil {
 		return err
 	}
-	return s.refresh(ctx)
+	return s.changed(ctx, false)
 }
 
 // ConfirmAll confirms every attributed, not yet confirmed item. Unassigned
@@ -391,7 +400,7 @@ func (s *Session) ConfirmAll(ctx context.Context) (int, error) {
 		}
 		count++
 	}
-	return count, s.refresh(ctx)
+	return count, s.changed(ctx, false)
 }
 
 func (s *Session) confirmItem(ctx context.Context, ticket string) error {
@@ -399,10 +408,17 @@ func (s *Session) confirmItem(ctx context.Context, ticket string) error {
 	if !ok {
 		return fmt.Errorf("%s: nothing to confirm (rounds to zero)", ticket)
 	}
-	return s.st.Confirm(ctx, store.Confirmation{
+	if err := s.st.Confirm(ctx, store.Confirmation{
 		Day: s.day.String(), Issue: it.Ticket, Type: itemType(it),
 		Minutes: it.Minutes, ConfirmedAt: s.now(),
-	})
+	}); err != nil {
+		return err
+	}
+	if s.confirmedHere == nil {
+		s.confirmedHere = map[itemKey]struct{}{}
+	}
+	s.confirmedHere[itemKey{it.Ticket, itemType(it)}] = struct{}{}
+	return nil
 }
 
 // NormalizeTicket upper-cases ticket and validates it against the configured
@@ -441,7 +457,7 @@ func (s *Session) Reassign(ctx context.Context, n int, ticket string) error {
 	if err := s.st.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Ticket: t}); err != nil {
 		return err
 	}
-	if err := s.refresh(ctx); err != nil {
+	if err := s.changed(ctx, true); err != nil {
 		return err
 	}
 	if e.Repo != "" && (e.Tier == resolver.TierUnknown || e.Tier == resolver.TierLearned) {
@@ -462,7 +478,7 @@ func (s *Session) Discard(ctx context.Context, n int) error {
 		return err
 	}
 	s.discarded++
-	return s.refresh(ctx)
+	return s.changed(ctx, true)
 }
 
 // MarkBreak marks the entry as a break. A break is stored exactly like a
@@ -507,7 +523,7 @@ func (s *Session) Split(ctx context.Context, n int, clock, ticket string) error 
 	if err := s.st.AddOverride(ctx, event.Override{Start: at, End: e.End, Ticket: target}); err != nil {
 		return err
 	}
-	return s.refresh(ctx)
+	return s.changed(ctx, true)
 }
 
 // AcknowledgeCap records that the user accepts the current day total above
@@ -522,8 +538,41 @@ func (s *Session) AcknowledgeCap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return s.changed(ctx, false)
+}
+
+// changed re-derives the day after an action and updates the session's
+// record in the review log. A correction is any change to the attribution;
+// confirmations and cap acknowledgements are not. Recording after every
+// action means an aborted session still leaves what it did.
+func (s *Session) changed(ctx context.Context, correction bool) error {
+	if correction {
+		s.corrections++
+	}
+	// Record first so the correction is on file even if re-deriving fails.
+	if err := s.record(ctx); err != nil {
+		return err
+	}
 	return s.refresh(ctx)
 }
+
+// record writes the session's own row: its corrections and the items it
+// confirmed itself. Items confirmed in earlier sessions are not counted.
+func (s *Session) record(ctx context.Context) error {
+	id, err := s.st.SaveReviewRecord(ctx, store.ReviewRecord{
+		ID: s.logID, Day: s.day.String(), SessionStart: s.started, FinishedAt: s.now(),
+		Corrections: s.corrections, Confirmed: len(s.confirmedHere),
+	})
+	if err != nil {
+		return err
+	}
+	s.logID = id
+	return nil
+}
+
+// Finish records the end of the session in the review log. Call it when the
+// user ends the review, also when the input ended.
+func (s *Session) Finish(ctx context.Context) error { return s.record(ctx) }
 
 // Summary counts the current state of the day.
 func (s *Session) Summary() Summary {

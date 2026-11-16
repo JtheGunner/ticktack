@@ -152,7 +152,7 @@ func (r *reviewRun) loop() error {
 		return err
 	}
 	r.finish()
-	return nil
+	return r.s.Finish(r.ctx)
 }
 
 func (r *reviewRun) show() {

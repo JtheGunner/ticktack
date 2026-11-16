@@ -20,6 +20,8 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newHookCommand())
 	root.AddCommand(newReviewCommand())
 	root.AddCommand(newSyncCommand())
+	root.AddCommand(newAutoCommand())
+	root.AddCommand(newDigestCommand())
 	root.AddCommand(newUndoCommand())
 	addDailyCommands(root)
 	root.AddCommand(newInitCommand())
