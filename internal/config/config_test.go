@@ -25,6 +25,47 @@ func TestDefaultTOMLRoundTripsThroughLoad(t *testing.T) {
 	}
 }
 
+func TestTitleHintIsOffByDefault(t *testing.T) {
+	cfg, err := Load(writeConfig(t, DefaultTOML("")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TitleHint.Enabled || len(cfg.TitleHint.Projects) != 0 {
+		t.Errorf("title hint must be off by default: %+v", cfg.TitleHint)
+	}
+}
+
+func TestLoadParsesTitleHintSection(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "[titlehint]\nenabled = true\n\n[titlehint.projects]\n\"my-ide-project\" = \"/abs/path/to/repo\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"my-ide-project": "/abs/path/to/repo"}
+	if !cfg.TitleHint.Enabled || !reflect.DeepEqual(cfg.TitleHint.Projects, want) {
+		t.Errorf("unexpected title hint config: %+v", cfg.TitleHint)
+	}
+}
+
+func TestLoadRejectsInvalidTitleHintConfig(t *testing.T) {
+	for name, body := range map[string]string{
+		"relative repo path": "[titlehint.projects]\n\"proj\" = \"relative/repo\"\n",
+		"empty repo path":    "[titlehint.projects]\n\"proj\" = \"\"\n",
+		"empty project name": "[titlehint.projects]\n\"\" = \"/abs/repo\"\n",
+		"unknown key":        "[titlehint]\nenable = true\n",
+	} {
+		if _, err := Load(writeConfig(t, body)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestTitleHintErrorsNeverEchoValues(t *testing.T) {
+	_, err := Load(writeConfig(t, "[titlehint.projects]\n\"proj\" = \"sekrit-relative\"\n"))
+	if err == nil || strings.Contains(err.Error(), "sekrit-relative") {
+		t.Fatalf("error must name the key only: %v", err)
+	}
+}
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")

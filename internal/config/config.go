@@ -43,6 +43,20 @@ type Config struct {
 	TicketPattern    *regexp.Regexp
 	RepoPaths        []string
 	Location         *time.Location
+	TitleHint        TitleHint
+}
+
+// TitleHint configures the optional window-title collector. It is off unless
+// Enabled is set. Projects maps an IDE project name to the absolute path of
+// its repository. Titles themselves are never stored.
+type TitleHint struct {
+	Enabled  bool
+	Projects map[string]string
+}
+
+type titleHintFile struct {
+	Enabled  bool              `toml:"enabled"`
+	Projects map[string]string `toml:"projects"`
 }
 
 // fileConfig mirrors the TOML file; durations and patterns stay strings until validated.
@@ -56,6 +70,8 @@ type fileConfig struct {
 	TicketPattern    string   `toml:"ticket_pattern"`
 	RepoPaths        []string `toml:"repo_paths"`
 	TimeZone         string   `toml:"time_zone"`
+
+	TitleHint titleHintFile `toml:"titlehint"`
 }
 
 // DefaultPath returns the default config file location:
@@ -172,7 +188,32 @@ func build(raw fileConfig) (Config, error) {
 			return Config{}, fmt.Errorf("rules[%d]: repo and ticket are both required", i)
 		}
 	}
+	hint, err := buildTitleHint(raw.TitleHint)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TitleHint = hint
 	return cfg, nil
+}
+
+// buildTitleHint validates the project mapping. Errors name the project key
+// only, never the configured value.
+func buildTitleHint(raw titleHintFile) (TitleHint, error) {
+	hint := TitleHint{Enabled: raw.Enabled}
+	if len(raw.Projects) == 0 {
+		return hint, nil
+	}
+	hint.Projects = make(map[string]string, len(raw.Projects))
+	for name, repo := range raw.Projects {
+		if strings.TrimSpace(name) == "" {
+			return TitleHint{}, errors.New("titlehint.projects: project names must not be empty")
+		}
+		if !filepath.IsAbs(repo) {
+			return TitleHint{}, fmt.Errorf("titlehint.projects.%q: repo path must be absolute", name)
+		}
+		hint.Projects[name] = repo
+	}
+	return hint, nil
 }
 
 func parseDuration(key, value string, fallback time.Duration) (time.Duration, error) {

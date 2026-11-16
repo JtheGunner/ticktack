@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
+	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -83,6 +85,9 @@ type doctorDeps struct {
 	HTTP       *http.Client
 	OpenStore  func(path string) (eventReader, error)
 	LookPath   func(file string) (string, error)
+	// TitleSource builds the window title source used to probe the
+	// Accessibility permission.
+	TitleSource func() title.Source
 }
 
 func defaultDoctorDeps() doctorDeps {
@@ -111,7 +116,8 @@ func defaultDoctorDeps() doctorDeps {
 			}
 			return st, nil
 		},
-		LookPath: exec.LookPath,
+		LookPath:    exec.LookPath,
+		TitleSource: title.NewSource,
 	}
 }
 
@@ -137,6 +143,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkReachable,
 		checkDB,
 		checkTools,
+		checkTitleHint,
 	}
 	failed := 0
 	for _, check := range checks {
@@ -346,4 +353,32 @@ func checkTools(_ context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckTools, fmt.Sprintf(msgToolsMissing, strings.Join(missing, ", ")), msgToolsFix)
 	}
 	return okResult(msgCheckTools, msgToolsOK)
+}
+
+// titleProbeTimeout bounds the single title read of the doctor check.
+const titleProbeTimeout = 3 * time.Second
+
+// checkTitleHint is skipped unless the title hint feature is enabled. When it
+// is, it performs one title read to learn whether the permission is present.
+// The title that was read is discarded without being inspected.
+func checkTitleHint(ctx context.Context, deps doctorDeps) checkResult {
+	cfg, _, err := loadConfig(deps)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return skipResult(msgCheckTitleHint, msgTitleConfigBad)
+	}
+	if !cfg.TitleHint.Enabled {
+		return skipResult(msgCheckTitleHint, msgTitleDisabled)
+	}
+	if deps.GOOS != "darwin" {
+		return skipResult(msgCheckTitleHint, msgTitleNotMac)
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, titleProbeTimeout)
+	defer cancel()
+	if _, err := deps.TitleSource().Frontmost(probeCtx); err != nil {
+		if errors.Is(err, title.ErrPermission) {
+			return failResult(msgCheckTitleHint, msgTitleDenied, msgTitleDeniedFix)
+		}
+		return failResult(msgCheckTitleHint, fmt.Sprintf(msgTitleReadFail, err), msgTitleReadFix)
+	}
+	return okResult(msgCheckTitleHint, msgTitleOK)
 }
