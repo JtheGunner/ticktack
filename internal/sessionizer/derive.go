@@ -123,7 +123,10 @@ type Block struct {
 // Duration returns the block length.
 func (b Block) Duration() time.Duration { return b.End.Sub(b.Start) }
 
-const noContextReason = "no context signal"
+const (
+	noContextReason = "no context signal"
+	minBlockReason  = "block shorter than minimum duration"
+)
 
 // Derive builds the time blocks for the given events, overrides and rules.
 // The result is sorted by start time and never contains a block with
@@ -210,7 +213,9 @@ func presenceSpans(sorted []event.Event, cfg Config) []interval {
 const ManualSource = "manual"
 
 type contextStep struct {
-	at     time.Time
+	at time.Time
+	// event is the context event that created the step.
+	event  event.Event
 	signal resolver.ContextSignal
 	// manualTicket is set while a manual switch is in effect.
 	manualTicket string
@@ -243,7 +248,7 @@ func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSigna
 		}
 		if e.Source == ManualSource {
 			manualTicket = strings.ToUpper(strings.TrimSpace(e.Ticket))
-			steps = append(steps, contextStep{at: e.At, signal: latestAuto, manualTicket: manualTicket})
+			steps = append(steps, contextStep{at: e.At, event: e, signal: latestAuto, manualTicket: manualTicket})
 			continue
 		}
 		if e.Repo == "" && e.Branch == "" && e.Ticket == "" {
@@ -253,7 +258,7 @@ func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSigna
 		}
 		latestAuto = resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}
 		if manualTicket == "" {
-			steps = append(steps, contextStep{at: e.At, signal: latestAuto})
+			steps = append(steps, contextStep{at: e.At, event: e, signal: latestAuto})
 		}
 	}
 	return steps, latestAuto
@@ -375,7 +380,7 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
-			blocks[i].Reason = "block shorter than minimum duration"
+			blocks[i].Reason = minBlockReason
 		}
 	}
 	return blocks

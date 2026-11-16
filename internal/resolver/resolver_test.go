@@ -146,3 +146,36 @@ func TestResolveConfigRuleBeatsLearnedRule(t *testing.T) {
 		t.Fatalf("explicit branch must beat learned: %+v", got)
 	}
 }
+
+func TestDecideAgreesWithResolve(t *testing.T) {
+	rules := Rules{
+		Repos:   []RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}, {Repo: "/cfg/deep", Ticket: "CFG-2"}},
+		Learned: []LearnedRule{{ID: 1, Repo: "/l", Branch: "dev", Ticket: "LRN-1"}, {ID: 2, Repo: "/l", Ticket: "LRN-2"}, {ID: 3, Ticket: "ALL-1"}},
+	}
+	tests := []struct {
+		name   string
+		signal ContextSignal
+		kind   RuleKind
+		id     int64
+	}{
+		{"event ticket", ContextSignal{Repo: "/cfg", Ticket: "evt-9"}, RuleEventTicket, 0},
+		{"branch ticket", ContextSignal{Repo: "/cfg", Branch: "ABC-3-x"}, RuleBranchTicket, 0},
+		{"config rule longest prefix", ContextSignal{Repo: "/cfg/deep/sub", Branch: "main"}, RuleRepo, 0},
+		{"config rule shorter prefix", ContextSignal{Repo: "/cfg/other", Branch: "main"}, RuleRepo, 0},
+		{"learned branch specific", ContextSignal{Repo: "/l", Branch: "dev"}, RuleLearned, 1},
+		{"learned repo only", ContextSignal{Repo: "/l", Branch: "main"}, RuleLearned, 2},
+		{"empty learned rule ignored", ContextSignal{Repo: "/none", Branch: "main"}, RuleNone, 0},
+		{"unknown", ContextSignal{}, RuleNone, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Decide(tc.signal, rules)
+			if d.Attribution != Resolve(tc.signal, rules) {
+				t.Fatalf("Decide %+v != Resolve %+v", d.Attribution, Resolve(tc.signal, rules))
+			}
+			if d.Rule != tc.kind || d.LearnedID != tc.id {
+				t.Fatalf("rule = %v id %d, want %v id %d", d.Rule, d.LearnedID, tc.kind, tc.id)
+			}
+		})
+	}
+}
