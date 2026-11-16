@@ -33,17 +33,27 @@ func layoutWidth(width int) int {
 	}
 }
 
-// ansiLen returns the length of the ANSI colour sequence (ESC [ ... m) at the
-// start of s, or 0 when s does not start with one.
+// ansiLen returns the length of the ANSI control sequence (CSI: ESC [,
+// parameter bytes, intermediate bytes, one final byte) at the start of s, or 0
+// when s does not start with one. An unterminated sequence extends to the end
+// of s. Other escape sequences are not recognised; text rendered here is
+// sanitised first, which removes every ESC byte, so only sequences this
+// package writes itself reach the width helpers.
 func ansiLen(s string) int {
 	if len(s) < 2 || s[0] != 0x1b || s[1] != '[' {
 		return 0
 	}
-	end := strings.IndexByte(s, 'm')
-	if end < 0 {
-		return len(s)
+	i := 2
+	for i < len(s) && s[i] >= 0x30 && s[i] <= 0x3f {
+		i++
 	}
-	return end + 1
+	for i < len(s) && s[i] >= 0x20 && s[i] <= 0x2f {
+		i++
+	}
+	if i < len(s) && s[i] >= 0x40 && s[i] <= 0x7e {
+		return i + 1
+	}
+	return len(s)
 }
 
 // cells measures text in terminal cells. East Asian ambiguous-width

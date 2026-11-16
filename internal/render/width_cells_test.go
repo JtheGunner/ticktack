@@ -100,3 +100,33 @@ func TestTableAlignsColumnsByCells(t *testing.T) {
 		t.Errorf("State column starts at cells %v, want one position\n%s", starts, strings.Join(lines, "\n"))
 	}
 }
+
+func TestAnsiLenRecognisesControlSequences(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"colour", "\x1b[32mtext", 5},
+		{"256 colour", "\x1b[38;5;196mX", 11},
+		{"reset", "\x1b[0m", 4},
+		{"erase line is not a colour", "\x1b[2Khi", 4},
+		{"private mode", "\x1b[?25lX", 6},
+		{"unterminated consumes the rest", "\x1b[3", 3},
+		{"plain text", "abc", 0},
+		{"lone escape is not a sequence", "\x1bM", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ansiLen(tt.in); got != tt.want {
+				t.Errorf("ansiLen(%q) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVisibleWidthIgnoresNonColourSequencesWithoutSwallowingText(t *testing.T) {
+	if got := visibleWidth("\x1b[2Kab m"); got != 4 {
+		t.Errorf("visibleWidth = %d, want 4", got)
+	}
+}
