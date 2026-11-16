@@ -11,7 +11,7 @@ It watches when you are at the keyboard and which repository and branch you work
 ![Go](https://img.shields.io/badge/go-1.27.3%2B-3776ab?style=flat-square&logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS-0ea5e9?style=flat-square&logo=apple&logoColor=white)
 ![Privacy](https://img.shields.io/badge/telemetry-none-8b5cf6?style=flat-square)
-![Status](https://img.shields.io/badge/status-pre--release-f59e0b?style=flat-square)
+[![Release](https://img.shields.io/github/v/release/JtheGunner/ticktack?style=flat-square&color=22c55e&label=release)](https://github.com/JtheGunner/ticktack/releases)
 
 </div>
 
