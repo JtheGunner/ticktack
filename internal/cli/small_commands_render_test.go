@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 // smallRenderers are the two modes every small command is checked in.
@@ -30,12 +32,19 @@ func smallRenderers() []struct {
 	}
 }
 
-// wantLine builds the expected gutter line for status s in renderer r with
-// its styling removed.
-func wantLine(r render.Renderer, s render.Status, text string) string {
-	plain := r
-	plain.Colors = render.Colors{}
-	return plain.Gutter(s, text) + "\n"
+// gutterGlyphs are the literal status symbols of the two renderer modes. They
+// are written out here on purpose: deriving them from Gutter would make the
+// expected value follow the code under test.
+var gutterGlyphs = map[bool]map[render.Status]string{
+	false: {render.StatusInfo: "i", render.StatusOK: "+", render.StatusWarn: "!", render.StatusFail: "x", render.StatusSkip: "-", render.StatusGo: ">"},
+	true:  {render.StatusInfo: "ℹ", render.StatusOK: "✓", render.StatusWarn: "⚠", render.StatusFail: "✗", render.StatusSkip: "–", render.StatusGo: "→"},
+}
+
+// wantLine is the expected gutter line for status s, styling removed: two
+// spaces, the status symbol, two spaces, the text. colour selects the Unicode
+// symbols of the colour mode over the ASCII ones of the plain mode.
+func wantLine(colour bool, s render.Status, text string) string {
+	return "  " + gutterGlyphs[colour][s] + "  " + text + "\n"
 }
 
 // assertSmallOutput checks that out reads as want once styling is removed and
@@ -58,12 +67,12 @@ func TestPauseResumeOutput(t *testing.T) {
 			if err := runPause(deps); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusWarn, msgPaused), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusWarn, msgPaused), m.colour)
 			out.Reset()
 			if err := runResume(deps); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusOK, msgResumed), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgResumed), m.colour)
 		})
 	}
 }
@@ -77,7 +86,7 @@ func TestPurgeOutput(t *testing.T) {
 			if err := runPurge(ctx, deps, true); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusOK, msgPurged), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgPurged), m.colour)
 		})
 		t.Run(m.name+"/aborted keeps the prompt text", func(t *testing.T) {
 			deps, _, out := newDailyEnv(t, "n\n")
@@ -85,7 +94,7 @@ func TestPurgeOutput(t *testing.T) {
 			if err := runPurge(ctx, deps, false); err != nil {
 				t.Fatal(err)
 			}
-			want := msgPurgePrompt + wantLine(m.r, render.StatusInfo, msgPurgeAborted)
+			want := msgPurgePrompt + wantLine(m.colour, render.StatusInfo, msgPurgeAborted)
 			assertSmallOutput(t, out.String(), want, m.colour)
 			if !strings.HasPrefix(out.String(), msgPurgePrompt) {
 				t.Errorf("prompt is not printed verbatim and unstyled: %q", out)
@@ -122,7 +131,7 @@ func TestSwitchOutput(t *testing.T) {
 			if err := runSwitch(ctx, deps, []string{"proj-12"}, false); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusOK, msgSwitched("PROJ-12")), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgSwitched("PROJ-12")), m.colour)
 		})
 		t.Run(m.name+"/cleared", func(t *testing.T) {
 			deps, _, out := newDailyEnv(t, "")
@@ -130,7 +139,7 @@ func TestSwitchOutput(t *testing.T) {
 			if err := runSwitch(ctx, deps, []string{"auto"}, false); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusInfo, msgSwitchCleared), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusInfo, msgSwitchCleared), m.colour)
 		})
 	}
 }
@@ -179,7 +188,7 @@ func TestUndoOutput(t *testing.T) {
 			if err := runUndo(ctx, &out, deps); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusInfo, msgNothingToUndo), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusInfo, msgNothingToUndo), m.colour)
 		})
 		t.Run(m.name+"/counts", func(t *testing.T) {
 			deps, rec := syncTestDeps(t)
@@ -196,7 +205,7 @@ func TestUndoOutput(t *testing.T) {
 			if err := runUndo(ctx, &out, deps); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.r, render.StatusOK, msgUndoResult(1, 0, 0)), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgUndoResult(1, 0, 0)), m.colour)
 		})
 	}
 }
@@ -208,5 +217,49 @@ func TestUndoCommandResolvesRenderer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSmallOutput(t, out, wantLine(unicodeColorRenderer(), render.StatusInfo, msgNothingToUndo), true)
+	assertSmallOutput(t, out, wantLine(true, render.StatusInfo, msgNothingToUndo), true)
+}
+
+// failingDeleteSink wraps the recording sink and refuses every delete, as a
+// YouTrack outage during undo would.
+type failingDeleteSink struct {
+	*recordingSink
+	err error
+}
+
+func (f failingDeleteSink) Delete(context.Context, string) error { return f.err }
+
+func TestUndoFailureWarnsAndReturnsTheError(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("youtrack unreachable")
+	deps, rec := syncTestDeps(t)
+	confirmDay(t, deps)
+	var syncOut bytes.Buffer
+	if err := runSync(ctx, &syncOut, deps, "2026-01-05", false); err != nil {
+		t.Fatal(err)
+	}
+	deps.NewSink = func(config.Config, string) (sink.TimeSink, error) {
+		return failingDeleteSink{recordingSink: rec, err: boom}, nil
+	}
+	for _, m := range smallRenderers() {
+		t.Run(m.name, func(t *testing.T) {
+			deps.Render = m.r
+			var out bytes.Buffer
+			err := runUndo(ctx, &out, deps)
+			if !errors.Is(err, boom) {
+				t.Fatalf("error = %v, want it to wrap %v", err, boom)
+			}
+			want := "  ! "
+			if m.colour {
+				want = "  ⚠ "
+			}
+			want += " Deleted 0, restored 0, forgotten 0.\n"
+			if got := stripANSI(out.String()); got != want {
+				t.Errorf("output = %q, want %q", got, want)
+			}
+			if has := countESC(out.String()) > 0; has != m.colour {
+				t.Errorf("ESC present = %v, want %v: %q", has, m.colour, out.String())
+			}
+		})
+	}
 }
