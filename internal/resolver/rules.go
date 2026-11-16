@@ -17,6 +17,9 @@ type RepoRule struct {
 // is ignored. Branch is compared for equality, like config rules compare repo
 // paths exactly on a path boundary. It is filled by learning from corrections.
 type LearnedRule struct {
+	// ID is the store identifier, used only to name the rule in explanations;
+	// zero when unknown. It never influences matching.
+	ID     int64
 	Repo   string
 	Branch string
 	Ticket string

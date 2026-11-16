@@ -7,6 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -38,27 +41,17 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	if err != nil {
 		return err
 	}
-	end := time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, loc)
-
 	st, err := deps.OpenStore()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	events, err := st.Events(ctx, start, end)
+	derived, err := deriveDay(ctx, st, cfg, start)
 	if err != nil {
 		return err
 	}
-	overrides, err := st.Overrides(ctx, start, end)
-	if err != nil {
-		return err
-	}
-	rules, err := resolverRules(ctx, st, cfg)
-	if err != nil {
-		return err
-	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
+	blocks := derived.Blocks
 	label := start.Format(dayLayout)
 	if len(blocks) == 0 {
 		_, err = fmt.Fprintf(deps.Out, msgNoBlocks+"\n", label)
@@ -67,8 +60,8 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 
 	out := deps.Out
 	_, _ = fmt.Fprintf(out, "Blocks for %s:\n", label)
-	for _, b := range blocks {
-		_, _ = fmt.Fprintf(out, "  %s-%s  %-12s %-9s %s\n",
+	for i, b := range blocks {
+		_, _ = fmt.Fprintf(out, "  %2d. %s-%s  %-12s %-9s %s\n", i+1,
 			b.Start.In(loc).Format("15:04"), b.End.In(loc).Format("15:04"),
 			SanitizeForTerminal(ticketLabel(b.Ticket)), b.Tier, SanitizeForTerminal(b.Reason))
 	}
@@ -113,4 +106,33 @@ func overCapNote(overCap bool, dailyCap time.Duration) string {
 		return ""
 	}
 	return fmt.Sprintf("  OVER DAILY CAP (%s)", dailyCap)
+}
+
+// derivedDay is the input and result of deriving one local day.
+type derivedDay struct {
+	Events    []event.Event
+	Overrides []event.Override
+	Rules     resolver.Rules
+	Blocks    []sessionizer.Block
+}
+
+// deriveDay loads the events, overrides and rules of the local day starting at
+// start and derives its blocks. Block numbers (1-based) are indexes into
+// Blocks, so today and explain agree.
+func deriveDay(ctx context.Context, st dailyStore, cfg config.Config, start time.Time) (derivedDay, error) {
+	end := time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, cfg.Location)
+	events, err := st.Events(ctx, start, end)
+	if err != nil {
+		return derivedDay{}, err
+	}
+	overrides, err := st.Overrides(ctx, start, end)
+	if err != nil {
+		return derivedDay{}, err
+	}
+	rules, err := resolverRules(ctx, st, cfg)
+	if err != nil {
+		return derivedDay{}, err
+	}
+	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
+	return derivedDay{Events: events, Overrides: overrides, Rules: rules, Blocks: blocks}, nil
 }
