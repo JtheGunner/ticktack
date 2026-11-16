@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Advisory docs-drift check on pull requests: annotations for README sections whose code changed (`.github/workflows/docs-drift.yml`, `.docdrift.yaml`). It never fails the build.
+
 ## [0.1.0] - 2026-11-16
 
 First public release.
