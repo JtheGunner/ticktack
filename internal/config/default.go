@@ -29,7 +29,7 @@ func DefaultTOML(youTrackURL string) string {
 	fmt.Fprintf(&b, "# daily_cap = %q\n\n", DefaultDailyCap.String())
 	b.WriteString("# Regular expression that extracts a ticket id from a branch name.\n")
 	fmt.Fprintf(&b, "# ticket_pattern = %s\n\n", strconv.Quote(DefaultTicketPattern))
-	b.WriteString("# Repositories scanned for git history.\n# repo_paths = [\"~/Projects\"]\n\n")
+	b.WriteString("# Reserved, currently not used: accepted and validated, but nothing reads it yet.\n# repo_paths = [\"~/Projects\"]\n\n")
 	b.WriteString("# Time zone for day boundaries (default: system zone).\n# time_zone = \"Europe/Zurich\"\n\n")
 	b.WriteString("# Optional window-title hints (off by default). Needs the macOS Accessibility\n")
 	b.WriteString("# permission; titles are read in memory and never stored. Maps an IDE project\n")

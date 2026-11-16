@@ -1,0 +1,62 @@
+version: 2
+
+project_name: ticktack
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: ticktack
+    main: ./cmd/ticktack
+    binary: ticktack
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - arm64
+      - amd64
+    ldflags:
+      - -s -w -X github.com/JtheGunner/ticktack/internal/cli.Version={{ .Version }}
+
+archives:
+  - id: ticktack
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - examples/config.toml
+
+checksum:
+  name_template: checksums.txt
+
+# Release notes are maintained by hand in CHANGELOG.md.
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: JtheGunner
+    name: ticktack
+
+# GoReleaser v2 deprecates the brews key in favour of homebrew_casks. The tap
+# publishes a Formula (not a Cask), so brews is kept on purpose.
+brews:
+  - name: ticktack
+    ids:
+      - ticktack
+    homepage: https://github.com/JtheGunner/ticktack
+    description: Passive time tracker that turns git, shell and presence signals into reviewed YouTrack work items
+    license: MIT
+    directory: Formula
+    repository:
+      owner: JtheGunner
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    test: |
+      assert_match "ticktack", shell_output("#{bin}/ticktack version")
