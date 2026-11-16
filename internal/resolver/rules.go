@@ -13,8 +13,9 @@ type RepoRule struct {
 }
 
 // LearnedRule maps a repository (path prefix) and optionally a branch to a
-// ticket. Empty Repo or Branch match anything. It is filled by learning from
-// corrections.
+// ticket. An empty Repo or Branch matches anything, but a rule with both empty
+// is ignored. Branch is compared for equality, like config rules compare repo
+// paths exactly on a path boundary. It is filled by learning from corrections.
 type LearnedRule struct {
 	Repo   string
 	Branch string
@@ -77,6 +78,9 @@ func matchLearned(rules []LearnedRule, repo, branch string) (LearnedRule, bool) 
 	var best LearnedRule
 	found := false
 	for _, r := range rules {
+		if r.Repo == "" && r.Branch == "" {
+			continue // would match everything
+		}
 		if r.Repo != "" && !repoMatches(r.Repo, repo) {
 			continue
 		}

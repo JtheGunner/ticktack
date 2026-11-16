@@ -182,14 +182,14 @@ func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Over
 	return out, nil
 }
 
-// Purge deletes all events, overrides and ledger rows in one transaction.
+// Purge deletes all events, overrides, learned rules and ledger rows in one transaction.
 func (s *Store) Purge(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin purge: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, table := range []string{"events", "overrides", "ledger", "sync_entries", "sync_runs", "confirmations", "cap_acknowledgements"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_entries", "sync_runs", "confirmations", "cap_acknowledgements", "learned_rules"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("purge %s: %w", table, err)
 		}

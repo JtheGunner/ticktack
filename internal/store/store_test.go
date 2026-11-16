@@ -113,6 +113,10 @@ func TestEventsAreImmutable(t *testing.T) {
 		// own tables and never touches events.
 		"Confirm": true, "Confirmations": true,
 		"AcknowledgeCap": true, "CapAcknowledgementFor": true,
+		// Learned rules are visible, editable rows in their own table; the
+		// map command edits them. They never touch events.
+		"AddLearnedRule": true, "LearnedRules": true,
+		"UpdateLearnedRule": true, "DeleteLearnedRule": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -181,10 +185,13 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	if err := s.AcknowledgeCap(ctx, CapAcknowledgement{Day: "2026-01-06", TotalMinutes: 700, AcknowledgedAt: base}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.AddLearnedRule(ctx, LearnedRule{Repo: "/work/app", Ticket: "TICKT-1", CreatedAt: base}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Purge(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements"} {
+	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements", "learned_rules"} {
 		var n int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatal(err)

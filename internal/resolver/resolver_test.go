@@ -123,3 +123,26 @@ func TestResolveIsDeterministic(t *testing.T) {
 		t.Errorf("order-dependent: %+v != %+v", got, first)
 	}
 }
+
+func TestResolveIgnoresLearnedRuleThatMatchesEverything(t *testing.T) {
+	rules := Rules{Learned: []LearnedRule{{Ticket: "ALL-1"}}}
+	got := Resolve(ContextSignal{Repo: "/a", Branch: "dev"}, rules)
+	if got.Tier != TierUnknown {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestResolveConfigRuleBeatsLearnedRule(t *testing.T) {
+	rules := Rules{
+		Repos:   []RepoRule{{Repo: "/a", Ticket: "CFG-1"}},
+		Learned: []LearnedRule{{Repo: "/a", Branch: "dev", Ticket: "LRN-1"}},
+	}
+	got := Resolve(ContextSignal{Repo: "/a", Branch: "dev"}, rules)
+	if got.Ticket != "CFG-1" || got.Tier != TierRule {
+		t.Fatalf("got %+v", got)
+	}
+	got = Resolve(ContextSignal{Repo: "/a", Branch: "ABC-5-x"}, Rules{Learned: rules.Learned, TicketPattern: nil})
+	if got.Tier != TierExplicit {
+		t.Fatalf("explicit branch must beat learned: %+v", got)
+	}
+}

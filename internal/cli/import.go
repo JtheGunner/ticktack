@@ -121,7 +121,8 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 		}
 	}
 	if collectErr != nil {
-		return fmt.Errorf(msgImportPartial, collectErr)
+		// The error carries server-supplied text such as bucket ids.
+		return fmt.Errorf(msgImportPartial, SanitizeForTerminal(collectErr.Error()))
 	}
 	return nil
 }

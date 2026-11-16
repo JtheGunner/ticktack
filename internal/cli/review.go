@@ -27,6 +27,9 @@ type reviewDeps struct {
 	OpenStore  func() (reviewStore, error)
 	LoadConfig func() (config.Config, error)
 	Now        func() time.Time
+	// NewIssueSource builds the source of ticket suggestions. It is optional;
+	// an error (no URL, no token) just means the review shows no suggestions.
+	NewIssueSource func(cfg config.Config) (review.IssueSource, error)
 	// In supplies the scripted or interactive answers, one action per line.
 	In  io.Reader
 	Out io.Writer
@@ -48,9 +51,10 @@ func defaultReviewDeps(cmd *cobra.Command) reviewDeps {
 			}
 			return config.LoadOrDefault(path)
 		},
-		Now: func() time.Time { return time.Now().Round(0) },
-		In:  cmd.InOrStdin(),
-		Out: cmd.OutOrStdout(),
+		Now:            func() time.Time { return time.Now().Round(0) },
+		NewIssueSource: newIssueSource,
+		In:             cmd.InOrStdin(),
+		Out:            cmd.OutOrStdout(),
 	}
 }
 
@@ -91,7 +95,14 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	session, err := review.NewSession(ctx, st, cfg, day, deps.Now)
+	var opts []review.Option
+	if deps.NewIssueSource != nil {
+		// Suggestions are a convenience: any failure to set them up is ignored.
+		if src, err := deps.NewIssueSource(cfg); err == nil && src != nil {
+			opts = append(opts, review.WithIssueSource(src))
+		}
+	}
+	session, err := review.NewSession(ctx, st, cfg, day, deps.Now, opts...)
 	if err != nil {
 		return err
 	}
@@ -153,11 +164,49 @@ func (r *reviewRun) show() {
 	r.println(msgReviewHeader(r.day.String()))
 	for _, e := range entries {
 		r.println(msgReviewEntry(e, r.loc))
+		r.showSuggestions(e)
 	}
 	if w := r.s.CapWarning(); w != nil {
 		r.println(msgReviewCapWarning(*w))
 	}
 	r.println(msgReviewHelp)
+}
+
+func (r *reviewRun) showSuggestions(e review.Entry) {
+	if e.Kind != review.KindGap {
+		return
+	}
+	list, err := r.s.Suggestions(r.ctx, e.Index)
+	if err != nil || len(list) == 0 {
+		return
+	}
+	r.println(msgReviewSuggestionsHeader(e.Index))
+	for i, c := range list {
+		r.println(msgReviewSuggestion(i+1, c))
+	}
+}
+
+func (r *reviewRun) offerRemember() {
+	if offer, ok := r.s.Remembering(); ok {
+		r.println(msgReviewRememberOffer(offer))
+	}
+}
+
+func (r *reviewRun) remember(args []string) error {
+	wholeRepo := false
+	switch {
+	case len(args) == 1 && args[0] == "repo":
+		wholeRepo = true
+	case len(args) > 0:
+		r.println(msgReviewUsage("r [repo]"))
+		return nil
+	}
+	rule, err := r.s.Remember(r.ctx, wholeRepo)
+	if err != nil {
+		return err
+	}
+	r.println(msgReviewRemembered(rule))
+	return nil
 }
 
 func (r *reviewRun) finish() {
@@ -191,7 +240,10 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 		}
 		r.printf(msgReviewConfirmAll+"\n", n)
 		return true, nil
-	case "c", "d", "b", "t", "s":
+	case "r":
+		err := r.remember(args)
+		return err == nil, err
+	case "c", "d", "b", "t", "s", "u":
 		return r.entryAction(cmd, args)
 	}
 	r.println(msgReviewUnknownCommand(strings.Join(f, " ")))
@@ -200,11 +252,11 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 
 func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 	usage := map[string]string{
-		"c": "c N", "d": "d N", "b": "b N", "t": "t N PROJ-12", "s": "s N HH:MM [PROJ-12]",
+		"c": "c N", "d": "d N", "b": "b N", "t": "t N PROJ-12", "s": "s N HH:MM [PROJ-12]", "u": "u N K",
 	}[cmd]
 	min, max := 1, 1
 	switch cmd {
-	case "t":
+	case "t", "u":
 		min, max = 2, 2
 	case "s":
 		min, max = 2, 3
@@ -232,11 +284,30 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 	case "t":
 		if err = r.s.Reassign(r.ctx, n, args[1]); err == nil {
 			r.printf(msgReviewReassigned+"\n", n, strings.ToUpper(args[1]))
+			r.offerRemember()
 		}
+	case "u":
+		err = r.useSuggestion(n, args[1])
 	case "s":
 		err = r.split(n, args[1:])
 	}
 	return err == nil, err
+}
+
+func (r *reviewRun) useSuggestion(n int, rawK string) error {
+	k, err := strconv.Atoi(rawK)
+	if err != nil {
+		r.println(msgReviewUsage("u N K"))
+		return nil
+	}
+	ticket, err := r.s.ReassignSuggestion(r.ctx, n, k)
+	if err != nil {
+		return err
+	}
+	r.printf(msgReviewReassigned+"\n", n, ticket)
+	r.println(msgReviewSuggestionNeedsConfirm)
+	r.offerRemember()
+	return nil
 }
 
 func (r *reviewRun) confirm(n int) error {

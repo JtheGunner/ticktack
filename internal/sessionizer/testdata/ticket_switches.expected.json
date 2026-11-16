@@ -5,7 +5,8 @@
     "Ticket": "APP-2",
     "Tier": "explicit",
     "Reason": "ticket APP-2 found in branch \"feat/APP-2-login\"",
-    "Repo": "/work/example-app"
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-2-login"
   },
   {
     "Start": "2026-03-02T08:10:00Z",
@@ -13,7 +14,8 @@
     "Ticket": "OPS-7",
     "Tier": "explicit",
     "Reason": "manual override",
-    "Repo": ""
+    "Repo": "",
+    "Branch": ""
   },
   {
     "Start": "2026-03-02T08:20:00Z",
@@ -21,7 +23,8 @@
     "Ticket": "APP-2",
     "Tier": "explicit",
     "Reason": "ticket APP-2 found in branch \"feat/APP-2-login\"",
-    "Repo": "/work/example-app"
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-2-login"
   },
   {
     "Start": "2026-03-02T08:30:00Z",
@@ -29,7 +32,8 @@
     "Ticket": "APP-3",
     "Tier": "explicit",
     "Reason": "ticket APP-3 found in branch \"feat/APP-3-api\"",
-    "Repo": "/work/example-app"
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-3-api"
   },
   {
     "Start": "2026-03-02T09:00:00Z",
@@ -37,7 +41,8 @@
     "Ticket": "",
     "Tier": "unknown",
     "Reason": "no ticket in branch and no rule for repo",
-    "Repo": "/work/other"
+    "Repo": "/work/other",
+    "Branch": "main"
   },
   {
     "Start": "2026-03-02T09:15:00Z",
@@ -45,7 +50,8 @@
     "Ticket": "APP-1",
     "Tier": "rule",
     "Reason": "repo rule for /work/example-app",
-    "Repo": "/work/example-app"
+    "Repo": "/work/example-app",
+    "Branch": "main"
   },
   {
     "Start": "2026-03-02T09:25:00Z",
@@ -53,6 +59,7 @@
     "Ticket": "APP-1",
     "Tier": "rule",
     "Reason": "repo rule for /work/example-app",
-    "Repo": "/work/example-app"
+    "Repo": "/work/example-app",
+    "Branch": "main"
   }
 ]

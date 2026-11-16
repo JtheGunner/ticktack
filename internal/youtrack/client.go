@@ -51,6 +51,8 @@ type WorkItemType struct {
 type Issue struct {
 	ID      string `json:"idReadable"`
 	Summary string `json:"summary"`
+	// Updated is the last update time in milliseconds since the Unix epoch.
+	Updated int64 `json:"updated"`
 }
 
 // Option configures a Client.
@@ -317,7 +319,7 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 func (c *Client) MyOpenIssues(ctx context.Context) ([]Issue, error) {
 	q := url.Values{
 		"query":  {"for: me State: {In Progress}"},
-		"fields": {"idReadable,summary"},
+		"fields": {"idReadable,summary,updated"},
 		"$top":   {strconv.Itoa(issuesPageSize)},
 	}
 	var issues []Issue

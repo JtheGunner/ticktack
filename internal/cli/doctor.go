@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/collector/activitywatch"
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
+	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -87,6 +89,9 @@ type doctorDeps struct {
 	// NewActivityWatch builds the bucket lister for the optional ActivityWatch
 	// check; tests inject a client bound to an httptest server.
 	NewActivityWatch func(url string) (bucketLister, error)
+	// TitleSource builds the window title source used to probe the
+	// Accessibility permission.
+	TitleSource func() title.Source
 }
 
 // bucketLister is the part of the ActivityWatch client the doctor needs.
@@ -120,7 +125,8 @@ func defaultDoctorDeps() doctorDeps {
 			}
 			return st, nil
 		},
-		LookPath: exec.LookPath,
+		LookPath:    exec.LookPath,
+		TitleSource: title.NewSource,
 		NewActivityWatch: func(url string) (bucketLister, error) {
 			return activitywatch.New(url)
 		},
@@ -150,6 +156,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkDB,
 		checkTools,
 		checkActivityWatch,
+		checkTitleHint,
 	}
 	failed := 0
 	for _, check := range checks {
@@ -175,9 +182,9 @@ func printResult(out io.Writer, res checkResult) {
 	case statusSkip:
 		label = msgStatusSkip
 	}
-	_, _ = fmt.Fprintf(out, "%s %s: %s\n", label, res.Name, res.Detail)
+	_, _ = fmt.Fprintf(out, "%s %s: %s\n", label, res.Name, SanitizeForTerminal(res.Detail))
 	if res.Status == statusFail && res.Hint != "" {
-		_, _ = fmt.Fprintln(out, msgFixPrefix+res.Hint)
+		_, _ = fmt.Fprintln(out, msgFixPrefix+SanitizeForTerminal(res.Hint))
 	}
 }
 
@@ -382,4 +389,32 @@ func checkActivityWatch(ctx context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckActivityWatch, fmt.Sprintf(msgAWNoBuckets, aw.URL), msgAWNoBucketsFix)
 	}
 	return okResult(msgCheckActivityWatch, fmt.Sprintf(msgAWOK, aw.URL, len(afk)+len(window)))
+}
+
+// titleProbeTimeout bounds the single title read of the doctor check.
+const titleProbeTimeout = 3 * time.Second
+
+// checkTitleHint is skipped unless the title hint feature is enabled. When it
+// is, it performs one title read to learn whether the permission is present.
+// The title that was read is discarded without being inspected.
+func checkTitleHint(ctx context.Context, deps doctorDeps) checkResult {
+	cfg, _, err := loadConfig(deps)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return skipResult(msgCheckTitleHint, msgTitleConfigBad)
+	}
+	if !cfg.TitleHint.Enabled {
+		return skipResult(msgCheckTitleHint, msgTitleDisabled)
+	}
+	if deps.GOOS != "darwin" {
+		return skipResult(msgCheckTitleHint, msgTitleNotMac)
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, titleProbeTimeout)
+	defer cancel()
+	if _, err := deps.TitleSource().Frontmost(probeCtx); err != nil {
+		if errors.Is(err, title.ErrPermission) {
+			return failResult(msgCheckTitleHint, msgTitleDenied, msgTitleDeniedFix)
+		}
+		return failResult(msgCheckTitleHint, fmt.Sprintf(msgTitleReadFail, err), msgTitleReadFix)
+	}
+	return okResult(msgCheckTitleHint, msgTitleOK)
 }

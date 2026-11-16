@@ -115,6 +115,9 @@ type Block struct {
 	// Repo is the repository of the context the block was derived from; it
 	// is empty for override blocks and when no context existed.
 	Repo string
+	// Branch is the branch of that context, empty under the same conditions
+	// as Repo. Blocks on different branches are never merged.
+	Branch string
 }
 
 // Duration returns the block length.
@@ -318,11 +321,11 @@ func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rul
 	}
 	step := steps[n-1]
 	a := step.attribution(rules)
-	return Block{Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Repo: step.signal.Repo}
+	return Block{Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Repo: step.signal.Repo, Branch: step.signal.Branch}
 }
 
 func sameAttribution(a, b Block) bool {
-	return a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason && a.Repo == b.Repo
+	return a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason && a.Repo == b.Repo && a.Branch == b.Branch
 }
 
 // mergeTouching joins neighbours that touch and carry the same attribution.

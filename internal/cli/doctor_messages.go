@@ -60,6 +60,16 @@ const (
 	msgToolsFix     = "ticktack needs the macOS system tools ioreg and lsappinfo; check that /usr/sbin and /usr/bin are in PATH"
 	msgToolsNotMac  = "macOS-only"
 
+	msgCheckTitleHint = "window title hints"
+	msgTitleOK        = "permission present (titles are read in memory and never stored)"
+	msgTitleDisabled  = "disabled (set enabled = true under [titlehint] to turn on)"
+	msgTitleNotMac    = "macOS-only"
+	msgTitleConfigBad = "skipped because the config cannot be read (see the config check)"
+	msgTitleDenied    = "macOS denied reading window titles"
+	msgTitleDeniedFix = "grant Accessibility and Automation (System Events) permission to the terminal or the ticktack binary in System Settings > Privacy & Security, or set enabled = false under [titlehint]"
+	msgTitleReadFail  = "reading the frontmost window failed: %v"
+	msgTitleReadFix   = "check that /usr/bin/osascript works, or set enabled = false under [titlehint]"
+
 	msgStatusOK   = "OK  "
 	msgStatusFail = "FAIL"
 	msgStatusSkip = "SKIP"

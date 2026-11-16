@@ -224,3 +224,61 @@ func TestDoctorActivityWatchWithoutBucketsFails(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 }
+
+const escapeSequence = "\x1b]0;pwned\x07\x1b[31m"
+
+func hasControlRune(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\n' || r == 0x7f || r >= 0x80 && r < 0xa0 {
+			return true
+		}
+	}
+	return false
+}
+
+func maliciousAWServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/0/buckets/" {
+			bucket, _ := json.Marshal("aw-watcher-afk_" + escapeSequence)
+			_, _ = w.Write([]byte("{" + string(bucket) + ":{}}"))
+			return
+		}
+		http.Error(w, escapeSequence+"error text", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestImportErrorsCarryNoControlRunesFromTheServer(t *testing.T) {
+	deps, _, out := newDailyEnv(t, "")
+	enableActivityWatch(&deps)
+	srv := maliciousAWServer(t)
+	var called bool
+	err := runImportActivityWatch(context.Background(), deps, awSourceFor(srv, &called), "")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if hasControlRune(err.Error()) || hasControlRune(out.String()) {
+		t.Fatalf("control runes reached the terminal: %q / %q", err.Error(), out.String())
+	}
+	if !strings.Contains(err.Error(), "HTTP 500") {
+		t.Fatalf("error lost its meaning: %v", err)
+	}
+}
+
+func TestDoctorOutputCarriesNoControlRunesFromTheServer(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	srv := maliciousAWServer(t)
+	writeAWConfig(t, true, srv.URL)
+	doc := env.deps.Doctor
+	doc.NewActivityWatch = func(u string) (bucketLister, error) { return activitywatch.New(u) }
+	var out strings.Builder
+	_ = runDoctor(context.Background(), doc, &out)
+	if hasControlRune(strings.ReplaceAll(out.String(), "\n", "")) {
+		t.Fatalf("control runes in doctor output: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "activitywatch:") {
+		t.Fatalf("no activitywatch line:\n%s", out.String())
+	}
+}
