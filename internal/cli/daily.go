@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -47,6 +48,8 @@ type dailyDeps struct {
 	In io.Reader
 	// Out receives all regular output.
 	Out io.Writer
+	// Render styles the output; the zero value renders plain text.
+	Render render.Renderer
 }
 
 // defaultDailyDeps wires the real dependencies to the command's streams.
@@ -66,6 +69,7 @@ func defaultDailyDeps(cmd *cobra.Command) dailyDeps {
 		PausePath: paths.PausePath,
 		In:        cmd.InOrStdin(),
 		Out:       cmd.OutOrStdout(),
+		Render:    rendererFor(cmd, cmd.OutOrStdout()),
 	}
 }
 

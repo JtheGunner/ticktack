@@ -15,6 +15,7 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().Bool(noColorFlag, false, msgNoColorUsage)
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newAgentCommand())
 	root.AddCommand(newHookCommand())
