@@ -86,14 +86,17 @@ func tickets(items []sessionizer.DayItem) []string {
 	return out
 }
 
-func answer(yes bool, asked *[][]string) func([]string) (bool, error) {
-	return func(projects []string) (bool, error) {
+func answer(yes bool, asked *[][]string) func([]string) ([]string, error) {
+	return func(projects []string) ([]string, error) {
 		*asked = append(*asked, projects)
-		return yes, nil
+		if yes {
+			return projects, nil
+		}
+		return nil, nil
 	}
 }
 
-func provisionOpts(confirmFn func([]string) (bool, error)) ProvisionOptions {
+func provisionOpts(confirmFn func([]string) ([]string, error)) ProvisionOptions {
 	return ProvisionOptions{
 		Summary: "Meetings / Admin",
 		Confirm: confirmFn,
@@ -203,6 +206,45 @@ func TestProvisionDeclinedLeavesItemsUnbooked(t *testing.T) {
 	}
 	if confs, _ := st.Confirmations(ctx, provisionDay.String()); len(confs) != 1 || confs[0].Issue != "A:default" {
 		t.Errorf("confirmation changed on decline: %+v", confs)
+	}
+}
+
+func TestProvisionCreatesOnlyTheApprovedProjects(t *testing.T) {
+	st := provisionStore(t)
+	ctx := context.Background()
+	prov := &fakeProvisioner{nextKeys: map[string]string{"A": "A-1", "B": "B-1"}}
+	onlyB := func(projects []string) ([]string, error) { return []string{"B"}, nil }
+
+	got, report, err := Provision(ctx, []sessionizer.DayItem{item("A:default", 30), item("B:default", 30)}, prov, st, provisionOpts(onlyB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"B"}; !reflect.DeepEqual(prov.created, want) {
+		t.Errorf("created = %v, want %v", prov.created, want)
+	}
+	if want := []string{"B-1"}; !reflect.DeepEqual(tickets(got), want) {
+		t.Errorf("tickets = %v, want only the approved project's item", tickets(got))
+	}
+	if !reflect.DeepEqual(report.Declined, []string{"A"}) {
+		t.Errorf("Declined = %v, want [A]", report.Declined)
+	}
+}
+
+func TestProvisionReportsRewrittenAndDroppedTickets(t *testing.T) {
+	st := provisionStore(t)
+	ctx := context.Background()
+	prov := &fakeProvisioner{issues: map[string]string{"A": "A-7"}}
+	var asked [][]string
+
+	_, report, err := Provision(ctx, []sessionizer.DayItem{item("A:default", 30), item("B:default", 30)}, prov, st, provisionOpts(answer(false, &asked)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Rewritten["A:default"] != "A-7" {
+		t.Errorf("Rewritten = %v, want A:default → A-7", report.Rewritten)
+	}
+	if !reflect.DeepEqual(report.DroppedTickets, []string{"B:default"}) {
+		t.Errorf("DroppedTickets = %v, want [B:default]", report.DroppedTickets)
 	}
 }
 

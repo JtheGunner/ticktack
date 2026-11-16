@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +12,8 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/ledger"
+	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -161,6 +165,36 @@ func TestSyncUsesAnExistingStandardTaskWithoutAsking(t *testing.T) {
 	}
 	if _, ok := prov.items["GEN-5/1"]; !ok {
 		t.Errorf("time was not booked on GEN-5: %v", prov.items)
+	}
+}
+
+func TestProvisionOutputNeverEchoesControlCharactersOfProjectKeys(t *testing.T) {
+	deps, prov := standardTaskDeps(t)
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	cfg, _, _ := deps.LoadConfig()
+	evil := "EVIL\x1b[2J\x07"
+	items := []sessionizer.DayItem{{Ticket: evil + ":default", Type: "Development", Minutes: 30}}
+
+	for name, in := range map[string]io.Reader{"declined": strings.NewReader("n\n"), "approved": strings.NewReader("y\n")} {
+		out := &bytes.Buffer{}
+		if _, err := provisionStandardTasks(context.Background(), out, in, render.Renderer{}, cfg, st, prov, items, false); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if strings.ContainsAny(out.String(), "\x1b\x07") {
+			t.Errorf("%s: output contains control characters: %q", name, out.String())
+		}
+	}
+
+	out := &bytes.Buffer{}
+	if _, err := provisionStandardTasks(context.Background(), out, nil, render.Renderer{}, cfg, st, prov, items, true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out.String(), "\x1b\x07") {
+		t.Errorf("dry run: output contains control characters: %q", out.String())
 	}
 }
 

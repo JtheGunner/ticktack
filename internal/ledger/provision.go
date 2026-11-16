@@ -28,8 +28,8 @@ type ProvisionOptions struct {
 	// Summary is the title of every standard task that gets created.
 	Summary string
 	// Confirm is asked once, with the projects whose standard task would be
-	// created, and decides whether they are. Nil declines.
-	Confirm func(projects []string) (bool, error)
+	// created, and returns the ones that may be created. Nil declines all.
+	Confirm func(projects []string) (approved []string, err error)
 	// DryRun looks tasks up but creates nothing and writes nothing.
 	DryRun bool
 	// Now supplies the consent time.
@@ -51,6 +51,10 @@ type ProvisionReport struct {
 	Declined []string
 	// WouldCreate lists the projects a dry run found without a task.
 	WouldCreate []string
+	// Rewritten maps every ticket that was replaced to its real issue key.
+	Rewritten map[string]string
+	// DroppedTickets lists the tickets whose items were left out.
+	DroppedTickets []string
 }
 
 // Provision makes sure every standard task the items point at exists, and
@@ -138,19 +142,24 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 
 	dropped := map[string]bool{}
 	if len(missing) > 0 {
-		switch {
-		case o.DryRun:
+		if o.DryRun {
 			report.WouldCreate = missing
 			markDropped(dropped, missing)
-		case !confirmed(o.Confirm, missing):
-			report.Declined = missing
-			markDropped(dropped, missing)
-		default:
+		} else {
+			approved, err := approve(o.Confirm, missing)
+			if err != nil {
+				return nil, report, err
+			}
 			now := time.Now
 			if o.Now != nil {
 				now = o.Now
 			}
 			for _, project := range missing {
+				if !approved[project] {
+					report.Declined = append(report.Declined, project)
+					dropped[project] = true
+					continue
+				}
 				key, err := prov.CreateIssue(ctx, project, o.Summary, defaultIssueDescription())
 				if err != nil {
 					return nil, report, fmt.Errorf("create the standard task of %s: %w", project, err)
@@ -165,9 +174,15 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 		}
 	}
 
+	report.Rewritten = rewrite
 	out := make([]sessionizer.DayItem, 0, len(items))
+	droppedSeen := map[string]bool{}
 	for _, it := range items {
 		if project, isTask := projectOf[it.Ticket]; isTask && dropped[project] {
+			if !droppedSeen[it.Ticket] {
+				droppedSeen[it.Ticket] = true
+				report.DroppedTickets = append(report.DroppedTickets, it.Ticket)
+			}
 			continue
 		}
 		if key, ok := rewrite[it.Ticket]; ok {
@@ -184,13 +199,21 @@ func markDropped(dropped map[string]bool, projects []string) {
 	}
 }
 
-// confirmed asks confirm once; a missing or failing confirmation declines.
-func confirmed(confirm func([]string) (bool, error), projects []string) bool {
+// approve asks confirm once and returns the projects it approved. A missing
+// confirm approves nothing; an error from it stops the run.
+func approve(confirm func([]string) ([]string, error), projects []string) (map[string]bool, error) {
+	approved := map[string]bool{}
 	if confirm == nil {
-		return false
+		return approved, nil
 	}
-	ok, err := confirm(projects)
-	return err == nil && ok
+	list, err := confirm(projects)
+	if err != nil {
+		return nil, fmt.Errorf("confirm standard task creation: %w", err)
+	}
+	for _, p := range list {
+		approved[p] = true
+	}
+	return approved, nil
 }
 
 func defaultIssueDescription() string {

@@ -29,17 +29,19 @@ func provisionStandardTasks(ctx context.Context, out io.Writer, in io.Reader, r 
 	if !ok {
 		return dropPlaceholders(out, r, items), nil
 	}
-	confirm := func(projects []string) (bool, error) {
-		_, _ = fmt.Fprintf(out, msgSyncCreatePrompt, strings.Join(projects, ", "))
+	confirm := func(projects []string) ([]string, error) {
+		_, _ = fmt.Fprintf(out, msgSyncCreatePrompt, sanitizedList(projects))
 		if in == nil {
-			return false, nil
+			return nil, nil
 		}
 		line, err := bufio.NewReader(in).ReadString('\n')
 		if err != nil && line == "" {
-			return false, nil
+			return nil, nil // no answer (end of input) declines
 		}
-		answer := strings.ToLower(strings.TrimSpace(line))
-		return answer == "y" || answer == "yes", nil
+		if answer := strings.ToLower(strings.TrimSpace(line)); answer == "y" || answer == "yes" {
+			return projects, nil
+		}
+		return nil, nil
 	}
 	provisioned, report, err := ledger.Provision(ctx, items, prov, st, ledger.ProvisionOptions{
 		Summary: cfg.DefaultIssue.Summary,
@@ -79,9 +81,19 @@ func printProvisionReport(out io.Writer, r render.Renderer, report ledger.Provis
 		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgSyncTaskFound, SanitizeForTerminal(t.Issue), SanitizeForTerminal(t.Project))))
 	}
 	if len(report.WouldCreate) > 0 {
-		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgSyncTaskWouldCreate, strings.Join(report.WouldCreate, ", "))))
+		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgSyncTaskWouldCreate, sanitizedList(report.WouldCreate))))
 	}
 	if len(report.Declined) > 0 {
-		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusWarn, fmt.Sprintf(msgSyncTaskDeclined, strings.Join(report.Declined, ", "))))
+		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusWarn, fmt.Sprintf(msgSyncTaskDeclined, sanitizedList(report.Declined))))
 	}
+}
+
+// sanitizedList joins project keys for display. The keys come from YouTrack
+// and the configuration, so every one is sanitised before it reaches a terminal.
+func sanitizedList(items []string) string {
+	clean := make([]string, len(items))
+	for i, s := range items {
+		clean[i] = SanitizeForTerminal(s)
+	}
+	return strings.Join(clean, ", ")
 }
