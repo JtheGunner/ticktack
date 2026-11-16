@@ -166,16 +166,16 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 func (r *initRun) configStep() {
 	path, err := r.deps.Doctor.ConfigPath()
 	if err != nil {
-		r.say(msgInitConfigFailed, err)
+		r.say(msgInitConfigFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitConfigIntro, path)
+	r.say(msgInitConfigIntro, SanitizeForTerminal(path))
 	if r.opts.SkipConfig {
 		r.say("%s", msgInitSkipped)
 		return
 	}
 	if fileExists(path) {
-		r.say(msgInitConfigKept, path)
+		r.say(msgInitConfigKept, SanitizeForTerminal(path))
 		return
 	}
 	if !r.confirm(msgInitConfirm) {
@@ -190,15 +190,15 @@ func (r *initRun) configStep() {
 	}
 	if address != "" {
 		if u, err := url.Parse(address); err != nil || u.Scheme == "" || u.Host == "" {
-			r.say(msgInitConfigBadURL, address)
+			r.say(msgInitConfigBadURL, SanitizeForTerminal(address))
 			return
 		}
 	}
 	if err := writeNewConfig(path, config.DefaultTOML(address)); err != nil {
-		r.say(msgInitConfigFailed, err)
+		r.say(msgInitConfigFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitConfigWritten, path)
+	r.say(msgInitConfigWritten, SanitizeForTerminal(path))
 }
 
 // writeNewConfig creates the config file with mode 0600 and never overwrites.
@@ -233,7 +233,7 @@ func (r *initRun) tokenStep(ctx context.Context) {
 	secret = strings.TrimSpace(secret)
 	if err != nil {
 		// The reader error carries no input; the token is never formatted.
-		r.say(msgInitTokenFailed, err)
+		r.say(msgInitTokenFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	if secret == "" {
@@ -241,7 +241,7 @@ func (r *initRun) tokenStep(ctx context.Context) {
 		return
 	}
 	if err := r.deps.SetToken(secret); err != nil {
-		r.say(msgInitTokenFailed, err)
+		r.say(msgInitTokenFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	r.say("%s", msgInitTokenStored)
@@ -257,29 +257,29 @@ func (r *initRun) hookStep() {
 	}
 	script, err := shellhook.Script(shell)
 	if err != nil {
-		r.say(msgInitHookUnsupported, shell)
+		r.say(msgInitHookUnsupported, SanitizeForTerminal(shell))
 		return
 	}
 	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell)
 	if err != nil {
-		r.say(msgInitHookFailed, err)
+		r.say(msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitHookIntro, rc)
+	r.say(msgInitHookIntro, SanitizeForTerminal(rc))
 	if r.opts.SkipHook || !r.confirm(msgInitConfirm) {
 		r.say("%s", msgInitSkipped)
 		return
 	}
 	changed, err := upsertHook(rc, script)
 	if err != nil {
-		r.say(msgInitHookFailed, err)
+		r.say(msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	if changed {
-		r.say(msgInitHookWritten, rc)
+		r.say(msgInitHookWritten, SanitizeForTerminal(rc))
 		return
 	}
-	r.say(msgInitHookUnchanged, rc)
+	r.say(msgInitHookUnchanged, SanitizeForTerminal(rc))
 }
 
 // upsertHook writes the managed block and reports whether the file changed.
@@ -303,7 +303,7 @@ func upsertHook(rc, script string) (bool, error) {
 
 func (r *initRun) agentStep(ctx context.Context) {
 	plist := agentPlistPath(r.deps.Doctor.Home)
-	r.say(msgInitAgentIntro, plist)
+	r.say(msgInitAgentIntro, SanitizeForTerminal(plist))
 	if r.opts.SkipAgent {
 		r.say("%s", msgInitSkipped)
 		return
@@ -318,8 +318,8 @@ func (r *initRun) agentStep(ctx context.Context) {
 	}
 	uid := r.deps.Doctor.UID
 	if err := r.installAgent(ctx, plist, uid); err != nil {
-		r.say(msgInitAgentFailed, err)
-		r.say(msgInitAgentHint, uid, plist)
+		r.say(msgInitAgentFailed, SanitizeForTerminal(err.Error()))
+		r.say(msgInitAgentHint, uid, SanitizeForTerminal(plist))
 	}
 }
 
@@ -341,12 +341,12 @@ func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error
 	}
 	existing, readErr := os.ReadFile(plist)
 	if readErr == nil && string(existing) == rendered {
-		r.say(msgInitAgentKept, plist)
+		r.say(msgInitAgentKept, SanitizeForTerminal(plist))
 	} else {
 		if err := writeFileAtomic(plist, []byte(rendered), 0o644); err != nil {
 			return err
 		}
-		r.say(msgInitAgentWritten, plist)
+		r.say(msgInitAgentWritten, SanitizeForTerminal(plist))
 	}
 
 	domain := fmt.Sprintf("gui/%d", uid)

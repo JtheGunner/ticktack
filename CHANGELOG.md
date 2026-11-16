@@ -28,5 +28,8 @@ First public release.
 ### Fixed
 
 - The agent now waits for its window-title and scan goroutines before closing the store on shutdown.
+- `ticktack today` and `ticktack init` strip terminal control characters from ticket keys, paths and external error text before printing them.
+- The git scan (`ticktack scan` and the agent scan) now honours the configured `ticket_pattern` instead of always using the default.
+- The ActivityWatch URL check rejects IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`) and zoned loopback addresses; numerically encoded and `localhost`-lookalike hosts stay rejected.
 
 [Unreleased]: https://github.com/JtheGunner/ticktack/commits/main

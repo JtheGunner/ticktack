@@ -172,10 +172,20 @@ func TestTitleNeverReachesStore(t *testing.T) {
 	}
 
 	// Scan every file of the database directory (main file, WAL, journal) as raw bytes.
+	for _, leak := range secretsInDir(t, dir, secrets) {
+		t.Errorf("persisted bytes contain %s", leak)
+	}
+}
+
+// secretsInDir scans every file of dir as raw bytes and names each file and
+// secret pair that matches.
+func secretsInDir(t *testing.T, dir string, secrets []string) []string {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var leaks []string
 	for _, entry := range entries {
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
@@ -183,9 +193,69 @@ func TestTitleNeverReachesStore(t *testing.T) {
 		}
 		for _, secret := range secrets {
 			if bytes.Contains(data, []byte(secret)) {
-				t.Errorf("%s contains %q", entry.Name(), secret)
+				leaks = append(leaks, fmt.Sprintf("%q in %s", secret, entry.Name()))
 			}
 		}
+	}
+	return leaks
+}
+
+// TestTitleHintIsExtractedInMemoryButNotPersisted is the positive control of
+// TestTitleNeverReachesStore: the hint path does see the title and extracts
+// the project and ticket, yet the raw title text stays out of the store.
+func TestTitleHintIsExtractedInMemoryButNotPersisted(t *testing.T) {
+	const title = "ABC-5 [~/TOPSECRETPLAN] – notes.go"
+	hint := Parse("com.jetbrains.goland", title, nil)
+	if hint.Ticket != "ABC-5" {
+		t.Fatalf("hint ticket = %q, want ABC-5: the title never reached the hint path", hint.Ticket)
+	}
+
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "ticktack.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := &Fake{}
+	src.Push("com.jetbrains.goland", title)
+	c := &Collector{Source: src, Sink: st, Now: time.Now, Paused: func() bool { return false }}
+	c.Tick(context.Background())
+	events, err := st.Events(context.Background(), time.Time{}, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Ticket != hint.Ticket {
+		t.Fatalf("events = %+v, want one event carrying the extracted ticket %q", events, hint.Ticket)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if leaks := secretsInDir(t, dir, []string{"TOPSECRETPLAN", "notes.go"}); len(leaks) != 0 {
+		t.Errorf("raw title persisted: %v", leaks)
+	}
+}
+
+// TestTitleLeakDetectionCanFail proves the persistence checks are able to fail:
+// a store that does receive the raw title is reported.
+func TestTitleLeakDetectionCanFail(t *testing.T) {
+	const secret = "TOPSECRETPLAN"
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ticktack.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaky := event.Event{At: time.Now(), Source: EventSource, Kind: event.KindContext, Ticket: "ABC-5", Branch: "ABC-5 [~/" + secret + "] - notes.go"}
+	if err := st.Append(context.Background(), leaky); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if leaks := secretsInDir(t, dir, []string{secret}); len(leaks) == 0 {
+		t.Error("raw byte scan did not detect a persisted title")
+	}
+	if dump := dumpAllTables(t, dbPath); !strings.Contains(dump, secret) {
+		t.Error("table dump did not detect a persisted title")
 	}
 }
 

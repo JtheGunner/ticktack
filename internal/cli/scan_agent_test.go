@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,7 +93,7 @@ func TestNewScanJobIsOffWithoutIntervalOrRepos(t *testing.T) {
 func TestScanJobScansAtStartAndOnEveryTick(t *testing.T) {
 	repo := fakeRepoDir(t)
 	var calls atomic.Int32
-	scan := func(_ context.Context, path string, _, _ time.Time) ([]event.Event, error) {
+	scan := func(_ context.Context, path string, _, _ time.Time, _ *regexp.Regexp) ([]event.Event, error) {
 		n := calls.Add(1)
 		return []event.Event{{At: dailyNow, Source: "git", Kind: event.KindContext, Repo: path, Key: fmt.Sprintf("k%d", n)}}, nil
 	}
@@ -118,7 +119,7 @@ func TestScanJobScansAtStartAndOnEveryTick(t *testing.T) {
 func TestScanJobDoesNothingWhilePaused(t *testing.T) {
 	repo := fakeRepoDir(t)
 	var calls atomic.Int32
-	scan := func(context.Context, string, time.Time, time.Time) ([]event.Event, error) {
+	scan := func(context.Context, string, time.Time, time.Time, *regexp.Regexp) ([]event.Event, error) {
 		calls.Add(1)
 		return []event.Event{{At: dailyNow, Source: "git", Kind: event.KindContext, Key: "k"}}, nil
 	}
@@ -151,7 +152,7 @@ func TestScanJobDoesNothingWhilePaused(t *testing.T) {
 
 func TestScanJobKeepsRunningWhenOneRepositoryFails(t *testing.T) {
 	good := fakeRepoDir(t)
-	scan := func(_ context.Context, path string, _, _ time.Time) ([]event.Event, error) {
+	scan := func(_ context.Context, path string, _, _ time.Time, _ *regexp.Regexp) ([]event.Event, error) {
 		return []event.Event{{At: dailyNow, Source: "git", Kind: event.KindContext, Repo: path, Key: "k"}}, nil
 	}
 	sink := &syncSink{}
