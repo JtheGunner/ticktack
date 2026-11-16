@@ -21,6 +21,9 @@ const (
 	msgPurged          = "All local ticktack data deleted."
 	msgNotInteractive  = "cannot ask for confirmation: stdin is not interactive; pass --yes to purge"
 	msgUnassigned      = "(unassigned)"
+	// msgStandardTaskNew labels the placeholder of a standard task that is
+	// created in YouTrack by the next sync.
+	msgStandardTaskNew = "%s · standard task (new)"
 	msgNoRepo          = "(none)"
 	msgStatusHeading   = "Status"
 	msgLabelRepo       = "Repo"

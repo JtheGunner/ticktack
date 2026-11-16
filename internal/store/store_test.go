@@ -121,6 +121,12 @@ func TestEventsAreImmutable(t *testing.T) {
 		// runs live in their own tables and never touch events.
 		"SaveReviewRecord": true, "ReviewRecords": true,
 		"AddDigest": true, "LastDigest": true,
+		// The project cache, standard task keys and consent live in their own
+		// tables; renaming a confirmation only edits review state.
+		"ReplaceProjects": true, "Projects": true,
+		"DefaultTasks": true, "SetDefaultTask": true,
+		"ConsentedProjects": true, "SetConsent": true,
+		"RenameConfirmationIssue": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name

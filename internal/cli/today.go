@@ -128,6 +128,9 @@ func ticketLabel(ticket string) string {
 	if ticket == "" {
 		return msgUnassigned
 	}
+	if project, ok := resolver.ParseDefaultRef(ticket); ok {
+		return fmt.Sprintf(msgStandardTaskNew, project)
+	}
 	return ticket
 }
 

@@ -5,7 +5,8 @@
 // by the sessionizer, in this precedence: an explicit pin (ticktack switch),
 // then a window-title hint while its app is frontmost, then git/shell
 // context. Within one signal the order is: ticket on the event, ticket in
-// the branch name, repo rule, learned rule, unknown.
+// the branch name, repo rule, learned rule, the standard task of the project
+// matching the repo's folder, the global standard task, unknown.
 package resolver
 
 import (
@@ -50,7 +51,11 @@ const (
 	RuleBranchTicket RuleKind = "branch-ticket"
 	RuleRepo         RuleKind = "repo-rule"
 	RuleLearned      RuleKind = "learned-rule"
-	RuleNone         RuleKind = "none"
+	// RuleProjectDefault is the standard task of the project whose name
+	// matches the repository's folder; RuleGlobalDefault the global one.
+	RuleProjectDefault RuleKind = "project-default"
+	RuleGlobalDefault  RuleKind = "global-default"
+	RuleNone           RuleKind = "none"
 )
 
 // Decision is an Attribution together with the rule that produced it.
@@ -104,6 +109,9 @@ func Decide(signal ContextSignal, rules Rules) Decision {
 			RuleBranch:  rule.Branch,
 			LearnedID:   rule.ID,
 		}
+	}
+	if decision, ok := decideDefault(signal.Repo, rules); ok {
+		return decision
 	}
 	return Decision{
 		Attribution: Attribution{Tier: TierUnknown, Reason: "no ticket in branch and no rule for repo"},

@@ -165,6 +165,8 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkActivityWatch,
 		checkTitleHint,
 		checkRepositories,
+		checkRepoRoots,
+		checkStandardTasks,
 	}
 	results := make([]checkResult, 0, len(checks))
 	for _, check := range checks {
@@ -519,11 +521,12 @@ func checkRepositories(_ context.Context, deps doctorDeps) checkResult {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return skipResult(msgCheckRepos, msgReposConfigBad)
 	}
-	if len(cfg.RepoPaths) == 0 {
+	repos := trackedRepos(cfg, deps.Home)
+	if len(repos) == 0 {
 		return skipResult(msgCheckRepos, msgReposNone)
 	}
 	var details, fixes []string
-	for _, raw := range cfg.RepoPaths {
+	for _, raw := range repos {
 		expanded, err := config.ExpandRepoPath(raw, deps.Home)
 		if err != nil {
 			details = append(details, fmt.Sprintf("%s %s", raw, fmt.Sprintf(msgRepoBadPath, err)))
@@ -540,9 +543,9 @@ func checkRepositories(_ context.Context, deps doctorDeps) checkResult {
 		}
 	}
 	if len(details) == 0 {
-		return okResult(msgCheckRepos, fmt.Sprintf(msgReposOK, len(cfg.RepoPaths)))
+		return okResult(msgCheckRepos, fmt.Sprintf(msgReposOK, len(repos)))
 	}
 	return failResult(msgCheckRepos,
-		fmt.Sprintf(msgReposFail, len(details), len(cfg.RepoPaths), strings.Join(details, msgReposDetailJoiner)),
+		fmt.Sprintf(msgReposFail, len(details), len(repos), strings.Join(details, msgReposDetailJoiner)),
 		strings.Join(fixes, msgReposDetailJoiner))
 }

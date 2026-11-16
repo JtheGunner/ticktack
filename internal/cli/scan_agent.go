@@ -38,7 +38,7 @@ func runWithBackground(ctx context.Context, jobs []backgroundJob, main func(ctx 
 // the scan is off or no repository is configured. The job scans once at start
 // and then every interval, and does nothing while the pause flag exists.
 func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoScanner, paused func() bool, interval time.Duration, now func() time.Time, logf func(format string, args ...any)) backgroundJob {
-	if interval <= 0 || len(cfg.RepoPaths) == 0 {
+	if interval <= 0 || (len(cfg.RepoPaths) == 0 && len(cfg.RepoRoots) == 0) {
 		return nil
 	}
 	return func(ctx context.Context) {
@@ -48,7 +48,7 @@ func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoSca
 			}
 			current := now()
 			from := scanStartOfLookback(current, cfg.Location)
-			report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, current.Add(scanFutureSlack), cfg.TicketPattern, scan, sink)
+			report, err := scanRepositories(ctx, trackedRepos(cfg, home), home, from, current.Add(scanFutureSlack), cfg.TicketPattern, scan, sink)
 			for _, s := range report.Skipped {
 				logf(msgRepoLogSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))
 			}

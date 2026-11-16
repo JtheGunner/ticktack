@@ -67,6 +67,14 @@ type Rule struct {
 	Ticket string `toml:"ticket"`
 }
 
+// DefaultIssue names the standard task that receives time without a ticket.
+// Project is the YouTrack project key of the global standard task; Summary is
+// the title used for every standard task ticktack creates.
+type DefaultIssue struct {
+	Project string `toml:"project"`
+	Summary string `toml:"summary"`
+}
+
 // Config is the validated, ready-to-use configuration.
 type Config struct {
 	YouTrackURL      string
@@ -77,11 +85,16 @@ type Config struct {
 	Rules            []Rule
 	TicketPattern    *regexp.Regexp
 	RepoPaths        []string
-	Location         *time.Location
-	ActivityWatch    ActivityWatch
-	TitleHint        TitleHint
-	Auto             Auto
-	Scan             Scan
+	// RepoRoots are folders whose immediate children that are Git
+	// repositories are tracked; entries are validated like RepoPaths.
+	RepoRoots []string
+	// DefaultIssue is nil when no standard task is configured.
+	DefaultIssue  *DefaultIssue
+	Location      *time.Location
+	ActivityWatch ActivityWatch
+	TitleHint     TitleHint
+	Auto          Auto
+	Scan          Scan
 }
 
 // TitleHint configures the optional window-title collector. It is off unless
@@ -107,7 +120,10 @@ type fileConfig struct {
 	Rules            []Rule   `toml:"rules"`
 	TicketPattern    string   `toml:"ticket_pattern"`
 	RepoPaths        []string `toml:"repo_paths"`
+	RepoRoots        []string `toml:"repo_roots"`
 	TimeZone         string   `toml:"time_zone"`
+
+	DefaultIssue *DefaultIssue `toml:"default_issue"`
 
 	ActivityWatch struct {
 		Enabled  bool   `toml:"enabled"`
@@ -256,6 +272,17 @@ func build(raw fileConfig) (Config, error) {
 			return Config{}, fmt.Errorf("repo_paths[%d] must be an absolute path or start with \"~/\"", i)
 		}
 	}
+	for i, p := range raw.RepoRoots {
+		if !validRepoPathSyntax(p) {
+			return Config{}, fmt.Errorf("repo_roots[%d] must be an absolute path or start with \"~/\"", i)
+		}
+	}
+	cfg.RepoRoots = raw.RepoRoots
+	defaultIssue, err := buildDefaultIssue(raw.DefaultIssue)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.DefaultIssue = defaultIssue
 	scan, err := buildScan(raw)
 	if err != nil {
 		return Config{}, err
@@ -269,6 +296,23 @@ func build(raw fileConfig) (Config, error) {
 		cfg.Auto.TrustedDays = *days
 	}
 	return cfg, nil
+}
+
+// buildDefaultIssue validates the [default_issue] table. An absent table turns
+// the feature off; a present one needs both keys.
+func buildDefaultIssue(raw *DefaultIssue) (*DefaultIssue, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	project := strings.ToUpper(strings.TrimSpace(raw.Project))
+	if project == "" {
+		return nil, errors.New("default_issue.project is required")
+	}
+	summary := strings.TrimSpace(raw.Summary)
+	if summary == "" {
+		return nil, errors.New("default_issue.summary is required")
+	}
+	return &DefaultIssue{Project: project, Summary: summary}, nil
 }
 
 // buildActivityWatch validates the [activitywatch] table. The URL is checked

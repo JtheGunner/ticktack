@@ -79,7 +79,13 @@ func syncTestDeps(t *testing.T) (syncDeps, *recordingSink) {
 
 func execCommand(t *testing.T, deps syncDeps, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return execCommandWithInput(t, deps, "", args...)
+}
+
+func execCommandWithInput(t *testing.T, deps syncDeps, input string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	root := NewRootCommand()
+	root.SetIn(strings.NewReader(input))
 	for _, c := range root.Commands() {
 		switch c.Name() {
 		case "sync":

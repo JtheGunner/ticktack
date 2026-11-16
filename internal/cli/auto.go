@@ -99,6 +99,10 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		if err != nil {
 			return err
 		}
+		sel, err = provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
+		if err != nil {
+			return err
+		}
 		report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
 	}
 	digest := auto.BuildDigest(day, sel, report, dryRun)

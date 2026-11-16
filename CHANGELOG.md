@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `repo_roots`: scan every repository below a folder such as `~/Projects` without listing each one.
+- Standard tasks: time without a ticket is booked on a catch-all issue of the project whose name matches the repository folder, or on the global `[default_issue]`. `ticktack sync` creates a missing task after one confirmation; `ticktack auto` creates it only for projects confirmed before.
+- `ticktack doctor` checks `repo_roots` and reports the age of the cached project list.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added

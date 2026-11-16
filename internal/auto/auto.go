@@ -16,6 +16,9 @@ import (
 const (
 	ReasonUnassigned = "unassigned time needs a ticket"
 	ReasonOverCap    = "day total exceeds the daily cap: a capped day needs a human"
+	// ReasonStandardTask explains time left unbooked because its standard task
+	// does not exist yet and auto mode may not create it unasked.
+	ReasonStandardTask = "standard task does not exist yet: confirm creating it with `ticktack sync`"
 )
 
 // LockReason says why auto mode is locked.
@@ -73,6 +76,57 @@ type Selection struct {
 	CapExceeded  bool
 	TotalMinutes int
 	CapMinutes   int
+}
+
+// Resolve applies the outcome of providing standard tasks: items whose ticket
+// is in dropped are skipped with ReasonStandardTask, and tickets in rewritten
+// are replaced by their real issue key. The receiver is not changed.
+func (s Selection) Resolve(rewritten map[string]string, dropped []string) Selection {
+	drop := make(map[string]bool, len(dropped))
+	for _, ticket := range dropped {
+		drop[ticket] = true
+	}
+	out := s
+	out.Book = nil
+	out.Skipped = append([]Entry(nil), s.Skipped...)
+	for _, e := range s.Book {
+		if drop[e.Item.Ticket] {
+			e.Reason = ReasonStandardTask
+			out.Skipped = append(out.Skipped, e)
+			continue
+		}
+		if key, ok := rewritten[e.Item.Ticket]; ok {
+			e.Item = sessionizer.RetargetItem(e.Item, key)
+		}
+		out.Book = append(out.Book, e)
+	}
+	out.Book = mergeEntries(out.Book)
+	return out
+}
+
+// mergeEntries combines entries whose items share a ticket, date and type.
+// The merged entry keeps the lowest tier of its parts.
+func mergeEntries(entries []Entry) []Entry {
+	items := make([]sessionizer.DayItem, len(entries))
+	for i, e := range entries {
+		items[i] = e.Item
+	}
+	merged := sessionizer.MergeItems(items)
+	if len(merged) == len(entries) {
+		return entries
+	}
+	tiers := map[string]resolver.Tier{}
+	for _, e := range entries {
+		k := key(e.Item)
+		if cur, ok := tiers[k]; !ok || rank(e.Tier) > rank(cur) {
+			tiers[k] = e.Tier
+		}
+	}
+	out := make([]Entry, len(merged))
+	for i, it := range merged {
+		out[i] = Entry{Item: it, Tier: tiers[key(it)]}
+	}
+	return out
 }
 
 // Items returns the items to book.
