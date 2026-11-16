@@ -68,19 +68,26 @@ func (s *Session) Remember(ctx context.Context, wholeRepo bool) (store.LearnedRu
 	if err != nil {
 		return store.LearnedRule{}, err
 	}
+	update := false
 	for _, r := range existing {
 		if r.Repo == rule.Repo && r.BranchPattern == rule.BranchPattern {
 			rule.ID, rule.CreatedAt = r.ID, r.CreatedAt
-			if err := s.st.UpdateLearnedRule(ctx, rule); err != nil {
-				return store.LearnedRule{}, err
-			}
-			return rule, s.changed(ctx, true)
+			update = true
+			break
 		}
 	}
-	if rule, err = s.st.AddLearnedRule(ctx, rule); err != nil {
+	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+		if update {
+			return tx.UpdateLearnedRule(ctx, rule)
+		}
+		var err error
+		rule, err = tx.AddLearnedRule(ctx, rule)
+		return err
+	})
+	if err != nil {
 		return store.LearnedRule{}, err
 	}
-	return rule, s.changed(ctx, true)
+	return rule, nil
 }
 
 // Suggestions returns ordered ticket candidates for an unassigned entry n,

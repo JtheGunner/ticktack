@@ -22,7 +22,18 @@ var migrationFiles embed.FS
 
 // Store is a SQLite-backed event store.
 type Store struct {
-	db *sql.DB
+	// db runs statements: the database itself, or the open transaction of a
+	// store handed out by InTx.
+	db dbtx
+	// root is the database handle; it opens transactions and is closed.
+	root *sql.DB
+}
+
+// dbtx is the statement surface shared by *sql.DB and *sql.Tx.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // Open opens (creating if needed) the database at path and applies all
@@ -38,7 +49,7 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, root: db}, nil
 }
 
 func migrate(db *sql.DB) error {
@@ -96,7 +107,7 @@ func applyMigration(db *sql.DB, name string) error {
 
 // Close releases the database handle.
 func (s *Store) Close() error {
-	return s.db.Close()
+	return s.root.Close()
 }
 
 // Append stores an event. An event with a non-empty Key that already exists
@@ -184,7 +195,7 @@ func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Over
 
 // Purge deletes all events, overrides, learned rules, ledger rows, the review log and digests in one transaction.
 func (s *Store) Purge(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.root.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin purge: %w", err)
 	}
