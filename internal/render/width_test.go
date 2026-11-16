@@ -10,23 +10,20 @@ func TestLayoutWidth(t *testing.T) {
 	tests := []struct {
 		name  string
 		width int
-		wide  bool
 		want  int
 	}{
-		{"no terminal", 0, false, 78},
-		{"negative", -5, false, 78},
-		{"no terminal wide", 0, true, 78},
-		{"narrow terminal", 20, false, 40},
-		{"exactly minimum", 40, false, 40},
-		{"normal", 80, false, 80},
-		{"at cap", 100, false, 100},
-		{"above cap", 160, false, 100},
-		{"above cap wide", 160, true, 160},
+		{"no terminal", 0, 78},
+		{"negative", -5, 78},
+		{"narrow terminal", 20, 40},
+		{"exactly minimum", 40, 40},
+		{"normal", 80, 80},
+		{"at cap", 100, 100},
+		{"above cap", 160, 100},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := layoutWidth(tt.width, tt.wide); got != tt.want {
-				t.Errorf("layoutWidth(%d, %v) = %d, want %d", tt.width, tt.wide, got, tt.want)
+			if got := layoutWidth(tt.width); got != tt.want {
+				t.Errorf("layoutWidth(%d) = %d, want %d", tt.width, got, tt.want)
 			}
 		})
 	}

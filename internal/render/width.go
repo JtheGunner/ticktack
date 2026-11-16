@@ -15,13 +15,14 @@ const (
 )
 
 // layoutWidth returns the width of rules, boxes and tables. Without a terminal
-// (width <= 0) it is a fixed default; on a terminal it is capped unless wide
-// is set, and never below minLayoutWidth.
-func layoutWidth(width int, wide bool) int {
+// (width <= 0) it is a fixed default; on a terminal it is capped at
+// maxLayoutWidth, and terminals narrower than minLayoutWidth (40 columns) get
+// a 40-column layout.
+func layoutWidth(width int) int {
 	switch {
 	case width <= 0:
 		return defaultLayoutWidth
-	case !wide && width > maxLayoutWidth:
+	case width > maxLayoutWidth:
 		return maxLayoutWidth
 	case width < minLayoutWidth:
 		return minLayoutWidth

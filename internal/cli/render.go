@@ -16,6 +16,11 @@ const noColorFlag = "no-color"
 
 // rendererFor builds the renderer for w from the command's --no-color flag,
 // the real environment and the real terminal.
+//
+// Wiring rule: every interactive deps struct gets its Render from
+// rendererFor(cmd, out) in its default...Deps(cmd) constructor. Use
+// syncDeps.forCommand(cmd) only when the deps are built before the command
+// exists.
 func rendererFor(cmd *cobra.Command, w io.Writer) render.Renderer {
 	return rendererWith(cmd, w, render.Options{Getenv: os.Getenv})
 }

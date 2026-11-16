@@ -26,8 +26,6 @@ func Plain() Renderer {
 type Options struct {
 	// NoColor disables colour regardless of the terminal (--no-color).
 	NoColor bool
-	// Wide lifts the cap on the layout width of wide terminals.
-	Wide bool
 	// Getenv reads environment variables; nil means an empty environment.
 	Getenv func(string) string
 	// TermSize reports the terminal size of a file descriptor; nil means
@@ -67,7 +65,7 @@ func New(w io.Writer, o Options) Renderer {
 	return Renderer{
 		Colors: NewColors(isTTY, o.NoColor, getenv),
 		Glyphs: GlyphsFromEnv(getenv),
-		Width:  layoutWidth(width, o.Wide),
+		Width:  layoutWidth(width),
 	}
 }
 
