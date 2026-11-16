@@ -20,6 +20,13 @@ type Column struct {
 	// spaces, on dimmed lines indented under the row. Cells that fit stay
 	// inline. Ignored without Flex.
 	Wrap bool
+	// Stack moves the column below its row when the table is too narrow for
+	// all columns: the column and its header are left out of the layout, and
+	// the non-empty cells of a row are written on one line indented under it,
+	// in column order.
+	// The decision is made once for the whole table, so rows stay aligned.
+	// Ignored when every column fits.
+	Stack bool
 }
 
 // wrappedIndent is the indent of a wrapped cell below its row.
@@ -30,24 +37,15 @@ const wrappedIndent = 4
 // Flex column shrinks and its cells are cut with an ellipsis; if the fixed
 // columns alone are too wide, lines are cut instead of wrapped. Cells are
 // written as given, so callers sanitise them first. Missing cells are empty.
-// A Flex column with Wrap never cuts a cell; see Column.Wrap.
+// A Flex column with Wrap never cuts a cell; see Column.Wrap. Columns marked
+// Stack move below their row when the rest does not fit; see Column.Stack.
 func (r Renderer) Table(cols []Column, rows [][]string) []string {
 	if len(cols) == 0 {
 		return nil
 	}
 	g, c, limit := r.glyphs(), r.Colors, r.layoutWidth()
-	widths := make([]int, len(cols))
-	for i, col := range cols {
-		widths[i] = visibleWidth(col.Header)
-	}
-	flex := firstFlex(cols)
-	for _, row := range rows {
-		for i := range cols {
-			if i != flex {
-				widths[i] = max(widths[i], visibleWidth(cell(row, i)))
-			}
-		}
-	}
+	cols, rows, stacked := stackColumns(cols, rows, limit)
+	widths, flex := columnWidths(cols, rows)
 	// wrapped marks the rows whose Flex cell does not fit and moves below the
 	// row. Measured against the space left by the fixed columns, never by
 	// searching rendered text.
@@ -80,16 +78,88 @@ func (r Renderer) Table(cols []Column, rows [][]string) []string {
 	for i, row := range rows {
 		if !wrapped[i] {
 			lines = append(lines, r.tableLine(cols, widths, row, limit, g, func(s string) string { return s }))
-			continue
+		} else {
+			cut := append([]string(nil), row...)
+			cut[flex] = ""
+			lines = append(lines, r.tableLine(cols, widths, cut, limit, g, func(s string) string { return s }))
+			for _, part := range wrapVisible(row[flex], max(limit-wrappedIndent, 1)) {
+				lines = append(lines, strings.Repeat(" ", wrappedIndent)+c.Dim(part))
+			}
 		}
-		cut := append([]string(nil), row...)
-		cut[flex] = ""
-		lines = append(lines, r.tableLine(cols, widths, cut, limit, g, func(s string) string { return s }))
-		for _, part := range wrapVisible(row[flex], max(limit-wrappedIndent, 1)) {
-			lines = append(lines, strings.Repeat(" ", wrappedIndent)+c.Dim(part))
+		if len(stacked[i]) > 0 {
+			text := strings.Join(stacked[i], strings.Repeat(" ", tableGap))
+			lines = append(lines, strings.Repeat(" ", wrappedIndent)+fit(text, max(limit-wrappedIndent, 1), g.Ellipsis))
 		}
 	}
 	return lines
+}
+
+// columnWidths returns the width of every column, the widest visible cell or
+// header, and the index of the Flex column. The Flex column is only as wide as
+// its header here; Table sizes it against the space the others leave.
+func columnWidths(cols []Column, rows [][]string) (widths []int, flex int) {
+	widths = make([]int, len(cols))
+	for i, col := range cols {
+		widths[i] = visibleWidth(col.Header)
+	}
+	flex = firstFlex(cols)
+	for _, row := range rows {
+		for i := range cols {
+			if i != flex {
+				widths[i] = max(widths[i], visibleWidth(cell(row, i)))
+			}
+		}
+	}
+	return widths, flex
+}
+
+// stackColumns leaves the Stack columns out of the layout when the columns
+// would not fit limit even with a Flex column only as wide as its header. It
+// returns the remaining columns and rows, and per row the cells that moved.
+// When everything fits, or no column is marked Stack, nothing moves.
+func stackColumns(cols []Column, rows [][]string, limit int) ([]Column, [][]string, [][]string) {
+	stacked := make([][]string, len(rows))
+	hasStack := false
+	for _, col := range cols {
+		hasStack = hasStack || col.Stack
+	}
+	if !hasStack {
+		return cols, rows, stacked
+	}
+	widths, _ := columnWidths(cols, rows)
+	total := tableIndent + tableGap*(len(cols)-1)
+	for _, w := range widths {
+		total += w
+	}
+	if total <= limit {
+		return cols, rows, stacked
+	}
+	keep := make([]int, 0, len(cols))
+	for i, col := range cols {
+		if !col.Stack {
+			keep = append(keep, i)
+		}
+	}
+	if len(keep) == 0 {
+		return cols, rows, stacked
+	}
+	keptCols := make([]Column, len(keep))
+	for k, i := range keep {
+		keptCols[k] = cols[i]
+	}
+	keptRows := make([][]string, len(rows))
+	for r, row := range rows {
+		keptRows[r] = make([]string, len(keep))
+		for k, i := range keep {
+			keptRows[r][k] = cell(row, i)
+		}
+		for i, col := range cols {
+			if col.Stack && cell(row, i) != "" {
+				stacked[r] = append(stacked[r], cell(row, i))
+			}
+		}
+	}
+	return keptCols, keptRows, stacked
 }
 
 // tableLine lays out one row. style is applied to each cell after it is cut

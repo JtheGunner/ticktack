@@ -202,3 +202,38 @@ func TestNewWithInjectedTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestBoxStatusColoursTheBorder(t *testing.T) {
+	colour := Renderer{Colors: Colors{Enabled: true}, Glyphs: unicodeGlyphs, Width: testWidth}
+	tests := []struct {
+		name   string
+		status Status
+		prefix string
+	}{
+		{"info", StatusInfo, "\x1b[36m"},
+		{"ok", StatusOK, "\x1b[32m"},
+		{"warn", StatusWarn, "\x1b[33m"},
+		{"fail", StatusFail, "\x1b[31m"},
+		{"skip", StatusSkip, "\x1b[2m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := strings.Split(colour.BoxStatus(tt.status, "Summary", []string{"row"}), "\n")
+			for _, i := range []int{0, 1, len(lines) - 1} {
+				if !strings.HasPrefix(lines[i], tt.prefix) {
+					t.Errorf("line %d = %q, want border colour %q", i, lines[i], tt.prefix)
+				}
+			}
+		})
+	}
+	if colour.Box("Summary", []string{"row"}) != colour.BoxStatus(StatusInfo, "Summary", []string{"row"}) {
+		t.Error("Box must keep the accent border")
+	}
+}
+
+func TestBoxStatusPlainIgnoresStatus(t *testing.T) {
+	r := Plain()
+	if r.BoxStatus(StatusFail, "T", []string{"x"}) != r.Box("T", []string{"x"}) {
+		t.Error("without colours every status draws the same box")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 // scrubHome replaces the temp home so goldens do not depend on it.
@@ -58,6 +59,24 @@ func TestInitGolden(t *testing.T) {
 			},
 		},
 		{
+			// config yes + URL, token yes, validate yes (accepted), hook no, agent no
+			name:    "init_token_validated_plain",
+			answers: "y\nhttps://yt.example.com\ny\ny\nn\nn\n",
+			render:  render.Plain(),
+			setup: func(env *testEnv) {
+				env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{login: "jane"}, nil }
+			},
+		},
+		{
+			// same answers, but YouTrack rejects the token
+			name:    "init_token_rejected_plain",
+			answers: "y\nhttps://yt.example.com\ny\ny\nn\nn\n",
+			render:  render.Plain(),
+			setup: func(env *testEnv) {
+				env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{err: youtrack.ErrUnauthorized}, nil }
+			},
+		},
+		{
 			name:    "init_skipped_plain",
 			answers: "n\nn\nn\nn\n",
 			render:  render.Plain(),
@@ -106,19 +125,26 @@ func TestInitPromptsKeepTheirExactText(t *testing.T) {
 }
 
 func TestInitSanitisesBeforeStyling(t *testing.T) {
-	env := newTestEnv(t, "", "")
-	env.deps.Render = unicodeColorRenderer()
-	hostile := errors.New("denied\x1b[2J\r\nfake")
-	env.deps.Launchctl = func(context.Context, ...string) (string, error) { return "", hostile }
-	env.deps.Binary = func() (string, error) { return "", hostile }
-	var out strings.Builder
-	opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true, SkipHook: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatal(err)
+	run := func(text string) string {
+		env := newTestEnv(t, "", "")
+		env.deps.Render = unicodeColorRenderer()
+		failure := errors.New(text)
+		env.deps.Launchctl = func(context.Context, ...string) (string, error) { return "", failure }
+		env.deps.Binary = func() (string, error) { return "", failure }
+		var out strings.Builder
+		opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true, SkipHook: true}
+		if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
 	}
-	stripped := stripANSI(out.String())
-	if !strings.Contains(stripped, "denied") || strings.ContainsAny(strings.ReplaceAll(stripped, "\n", ""), "\x1b\r") {
-		t.Errorf("unsafe or missing text: %q", out.String())
+	got := run("denied\x1b[2J\r\nfake\u202e")
+	assertNoStrayControls(t, got)
+	if !strings.Contains(stripANSI(got), "denied") {
+		t.Errorf("error text lost: %q", got)
+	}
+	if want := strings.Count(run("deniedfake"), "\n"); strings.Count(got, "\n") != want {
+		t.Errorf("hostile text added lines: %d, want %d:\n%q", strings.Count(got, "\n"), want, got)
 	}
 }
 
@@ -162,3 +188,11 @@ func TestInitFinalLineGlyphReflectsFailures(t *testing.T) {
 		})
 	}
 }
+
+// stubMe answers the token validation without a network call.
+type stubMe struct {
+	login string
+	err   error
+}
+
+func (s stubMe) Me(context.Context) (string, error) { return s.login, s.err }

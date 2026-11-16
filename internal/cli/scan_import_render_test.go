@@ -193,16 +193,28 @@ func TestImportPausedIsAWarningLine(t *testing.T) {
 // server text reaches the terminal is the partial-failure error, which is
 // sanitised before it is wrapped.
 func TestImportPartialErrorIsSanitised(t *testing.T) {
-	deps, _, out := newDailyEnv(t, "")
-	enableActivityWatch(&deps)
-	deps.Render = unicodeColorRenderer()
-	srv := maliciousAWServer(t)
-	var called bool
-	err := runImportActivityWatch(context.Background(), deps, awSourceFor(srv, &called), "")
-	if err == nil || countESC(err.Error()) != 0 || strings.Contains(err.Error(), "\n") {
-		t.Fatalf("error text is not sanitised: %v", err)
-	}
-	if strings.Contains(stripANSI(out.String()), "\x1b") {
-		t.Errorf("hostile ESC reached the output: %q", out.String())
+	for _, tt := range []struct {
+		name   string
+		r      render.Renderer
+		colour bool
+	}{
+		{"plain", render.Plain(), false},
+		{"colour", unicodeColorRenderer(), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, _, out := newDailyEnv(t, "")
+			enableActivityWatch(&deps)
+			deps.Render = tt.r
+			srv := maliciousAWServer(t)
+			var called bool
+			err := runImportActivityWatch(context.Background(), deps, awSourceFor(srv, &called), "")
+			if err == nil || countESC(err.Error()) != 0 || strings.Contains(err.Error(), "\n") {
+				t.Fatalf("error text is not sanitised: %v", err)
+			}
+			assertNoStrayControls(t, out.String())
+			if !tt.colour && countESC(out.String()) != 0 {
+				t.Errorf("plain output holds ESC bytes: %q", out.String())
+			}
+		})
 	}
 }

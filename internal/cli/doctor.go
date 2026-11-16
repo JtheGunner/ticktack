@@ -189,13 +189,13 @@ func writeDoctorReport(out io.Writer, r render.Renderer, results []checkResult) 
 		}
 	}
 	summary := fmt.Sprintf(msgDoctorSummaryOK, len(results))
-	paint := r.Colors.OK
+	status, paint := render.StatusOK, r.Colors.OK
 	if failed > 0 {
 		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, len(results))
-		paint = r.Colors.Fail
+		status, paint = render.StatusFail, r.Colors.Fail
 	}
 	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, r.Box(msgDoctorSummaryTitle, []string{paint(summary)}))
+	_, _ = fmt.Fprintln(out, r.BoxStatus(status, msgDoctorSummaryTitle, []string{paint(summary)}))
 	return failed
 }
 

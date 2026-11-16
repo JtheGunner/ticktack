@@ -230,13 +230,13 @@ func printReport(out io.Writer, r render.Renderer, report ledger.Report, planOnl
 	if planOnly {
 		title, summary = msgSyncPlanTitle, []string{fmt.Sprintf(msgSyncPlan, report.Planned, report.Skipped, report.Failed)}
 	}
-	for i, row := range summary {
-		if report.Failed > 0 || report.NotSent > 0 {
-			summary[i] = r.Colors.Fail(row)
-		} else {
-			summary[i] = r.Colors.OK(row)
-		}
+	status, paint := render.StatusOK, r.Colors.OK
+	if report.Failed > 0 || report.NotSent > 0 {
+		status, paint = render.StatusFail, r.Colors.Fail
 	}
-	lines = append(lines, "", r.Box(title, summary))
+	for i, row := range summary {
+		summary[i] = paint(row)
+	}
+	lines = append(lines, "", r.BoxStatus(status, title, summary))
 	_, _ = fmt.Fprintln(out, strings.Join(lines, "\n"))
 }

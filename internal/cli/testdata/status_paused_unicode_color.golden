@@ -1,0 +1,10 @@
+  [1mStatus[0m
+
+  [2mRepo[0m    /work/api
+  [2mBranch[0m  ABC-7-fix
+  [2mTicket[0m  ABC-7
+  [2mTier[0m    [32mexplicit[0m
+  [2mReason[0m  ticket ABC-7 found in branch "ABC-7-fix"
+
+  [33m⚠[0m  Capture paused (run `ticktack resume` to continue)
+  [36mℹ[0m  Presence last seen 2026-03-02 09:58:00 (2m0s ago)

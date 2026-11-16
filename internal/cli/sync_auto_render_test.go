@@ -48,6 +48,23 @@ func assertNoHostileEscape(t *testing.T, hostile, benign string) {
 	}
 }
 
+// assertNoStrayControls fails when out holds anything but our own SGR styling
+// and line feeds: no ESC, CR, BEL, other C0/C1 control, DEL or bidi override.
+// Line feeds are checked separately, by comparing line counts with a benign
+// rendering, because they are legitimate between lines.
+func assertNoStrayControls(t *testing.T, out string) {
+	t.Helper()
+	stripped := stripANSI(out)
+	if hasControlRune(stripped) {
+		t.Errorf("control characters survive in %q", out)
+	}
+	for _, r := range stripped {
+		if r >= 0x202a && r <= 0x202e || r >= 0x2066 && r <= 0x2069 {
+			t.Errorf("bidi control %U survives in %q", r, out)
+		}
+	}
+}
+
 func sampleReport() ledger.Report {
 	return ledger.Report{
 		Items: []ledger.ItemResult{

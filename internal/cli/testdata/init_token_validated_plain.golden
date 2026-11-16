@@ -1,0 +1,15 @@
+  Step 1/4 - config: create the config file with commented defaults at <HOME>/xdg-config/ticktack/config.toml
+Proceed? [Y/n] YouTrack base URL (empty to set it later):   +  config written: <HOME>/xdg-config/ticktack/config.toml
+
+  Step 2/4 - token: store the YouTrack permanent token in the OS keychain
+Proceed? [Y/n] Token (input hidden, empty to skip): 
+  +  token stored in the keychain
+Validate the token against YouTrack now? [Y/n]   +  token: valid (user jane)
+
+  Step 3/4 - shell hook: add a managed block to <HOME>/.zshrc
+Proceed? [Y/n]   -  skipped
+
+  Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
+Proceed? [Y/n]   -  skipped
+
+  +  Done. Run `ticktack doctor` to verify the setup.

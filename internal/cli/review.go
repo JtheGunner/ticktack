@@ -181,9 +181,9 @@ func (r *reviewRun) show() {
 		{Header: msgColTime},
 		{Header: msgColLength, Right: true},
 		{Header: msgColTicket},
-		{Header: msgColTier},
+		{Header: msgColTier, Stack: true},
 		{Header: msgColReason, Flex: true, Wrap: true},
-		{Header: msgColState},
+		{Header: msgColState, Stack: true},
 	}, rows) {
 		r.println(line)
 	}

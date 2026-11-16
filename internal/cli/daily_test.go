@@ -97,27 +97,34 @@ func TestStatusGolden(t *testing.T) {
 		}
 		return ""
 	}
+	colour := render.Renderer{
+		Colors: render.Colors{Enabled: true},
+		Glyphs: render.GlyphsFromEnv(unicodeEnv),
+		Width:  60,
+	}
 	tests := []struct {
 		name   string
 		paused bool
+		empty  bool
 		render render.Renderer
 	}{
-		{"status_plain", false, render.Plain()},
-		{"status_paused_plain", true, render.Plain()},
-		{"status_unicode_color", false, render.Renderer{
-			Colors: render.Colors{Enabled: true},
-			Glyphs: render.GlyphsFromEnv(unicodeEnv),
-			Width:  60,
-		}},
+		{"status_plain", false, false, render.Plain()},
+		{"status_paused_plain", true, false, render.Plain()},
+		{"status_paused_unicode_color", true, false, colour},
+		{"status_unicode_color", false, false, colour},
+		{"status_nothing_recorded_plain", false, true, render.Plain()},
+		{"status_nothing_recorded_unicode_color", false, true, colour},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			deps, st, out := newDailyEnv(t, "")
 			deps.Render = tc.render
-			mustAppend(t, st,
-				shellContext(dailyNow.Add(-5*time.Minute), "/work/api", "ABC-7-fix"),
-				event.Event{At: dailyNow.Add(-2 * time.Minute), Source: "presence", Kind: event.KindPresence},
-			)
+			if !tc.empty {
+				mustAppend(t, st,
+					shellContext(dailyNow.Add(-5*time.Minute), "/work/api", "ABC-7-fix"),
+					event.Event{At: dailyNow.Add(-2 * time.Minute), Source: "presence", Kind: event.KindPresence},
+				)
+			}
 			if tc.paused {
 				if err := runPause(deps); err != nil {
 					t.Fatal(err)

@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Styled command output: headings, aligned tables and status lines with colours and glyphs, adapted to the terminal width.
 - `--no-color` flag on every command. `NO_COLOR` and `TERM=dumb` also turn colours off, and output that is not a terminal never contains ANSI codes.
 - ASCII fallback for glyphs and frames when the locale is not UTF-8 or `TERM=dumb`.
+- Output is measured in terminal cells, so wide characters (CJK, emoji) in paths, branches and reasons no longer break the alignment of tables, boxes and wrapped text. Measurement does not depend on the locale.
+- The summary boxes of `doctor` and `sync` have a green or red border that matches their result.
 
 ### Changed
 
 - The layout of the interactive commands' output: `init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `pause`, `resume` and `switch`. Scripts that parse this text must be updated; `agent`, `hook` and `version` are unchanged.
+- `ticktack review` moves the tier and state of a block below its row when the terminal is too narrow for all columns, instead of cutting them.
 - `ticktack digest` prints the stored digest text, which is plain ASCII without colour by design so the stored text is stable.
 
 ## [0.1.1] - 2026-11-16

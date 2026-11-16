@@ -69,18 +69,21 @@ func TestDoctorReportGolden(t *testing.T) {
 }
 
 func TestDoctorReportSanitisesBeforeStyling(t *testing.T) {
-	hostile := "boom\x1b[2J\r\nfake line\x07"
-	res := []checkResult{failResult("youtrack", "server said: "+hostile, "fix it"+hostile)}
-	for _, r := range []render.Renderer{render.Plain(), unicodeColorRenderer()} {
+	hostile := "boom\x1b[2J\r\nfake line\x07\u202e"
+	benign := "boomfake line"
+	render1 := func(r render.Renderer, text string) string {
 		var out strings.Builder
-		writeDoctorReport(&out, r, res)
-		// Every ESC left in the output must belong to our own SGR styling.
-		stripped := stripANSI(out.String())
-		if strings.ContainsAny(strings.ReplaceAll(stripped, "\n", ""), "\x1b\r\a") {
-			t.Errorf("control bytes survive in %q", out.String())
+		writeDoctorReport(&out, r, []checkResult{failResult("youtrack", "server said: "+text, "fix it"+text)})
+		return out.String()
+	}
+	for _, r := range []render.Renderer{render.Plain(), unicodeColorRenderer()} {
+		got := render1(r, hostile)
+		assertNoStrayControls(t, got)
+		if !strings.Contains(stripANSI(got), "server said: boom") {
+			t.Errorf("detail lost:\n%q", got)
 		}
-		if !strings.Contains(stripped, "server said: boom") {
-			t.Errorf("detail lost:\n%q", out.String())
+		if want := strings.Count(render1(r, benign), "\n"); strings.Count(got, "\n") != want {
+			t.Errorf("hostile text added lines: %d, want %d:\n%q", strings.Count(got, "\n"), want, got)
 		}
 	}
 }
