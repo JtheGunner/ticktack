@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -40,6 +42,9 @@ type hookDeps struct {
 	Now func() time.Time
 	// Paused reports whether tracking is paused.
 	Paused func() bool
+	// Pattern returns the configured ticket pattern. A nil pattern or an error
+	// falls back to the default pattern; the hook never fails on it.
+	Pattern func() (*regexp.Regexp, error)
 	// Logf records an error. It must never write to stdout or stderr.
 	Logf func(format string, args ...any)
 }
@@ -78,8 +83,24 @@ func defaultHookDeps() hookDeps {
 			}
 			return pauseFlagCheck(p)()
 		},
-		Logf: fileLogf,
+		Pattern: configuredTicketPattern,
+		Logf:    fileLogf,
 	}
+}
+
+// configuredTicketPattern reads only the ticket pattern from the config file.
+// The file is read and parsed per prompt without touching the database; a
+// missing file yields the default pattern.
+func configuredTicketPattern() (*regexp.Regexp, error) {
+	path, err := config.DefaultPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadOrDefault(path)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.TicketPattern, nil
 }
 
 func openHookStore() (eventSink, error) {
@@ -152,9 +173,16 @@ func runHook(ctx context.Context, deps hookDeps, cwd string) error {
 		}
 	}()
 
+	pattern, err := deps.Pattern()
+	if err != nil {
+		// Fall back to the default pattern; the prompt must keep working.
+		deps.Logf("load ticket pattern: %v", err)
+		pattern = nil
+	}
+
 	now := deps.Now()
 	events := []event.Event{
-		{At: now, Source: hookSource, Kind: event.KindContext, Repo: root, Branch: branch, Ticket: ticketid.Extract(branch, nil)},
+		{At: now, Source: hookSource, Kind: event.KindContext, Repo: root, Branch: branch, Ticket: ticketid.Extract(branch, pattern)},
 		{At: now, Source: hookSource, Kind: event.KindPresence},
 	}
 	for _, e := range events {

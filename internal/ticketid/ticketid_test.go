@@ -14,7 +14,10 @@ func TestExtract(t *testing.T) {
 		want    string
 	}{
 		{"upper case", "feature/PROJ-123-foo", nil, "PROJ-123"},
-		{"lower case is upper-cased", "fix/proj-12", nil, "PROJ-12"},
+		{"lower case is not a ticket", "fix/proj-12", nil, ""},
+		{"lower case branch like utf-8", "fix/utf-8-handling", nil, ""},
+		{"upper case after lower case prefix", "feat/ABC-12-x", nil, "ABC-12"},
+		{"custom lower case pattern is upper-cased", "x/abc-5", regexp.MustCompile(`abc-\d+`), "ABC-5"},
 		{"first of several", "fix/PROJ-1-and-PROJ-2", nil, "PROJ-1"},
 		{"no ticket", "main", nil, ""},
 		{"empty branch", "", nil, ""},

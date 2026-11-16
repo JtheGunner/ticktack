@@ -8,12 +8,16 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 )
 
-// DefaultPattern matches ticket IDs like PROJ-123, ignoring case. It is built
-// from the configuration default so there is a single source of truth.
-var DefaultPattern = regexp.MustCompile(`(?i)` + config.DefaultTicketPattern)
+// DefaultPattern matches ticket IDs like PROJ-123. It is case-sensitive and
+// identical to the configuration default, so a nil pattern behaves exactly
+// like an unconfigured ticket_pattern. A case-insensitive match would read
+// branches such as "fix/utf-8-handling" as ticket UTF-8.
+var DefaultPattern = regexp.MustCompile(config.DefaultTicketPattern)
 
-// Extract returns the first ticket ID found in text, upper-cased, or "" when
-// there is none. A nil pattern means DefaultPattern.
+// Extract returns the first match of pattern in text, upper-cased, or "" when
+// there is none. The pattern is applied exactly as given (the configured
+// ticket_pattern), so every caller agrees on what a ticket is. A nil pattern
+// means DefaultPattern.
 func Extract(text string, pattern *regexp.Regexp) string {
 	if pattern == nil {
 		pattern = DefaultPattern
