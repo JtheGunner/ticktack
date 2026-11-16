@@ -34,6 +34,9 @@ func TestExampleConfigLoadsWithDefaults(t *testing.T) {
 	if example.ActivityWatch != defaults.ActivityWatch {
 		t.Errorf("activitywatch = %+v, want %+v", example.ActivityWatch, defaults.ActivityWatch)
 	}
+	if example.Scan != defaults.Scan {
+		t.Errorf("scan = %+v, want %+v", example.Scan, defaults.Scan)
+	}
 	if example.Auto != defaults.Auto {
 		t.Errorf("auto = %+v, want %+v", example.Auto, defaults.Auto)
 	}
@@ -60,7 +63,7 @@ func TestExampleConfigDocumentsEveryKey(t *testing.T) {
 		"youtrack_url", "gap_threshold", "min_block_duration", "rounding", "daily_cap",
 		"ticket_pattern", "repo_paths", "time_zone", "[[rules]]", "repo =", "ticket =",
 		"[titlehint]", "enabled", "[titlehint.projects]", "[activitywatch]", "url", "hostname",
-		"[auto]", "trusted_days",
+		"[auto]", "trusted_days", "[scan]", "interval",
 	}
 	for _, key := range keys {
 		if !strings.Contains(data, key) {

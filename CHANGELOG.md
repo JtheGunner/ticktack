@@ -19,7 +19,13 @@ First public release.
 - `ticktack review` to confirm, reassign, discard, split or mark blocks as breaks; `ticktack explain` shows the signal and rule behind a block; `ticktack map` manages learned rules.
 - `ticktack sync` books confirmed time idempotently, one YouTrack work item per ticket, day and type; `ticktack undo` reverts the last booking run.
 - Optional integrations, all off by default: window-title hints, ActivityWatch import (`ticktack import activitywatch`, loopback only) and auto mode with a trust gate (`ticktack auto`, `ticktack digest`).
+- `ticktack scan [--since YYYY-MM-DD]` reads the git reflog of the repositories in `repo_paths` (absolute or `~/` paths, one repository root per entry) and stores repo, branch, ticket hint and timestamp as context events, so work without a shell prompt such as IDE git is captured. Scanning is idempotent and honours the pause flag.
+- Optional periodic scan by the agent: `[scan] interval` (off by default, minimum `5m`). `ticktack doctor` gained a "git repositories" check that reports each missing, unreadable or non-repository path.
 - Example configuration in `examples/config.toml`.
 - Release packaging with GoReleaser and installation through a Homebrew tap or `go install`.
+
+### Fixed
+
+- The agent now waits for its window-title and scan goroutines before closing the store on shutdown.
 
 [Unreleased]: https://github.com/JtheGunner/ticktack/commits/main

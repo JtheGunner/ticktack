@@ -25,7 +25,7 @@ You stay in control. Every block is shown with the reason it was attributed to a
 
 |    | Idea                    | What it means                                                                                  |
 |:--:|-------------------------|------------------------------------------------------------------------------------------------|
-| 🫥 | **Passive**             | No timers to start or stop. A launchd agent samples presence; a shell hook reports repo and branch. |
+| 🫥 | **Passive**             | No timers to start or stop. A launchd agent samples presence; a shell hook reports repo and branch; `ticktack scan` fills gaps from the git reflog. |
 | 🔒 | **Private by design**   | No window titles, screenshots, keystrokes or file contents are stored. No telemetry.           |
 | 🔍 | **Explainable**         | `ticktack explain` shows the signal and rule behind every block.                               |
 | ♻️ | **Idempotent booking**  | One work item per ticket, day and type. Syncing twice updates instead of duplicating.          |
@@ -39,7 +39,8 @@ Two independent signals are combined. **Presence** says whether you were at the 
 
 ```text
   presence agent ──┐                                   ┌── overrides (your corrections)
-  shell hook     ──┼─▶ events (append-only) ─▶ blocks ─┤
+  shell hook     ──┤
+  git reflog scan──┼─▶ events (append-only) ─▶ blocks ─┤
   manual pins    ──┘     presence ∩ context            └── rules ─▶ review ─▶ sync ─▶ YouTrack
                                                                               │
                                                                           ledger (idempotent)
@@ -131,11 +132,12 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this.              |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
 | `ticket_pattern`     | `[A-Z][A-Z0-9]+-\d+`   | Regular expression that extracts a ticket id from a branch name. |
-| `repo_paths`         | none                   | Reserved, currently not used: accepted and validated, but nothing reads it yet. |
+| `repo_paths`         | none                   | Repositories read by `ticktack scan` and the agent's periodic scan. Each entry is the root of one repository, as an absolute path or starting with `~/`; subdirectories are not searched. |
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
 | `[[rules]]`          | none                   | Fixed mappings with `repo` (path) and `ticket`. Repeatable.      |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
+| `[scan]`             | `interval = "0"`       | Periodic git scan by the agent. `"0"` is off; otherwise at least `"5m"`. |
 | `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is never part of the config.
@@ -164,6 +166,7 @@ Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is neve
 | ↩️ | `ticktack undo`                 | Revert the last sync.                                                                |
 | 🤖 | `ticktack auto`                 | Book the safe blocks of a day without review once trust is earned (`--day`, `--dry-run`). |
 | 📰 | `ticktack digest`               | Show the digest of the last auto run.                                                |
+| 🔭 | `ticktack scan`                 | Read the git reflog of the repositories in `repo_paths` and store repo and branch context (`--since YYYY-MM-DD`, default: the start of the day 7 days ago). |
 | 🔌 | `ticktack import activitywatch` | Import window and AFK events from a local ActivityWatch server (`--since YYYY-MM-DD`). |
 
 Run `ticktack <command> --help` for details.
@@ -176,7 +179,8 @@ All of these are **off by default** and can be enabled independently.
 
 | Integration         | How to enable                                                       | Notes                                                                 |
 |---------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------|
-| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | The source of repository and branch context: at each prompt it records the repository root and branch. Without it only manual pins (`ticktack switch`), window-title hints or the ActivityWatch import provide context. Managed block in your rc file. |
+| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | The source of repository and branch context: at each prompt it records the repository root and branch. Without it, context comes from `ticktack scan`, manual pins (`ticktack switch`), window-title hints or the ActivityWatch import. Managed block in your rc file. |
+| 🔭 Git reflog scan  | List repositories in `repo_paths`, then run `ticktack scan`. Set `[scan] interval` (for example `"30m"`) to let the agent scan at start and then at that interval. | Works for repositories used without a shell prompt, such as IDE git, and fills gaps afterwards. Reads only the HEAD reflog (read-only `git`, no hooks, no writes); stores repo, branch, ticket hint from the branch name and timestamp, never commit messages or file contents. Scanning again changes nothing; the agent skips scans while capture is paused. `ticktack doctor` checks each path. |
 | 🪟 Window-title hints | `[titlehint] enabled = true` plus a project-to-repository map.    | Needs the macOS Accessibility permission. Titles are parsed in memory for a project hint and never stored. |
 | 🔌 ActivityWatch import | `[activitywatch] enabled = true`, then `ticktack import activitywatch`. | Talks only to a loopback server.                                |
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
@@ -189,6 +193,7 @@ All of these are **off by default** and can be enabled independently.
 ## 🔐 Privacy
 
 - Never stored: window titles, screenshots, keystrokes, file contents. Titles may be parsed in memory for a project hint only.
+- `ticktack scan` runs the local `git` binary read-only on your configured repositories and keeps only repo, branch, ticket hint and timestamp.
 - The only network call is the YouTrack sync. The optional ActivityWatch import talks to a loopback address only. There is no telemetry.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
