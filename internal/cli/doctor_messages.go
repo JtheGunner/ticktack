@@ -74,5 +74,19 @@ const (
 	msgTitleReadFail  = "reading the frontmost window failed: %v"
 	msgTitleReadFix   = "check that /usr/bin/osascript works, or set enabled = false under [titlehint]"
 
+	msgCheckRepoRoots     = "repository roots"
+	msgRootsNone          = "no repo_roots configured (optional)"
+	msgRootsConfigBad     = "skipped because the config cannot be read (see the config check)"
+	msgRootsOK            = "%d roots, %d repositories found"
+	msgRootsFail          = "%d of %d roots unusable: %s"
+	msgRootMissing        = "%s is not a readable directory"
+	msgRootsFix           = "create the directory or fix or remove the entry in repo_roots of %s"
+	msgCheckStandardTasks = "standard tasks"
+	msgStdTasksOff        = "no [default_issue] configured (optional)"
+	msgStdTasksConfigBad  = "skipped because the config cannot be read (see the config check)"
+	msgStdTasksDBFail     = "the project cache cannot be read: %v"
+	msgStdTasksNeverFetch = "the YouTrack project list was not fetched yet; run `ticktack review` once to match folders to projects"
+	msgStdTasksOK         = "%d projects cached, refreshed %s ago"
+
 	msgFixPrefix = "fix: "
 )

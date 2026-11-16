@@ -43,7 +43,7 @@ func TestDoctorReportsEachCheckIndependently(t *testing.T) {
 	if got := strings.Count(text, "fix: "); got != 7 {
 		t.Errorf("fix hints = %d, want 7:\n%s", got, text)
 	}
-	if !strings.Contains(text, "7 of 10 checks failed.") {
+	if !strings.Contains(text, "7 of 12 checks failed.") {
 		t.Errorf("summary missing:\n%s", text)
 	}
 }
@@ -90,7 +90,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 			t.Errorf("expected OK for %s:\n%s", name, text)
 		}
 	}
-	if !strings.Contains(text, "x  token:") || !strings.Contains(text, "1 of 10 checks failed.") {
+	if !strings.Contains(text, "x  token:") || !strings.Contains(text, "1 of 12 checks failed.") {
 		t.Errorf("token failure not reported alone:\n%s", text)
 	}
 
@@ -102,7 +102,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 	if err := runDoctor(context.Background(), env.deps.Doctor, &out); err != nil {
 		t.Fatalf("all checks should pass: %v\n%s", err, out.String())
 	}
-	if strings.Contains(out.String(), testSecret) || !strings.Contains(out.String(), "All 10 checks passed.") {
+	if strings.Contains(out.String(), testSecret) || !strings.Contains(out.String(), "All 12 checks passed.") {
 		t.Errorf("unexpected output:\n%s", out.String())
 	}
 }
