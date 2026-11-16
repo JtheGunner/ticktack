@@ -14,6 +14,7 @@ import (
 const (
 	msgReviewPrompt                 = "review> "
 	msgReviewNoEntries              = "No time recorded for %s."
+	msgReviewProjectsStale          = "Could not refresh the YouTrack project list, using the cached one: %s"
 	msgReviewHelp                   = "Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit"
 	msgReviewConfirmed              = "Confirmed %s."
 	msgReviewConfirmAll             = "Confirmed %d item(s). Unassigned time is never confirmed."

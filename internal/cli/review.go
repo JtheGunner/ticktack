@@ -15,11 +15,14 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
+	"github.com/JtheGunner/ticktack/internal/sink"
+	"github.com/JtheGunner/ticktack/internal/store"
 )
 
 // reviewStore is the store as the review command uses it.
 type reviewStore interface {
 	review.Store
+	ReplaceProjects(ctx context.Context, projects []store.Project, fetchedAt time.Time) error
 	Close() error
 }
 
@@ -103,6 +106,7 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 		// Suggestions are a convenience: any failure to set them up is ignored.
 		if src, err := deps.NewIssueSource(cfg); err == nil && src != nil {
 			opts = append(opts, review.WithIssueSource(src))
+			refreshProjectList(ctx, deps, cfg, src, st)
 		}
 	}
 	session, err := review.NewSession(ctx, st, cfg, day, deps.Now, opts...)
@@ -111,6 +115,24 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 	}
 	r := &reviewRun{ctx: ctx, s: session, out: deps.Out, render: deps.Render, in: bufio.NewScanner(deps.In), loc: loc, day: day}
 	return r.loop()
+}
+
+// refreshProjectList refreshes the cached YouTrack project list so the review
+// attributes unticketed time to the right project's standard task. It only
+// runs when standard tasks are configured and the source can list projects. A
+// failure never stops the review: the old cache stays in use and one line says
+// so.
+func refreshProjectList(ctx context.Context, deps reviewDeps, cfg config.Config, src review.IssueSource, st reviewStore) {
+	if cfg.DefaultIssue == nil {
+		return
+	}
+	provisioner, ok := src.(sink.TaskProvisioner)
+	if !ok {
+		return
+	}
+	if stale, err := review.RefreshProjects(ctx, provisioner, st, deps.Now()); stale {
+		_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, fmt.Sprintf(msgReviewProjectsStale, SanitizeForTerminal(err.Error()))))
+	}
 }
 
 type reviewRun struct {

@@ -25,6 +25,8 @@ type dailyStore interface {
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
+	Projects(ctx context.Context) ([]store.Project, time.Time, error)
+	DefaultTasks(ctx context.Context) (map[string]string, error)
 	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
 	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
 	DeleteLearnedRule(ctx context.Context, id int64) error

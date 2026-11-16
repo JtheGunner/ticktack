@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/reporoots"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -30,6 +32,8 @@ type Reader interface {
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
+	Projects(ctx context.Context) ([]store.Project, time.Time, error)
+	DefaultTasks(ctx context.Context) (map[string]string, error)
 }
 
 // Store is everything review needs from the persistence layer.
@@ -73,6 +77,9 @@ func RulesFrom(cfg config.Config) resolver.Rules {
 	for _, r := range cfg.Rules {
 		rules.Repos = append(rules.Repos, resolver.RepoRule(r))
 	}
+	if cfg.DefaultIssue != nil {
+		rules.GlobalProject = cfg.DefaultIssue.Project
+	}
 	return rules
 }
 
@@ -81,6 +88,8 @@ func RulesFrom(cfg config.Config) resolver.Rules {
 // every command sees the same attribution.
 func LoadRules(ctx context.Context, r interface {
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
+	Projects(ctx context.Context) ([]store.Project, time.Time, error)
+	DefaultTasks(ctx context.Context) (map[string]string, error)
 }, cfg config.Config) (resolver.Rules, error) {
 	rules := RulesFrom(cfg)
 	learned, err := r.LearnedRules(ctx)
@@ -89,6 +98,26 @@ func LoadRules(ctx context.Context, r interface {
 	}
 	for _, l := range learned {
 		rules.Learned = append(rules.Learned, resolver.LearnedRule{ID: l.ID, Repo: l.Repo, Branch: l.BranchPattern, Ticket: l.Ticket})
+	}
+	if cfg.DefaultIssue == nil {
+		return rules, nil
+	}
+	projects, _, err := r.Projects(ctx)
+	if err != nil {
+		return resolver.Rules{}, err
+	}
+	for _, p := range projects {
+		rules.Projects = append(rules.Projects, resolver.ProjectInfo{Key: p.Key, Name: p.Name})
+	}
+	if rules.DefaultTasks, err = r.DefaultTasks(ctx); err != nil {
+		return resolver.Rules{}, err
+	}
+	if len(cfg.RepoRoots) > 0 {
+		// Without a home directory "~/" roots cannot be expanded and match
+		// nothing, so those repositories fall back to the global task.
+		home, _ := os.UserHomeDir()
+		roots := cfg.RepoRoots
+		rules.FolderOf = func(repo string) (string, bool) { return reporoots.FolderOf(roots, home, repo) }
 	}
 	return rules, nil
 }
