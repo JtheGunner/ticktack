@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 	msgReviewBreak                  = "Entry %d marked as break (not booked)."
 	msgReviewSplit                  = "Entry %d split at %s."
 	msgReviewCapAcked               = "Daily cap warning acknowledged for this total."
+	msgReviewSplitNeedsTicket       = "Error: unassigned time can only be split together with a ticket for the second part (s N HH:MM TICKET)."
 	msgReviewSplitPrompt            = "Ticket for the second part (empty keeps %s): "
 	msgReviewNextStep               = "Next step: run `ticktack sync` to book the confirmed items."
 	msgReviewNothingYet             = "Nothing confirmed yet: `ticktack sync` will book nothing."
@@ -60,7 +62,12 @@ func msgReviewRemembered(r store.LearnedRule) string {
 
 func msgReviewUsage(usage string) string { return "Usage: " + usage }
 
-func msgReviewError(err error) string { return "Error: " + SanitizeForTerminal(err.Error()) }
+func msgReviewError(err error) string {
+	if errors.Is(err, review.ErrSplitNeedsTicket) {
+		return msgReviewSplitNeedsTicket
+	}
+	return "Error: " + SanitizeForTerminal(err.Error())
+}
 
 func msgReviewCapWarning(w review.CapWarning) string {
 	state := "NOT acknowledged: sync is blocked"

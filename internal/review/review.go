@@ -50,6 +50,9 @@ var (
 	ErrInvalidTicket  = errors.New("invalid ticket ID")
 	ErrInvalidSplit   = errors.New("split time must lie strictly inside the entry")
 	ErrNoCapWarning   = errors.New("the day is not over the daily cap")
+	// ErrSplitNeedsTicket is returned when splitting unassigned time without
+	// a ticket for the second part: the result would still be unassigned.
+	ErrSplitNeedsTicket = errors.New("splitting unassigned time needs a ticket for the second part")
 )
 
 // CapBlockedError reports that a day above the daily cap was not acknowledged.
@@ -526,6 +529,11 @@ func (s *Session) Split(ctx context.Context, n int, clock, ticket string) error 
 		if target, err = s.NormalizeTicket(ticket); err != nil {
 			return err
 		}
+	}
+	if target == "" {
+		// An unassigned gap split without a ticket yields two unassigned
+		// halves; storing that as a correction would only break the streak.
+		return ErrSplitNeedsTicket
 	}
 	return s.apply(ctx, true, nil, func(tx store.Tx) error {
 		return tx.AddOverride(ctx, event.Override{Start: at, End: e.End, Ticket: target})
