@@ -181,6 +181,40 @@ Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is neve
 
 Run `ticktack <command> --help` for details.
 
+Every command accepts the global flag `--no-color`.
+
+---
+
+## 🎨 Output and colours
+
+The interactive commands (`init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `pause`, `resume`, `switch`) print structured output: headings, aligned tables and status lines whose glyph tells success, warning and failure apart even without colour. This is `ticktack today` as plain text:
+
+```text
+  Blocks for 2026-03-02
+
+  #  Time         Ticket        Tier      Reason
+  1  08:00-08:40  ABC-7         explicit  ticket ABC-7 found in branch "ABC...
+  2  09:30-09:50  (unassigned)  unknown   no ticket in branch and no rule f...
+
+  Totals
+  Ticket        Time  Raw
+  (unassigned)   15m  21m
+  ABC-7          45m  41m
+
+  Total  1h
+  !  OVER DAILY CAP (30m0s)
+```
+
+| Situation                                   | Behaviour                                                          |
+|---------------------------------------------|--------------------------------------------------------------------|
+| 🖥️ Output is a terminal                     | Colours are on.                                                    |
+| 🔀 Output is piped or redirected            | No colour and no ANSI escape codes; the text is stable for scripts. |
+| 🚫 `--no-color`, `NO_COLOR` set, `TERM=dumb` | Colours are off.                                                   |
+| 🔤 Locale is not UTF-8, or `TERM=dumb`      | ASCII glyphs and frames (`+`, `!`, `x`, `i`) instead of Unicode symbols. |
+| 📏 Width                                    | Follows the terminal, capped at 100 columns; 78 when the output is not a terminal. Long reasons are shortened with an ellipsis instead of wrapping. |
+
+`ticktack agent`, `ticktack hook` and `ticktack version` keep their plain output: the agent writes a log and the hook runs at every shell prompt.
+
 ---
 
 ## 🧩 Optional integrations
@@ -223,6 +257,7 @@ make lint     # golangci-lint run ./...
 |-------------------|------------------------------------------------------------------|
 | `cmd/ticktack/`   | Entrypoint.                                                      |
 | `internal/cli/`   | Command tree and all user-facing strings.                        |
+| `internal/render/` | Colours, glyphs, tables and layout shared by the commands.      |
 | `launchd/`        | Renders the launchd job definition of the presence agent.        |
 | `internal/collector/` | Event sources: presence, window-title, ActivityWatch.   |
 | `internal/resolver/`, `internal/sessionizer/` | Pure functions that attribute tickets and build blocks. |

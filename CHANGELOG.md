@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Styled command output: headings, aligned tables and status lines with colours and glyphs, adapted to the terminal width.
+- `--no-color` flag on every command. `NO_COLOR` and `TERM=dumb` also turn colours off, and output that is not a terminal never contains ANSI codes.
+- ASCII fallback for glyphs and frames when the locale is not UTF-8 or `TERM=dumb`.
+
+### Changed
+
+- The layout of the interactive commands' output: `init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `pause`, `resume` and `switch`. Scripts that parse this text must be updated; `agent`, `hook` and `version` are unchanged.
+
 ## [0.1.1] - 2026-11-16
 
 ### Added
