@@ -221,13 +221,13 @@ Tests are table-driven and the YouTrack client is tested against an `httptest` s
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. It needs no secrets and never talks to YouTrack; the `e2e` build-tag test is not run.
 
-| Job name              | Check                                                  |
-|-----------------------|--------------------------------------------------------|
-| `lint`                | `golangci-lint` (version pinned in the workflow)       |
-| `test (macos-latest)` | `make test` (`CGO_ENABLED=0 go test ./...`) on macOS   |
-| `test (ubuntu-latest)`| the same tests on Linux, to catch portability issues   |
-| `build`               | `make build` on macOS                                  |
-| `tidy`                | `go mod tidy -diff` fails when `go.mod`/`go.sum` drift |
+| Job name               | Check                                                  |
+|------------------------|--------------------------------------------------------|
+| `lint`                 | `golangci-lint` (version pinned in the workflow)       |
+| `test (macos-latest)`  | `make test` (`CGO_ENABLED=0 go test ./...`) on macOS   |
+| `test (ubuntu-latest)` | the same tests on Linux, to catch portability issues   |
+| `build`                | `make build` on macOS                                  |
+| `tidy`                 | `go mod tidy -diff` fails when `go.mod`/`go.sum` drift |
 
 Register these five job names as required status checks when protecting `main`.
 
