@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context precedence is now pin, then window-title hint, then git/shell context. A hint applies only while its app is the frontmost app; the title collector records the app's bundle ID on its events for this.
 - A day counts towards the auto-mode trust gate only if its review session took place on that calendar day or the next one (configured time zone). Catch-up reviews with `ticktack review --day` stay valid for booking but do not count.
 - `ticktack map` help and the README now state that learned rules match the branch exactly and the repository by path prefix; there are no globs.
+- `y` (confirm all) in `ticktack review` is all or nothing: if storing fails, no item is confirmed instead of only the first few.
 - README "Releasing" section updated to match the release workflow.
 
 ### Fixed
