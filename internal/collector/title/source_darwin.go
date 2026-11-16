@@ -13,6 +13,21 @@ import (
 // otherwise block until the user answers it.
 const callTimeout = 5 * time.Second
 
+// frontmostScript asks System Events for the bundle ID and the title of the
+// frontmost window. It prints the bundle ID, a line feed and the title. A
+// frontmost app without windows yields an empty title. Reading a window name
+// is what requires the Accessibility permission; System Events itself
+// requires the Automation permission.
+var frontmostScript = []string{
+	`tell application "System Events"`,
+	`set frontProc to first application process whose frontmost is true`,
+	`set bundleId to bundle identifier of frontProc`,
+	`set windowTitle to ""`,
+	`if (count of windows of frontProc) > 0 then set windowTitle to name of window 1 of frontProc`,
+	`end tell`,
+	`return bundleId & linefeed & windowTitle`,
+}
+
 // osascriptSource reads the frontmost window through System Events.
 //
 // It needs two macOS permissions for the process that runs it (the terminal
