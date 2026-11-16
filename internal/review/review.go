@@ -42,7 +42,7 @@ type Store interface {
 	Confirmations(ctx context.Context, day string) ([]store.Confirmation, error)
 	AcknowledgeCap(ctx context.Context, a store.CapAcknowledgement) error
 	CapAcknowledgementFor(ctx context.Context, day string) (store.CapAcknowledgement, bool, error)
-	SaveReviewRecord(ctx context.Context, r store.ReviewRecord) error
+	SaveReviewRecord(ctx context.Context, r store.ReviewRecord) (int64, error)
 }
 
 // Errors returned by session actions.
@@ -277,6 +277,10 @@ type Session struct {
 	// what it changed so far.
 	started     time.Time
 	corrections int
+	// logID is the session's review_log row, zero until first written.
+	logID int64
+	// confirmedHere holds the items this session confirmed itself.
+	confirmedHere map[itemKey]struct{}
 }
 
 // NewSession derives the day and prepares its entries.
@@ -404,10 +408,17 @@ func (s *Session) confirmItem(ctx context.Context, ticket string) error {
 	if !ok {
 		return fmt.Errorf("%s: nothing to confirm (rounds to zero)", ticket)
 	}
-	return s.st.Confirm(ctx, store.Confirmation{
+	if err := s.st.Confirm(ctx, store.Confirmation{
 		Day: s.day.String(), Issue: it.Ticket, Type: itemType(it),
 		Minutes: it.Minutes, ConfirmedAt: s.now(),
-	})
+	}); err != nil {
+		return err
+	}
+	if s.confirmedHere == nil {
+		s.confirmedHere = map[itemKey]struct{}{}
+	}
+	s.confirmedHere[itemKey{it.Ticket, itemType(it)}] = struct{}{}
+	return nil
 }
 
 // NormalizeTicket upper-cases ticket and validates it against the configured
@@ -538,17 +549,25 @@ func (s *Session) changed(ctx context.Context, correction bool) error {
 	if correction {
 		s.corrections++
 	}
-	if err := s.refresh(ctx); err != nil {
+	// Record first so the correction is on file even if re-deriving fails.
+	if err := s.record(ctx); err != nil {
 		return err
 	}
-	return s.record(ctx)
+	return s.refresh(ctx)
 }
 
+// record writes the session's own row: its corrections and the items it
+// confirmed itself. Items confirmed in earlier sessions are not counted.
 func (s *Session) record(ctx context.Context) error {
-	return s.st.SaveReviewRecord(ctx, store.ReviewRecord{
-		Day: s.day.String(), SessionStart: s.started, FinishedAt: s.now(),
-		Corrections: s.corrections, Confirmed: s.Summary().Confirmed,
+	id, err := s.st.SaveReviewRecord(ctx, store.ReviewRecord{
+		ID: s.logID, Day: s.day.String(), SessionStart: s.started, FinishedAt: s.now(),
+		Corrections: s.corrections, Confirmed: len(s.confirmedHere),
 	})
+	if err != nil {
+		return err
+	}
+	s.logID = id
+	return nil
 }
 
 // Finish records the end of the session in the review log. Call it when the

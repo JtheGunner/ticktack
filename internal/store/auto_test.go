@@ -6,26 +6,29 @@ import (
 	"time"
 )
 
-func TestReviewRecordIsReplacedPerSession(t *testing.T) {
+func TestReviewRecordsOfSameDayAreSeparateRows(t *testing.T) {
 	s, _ := openTemp(t)
 	ctx := context.Background()
+	// Two sessions with identical start times must not overwrite each other.
 	rec := ReviewRecord{Day: "2026-01-05", SessionStart: base, FinishedAt: base.Add(time.Minute), Corrections: 1, Confirmed: 2}
-	if err := s.SaveReviewRecord(ctx, rec); err != nil {
-		t.Fatal(err)
+	first, err := s.SaveReviewRecord(ctx, rec)
+	if err != nil || first == 0 {
+		t.Fatalf("first: %d %v", first, err)
 	}
-	rec.FinishedAt, rec.Corrections = base.Add(2*time.Minute), 3
-	if err := s.SaveReviewRecord(ctx, rec); err != nil {
-		t.Fatal(err)
+	second, err := s.SaveReviewRecord(ctx, ReviewRecord{Day: "2026-01-05", SessionStart: base, FinishedAt: base, Confirmed: 1})
+	if err != nil || second == first {
+		t.Fatalf("second session must get its own row: %d %v", second, err)
 	}
-	other := ReviewRecord{Day: "2026-01-05", SessionStart: base.Add(time.Hour), FinishedAt: base.Add(time.Hour), Confirmed: 1}
-	if err := s.SaveReviewRecord(ctx, other); err != nil {
-		t.Fatal(err)
+	// Saving with the id updates that session's row.
+	rec.ID, rec.FinishedAt, rec.Corrections = first, base.Add(2*time.Minute), 3
+	if id, err := s.SaveReviewRecord(ctx, rec); err != nil || id != first {
+		t.Fatalf("update: %d %v", id, err)
 	}
 	got, err := s.ReviewRecords(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Corrections != 3 || got[0].Confirmed != 2 || got[1].Corrections != 0 {
+	if len(got) != 2 || got[0].Corrections != 3 || got[0].Confirmed != 2 || got[1].Corrections != 0 || got[1].Confirmed != 1 {
 		t.Fatalf("got %+v", got)
 	}
 	if !got[0].SessionStart.Equal(base) || !got[0].FinishedAt.Equal(base.Add(2*time.Minute)) {

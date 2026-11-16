@@ -21,7 +21,7 @@ func (f *fakeLog) rec(daysBefore, corrections, confirmed int) {
 	d := civil.DateOf(fixedNow).AddDays(-daysBefore)
 	at := time.Date(d.Year, d.Month, d.Day, 18, 0, 0, 0, time.UTC)
 	f.records = append(f.records, store.ReviewRecord{
-		Day: d.String(), SessionStart: at, FinishedAt: at, Corrections: corrections, Confirmed: confirmed,
+		ID: int64(len(f.records) + 1), Day: d.String(), SessionStart: at, FinishedAt: at, Corrections: corrections, Confirmed: confirmed,
 	})
 }
 
@@ -57,23 +57,42 @@ func TestTrackRecordCorrectionBreaksStreak(t *testing.T) {
 	}
 }
 
-func TestTrackRecordUsesLatestRecordOfADay(t *testing.T) {
+func TestTrackRecordCorrectedSessionBreaksStreakEvenIfLaterSessionIsClean(t *testing.T) {
 	f := &fakeLog{}
-	f.rec(1, 2, 1)
-	f.records = append(f.records, store.ReviewRecord{
-		Day: civil.DateOf(fixedNow).AddDays(-1).String(), SessionStart: fixedNow, FinishedAt: fixedNow, Confirmed: 1,
-	})
-	if got := streakOf(t, f); got != 1 {
-		t.Fatalf("streak = %d, want 1 (latest record is clean)", got)
+	f.rec(2, 0, 1)
+	f.rec(1, 2, 1) // corrected session first
+	f.rec(1, 0, 1) // clean session second must not wipe it
+	if got := streakOf(t, f); got != 0 {
+		t.Fatalf("streak = %d, want 0", got)
 	}
 }
 
-func TestTrackRecordIgnoresDaysWithoutConfirmations(t *testing.T) {
+func TestTrackRecordOpenAndQuitAfterCorrectedSessionChangesNothing(t *testing.T) {
 	f := &fakeLog{}
 	f.rec(2, 0, 1)
-	f.rec(1, 0, 0)
+	f.rec(1, 1, 0)
+	f.rec(1, 0, 0) // opened and quit
+	if got := streakOf(t, f); got != 0 {
+		t.Fatalf("streak = %d, want 0", got)
+	}
+}
+
+func TestTrackRecordTwoCleanSessionsCountTheDayOnce(t *testing.T) {
+	f := &fakeLog{}
+	f.rec(1, 0, 1)
+	f.rec(1, 0, 2)
 	if got := streakOf(t, f); got != 1 {
 		t.Fatalf("streak = %d, want 1", got)
+	}
+}
+
+func TestTrackRecordSessionWithoutConfirmationsNeitherCountsNorBreaks(t *testing.T) {
+	f := &fakeLog{}
+	f.rec(3, 0, 1)
+	f.rec(2, 0, 0)
+	f.rec(1, 0, 1)
+	if got := streakOf(t, f); got != 2 {
+		t.Fatalf("streak = %d, want 2", got)
 	}
 }
 
@@ -192,5 +211,50 @@ func TestSessionWithoutActionsAndFinishLeavesNoRecord(t *testing.T) {
 	newSession(t, st, testConfig())
 	if got := recordsOf(t, st); len(got) != 0 {
 		t.Fatalf("records = %+v", got)
+	}
+}
+
+func TestSessionConfirmedCountsOnlyItsOwnConfirmations(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	seed(t, st, dayStart, 60, "ABC-1")
+	first := newSession(t, st, testConfig())
+	if err := first.Confirm(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	// A second session opens the already confirmed day and quits at once.
+	second := newSession(t, st, testConfig())
+	if err := second.Finish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := recordsOf(t, st)
+	if len(got) != 2 || got[0].Confirmed != 1 || got[1].Confirmed != 0 || got[1].Corrections != 0 {
+		t.Fatalf("records = %+v", got)
+	}
+	if got[0].ID == got[1].ID {
+		t.Fatal("sessions share a row")
+	}
+}
+
+func TestCorrectedSessionFollowedByCleanSessionStaysCorrected(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	seed(t, st, dayStart, 60, "ABC-1")
+	first := newSession(t, st, testConfig())
+	if err := first.Reassign(ctx, 1, "XYZ-9"); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Finish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second := newSession(t, st, testConfig())
+	if _, err := second.ConfirmAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Finish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := TrackRecord(ctx, st, fixedNow); err != nil || n != 0 {
+		t.Fatalf("streak = %d err %v, want 0", n, err)
 	}
 }

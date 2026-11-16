@@ -45,7 +45,7 @@ func seedCleanDays(t *testing.T, deps syncDeps, n int) {
 	for i := 1; i <= n; i++ {
 		at := time.Date(2026, 1, 5-i, 18, 0, 0, 0, time.UTC)
 		rec := store.ReviewRecord{Day: day.AddDays(-i).String(), SessionStart: at, FinishedAt: at, Confirmed: 1}
-		if err := st.SaveReviewRecord(context.Background(), rec); err != nil {
+		if _, err := st.SaveReviewRecord(context.Background(), rec); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -118,6 +118,22 @@ func TestAutoModeLockedUntilTrackRecord(t *testing.T) {
 		}
 		if !strings.Contains(out, "locked") || len(rec.calls) != 0 {
 			t.Fatalf("a correction must lock auto mode again:\n%s", out)
+		}
+	})
+
+	t.Run("reassign, quit, review again, quit leaves the day corrected", func(t *testing.T) {
+		deps, rec := autoTestDeps(t, true, 3)
+		seedCleanDays(t, deps, 3)
+		reviewScripted(t, deps, "t 1 XYZ-9\nq\n")
+		reviewScripted(t, deps, "q\n")
+		reviewScripted(t, deps, "y\nq\n")
+		failOnSink(t, &deps)
+		out, err := runAutoFor(t, deps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "locked") || len(rec.calls) != 0 {
+			t.Fatalf("later clean sessions must not unlock auto mode:\n%s", out)
 		}
 	})
 
@@ -354,5 +370,26 @@ func TestAutoCommandIsRegisteredAndNeedsConfig(t *testing.T) {
 	deps.LoadConfig = func() (config.Config, string, error) { return config.Config{}, "", errors.New("no config") }
 	if err := runAuto(context.Background(), &bytes.Buffer{}, deps, "", false); err == nil {
 		t.Error("missing config must be an error")
+	}
+}
+
+// reviewScripted runs one review session of 2026-01-05 with the given input.
+func reviewScripted(t *testing.T, deps syncDeps, input string) {
+	t.Helper()
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	cfg, _, _ := deps.LoadConfig()
+	rd := reviewDeps{
+		OpenStore:  func() (reviewStore, error) { return nopCloseStore{st}, nil },
+		LoadConfig: func() (config.Config, error) { return cfg, nil },
+		Now:        deps.Now,
+		In:         strings.NewReader(input),
+		Out:        &bytes.Buffer{},
+	}
+	if err := runReview(context.Background(), rd, "2026-01-05"); err != nil {
+		t.Fatal(err)
 	}
 }

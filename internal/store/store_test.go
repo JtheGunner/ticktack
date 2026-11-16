@@ -192,7 +192,7 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	if _, err := s.AddLearnedRule(ctx, LearnedRule{Repo: "/work/app", Ticket: "TICKT-1", CreatedAt: base}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveReviewRecord(ctx, ReviewRecord{Day: "2026-01-06", SessionStart: base, FinishedAt: base, Confirmed: 1}); err != nil {
+	if _, err := s.SaveReviewRecord(ctx, ReviewRecord{Day: "2026-01-06", SessionStart: base, FinishedAt: base, Confirmed: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddDigest(ctx, Digest{Day: "2026-01-06", CreatedAt: base, Text: "digest"}); err != nil {
