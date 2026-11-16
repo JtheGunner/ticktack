@@ -5,7 +5,7 @@
 **Passive time tracking that ends in reviewed YouTrack work items.**
 It watches when you are at the keyboard and which repository and branch you work on, then proposes the time sheet. You review it before anything is booked.
 
-<code>🖥️ presence + 🌿 git / shell context</code> &nbsp;→&nbsp; <code>🧮 work blocks</code> &nbsp;→&nbsp; <code>✅ review</code> &nbsp;→&nbsp; <code>📒 YouTrack</code>
+<code>🖥️ presence + 🌿 shell context (repo, branch)</code> &nbsp;→&nbsp; <code>🧮 work blocks</code> &nbsp;→&nbsp; <code>✅ review</code> &nbsp;→&nbsp; <code>📒 YouTrack</code>
 
 ![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)
 ![Go](https://img.shields.io/badge/go-1.27%2B-3776ab?style=flat-square&logo=go&logoColor=white)
@@ -25,7 +25,7 @@ You stay in control. Every block is shown with the reason it was attributed to a
 
 |    | Idea                    | What it means                                                                                  |
 |:--:|-------------------------|------------------------------------------------------------------------------------------------|
-| 🫥 | **Passive**             | No timers to start or stop. A launchd agent and an optional shell hook collect the signals.    |
+| 🫥 | **Passive**             | No timers to start or stop. A launchd agent samples presence; a shell hook reports repo and branch. |
 | 🔒 | **Private by design**   | No window titles, screenshots, keystrokes or file contents are stored. No telemetry.           |
 | 🔍 | **Explainable**         | `ticktack explain` shows the signal and rule behind every block.                               |
 | ♻️ | **Idempotent booking**  | One work item per ticket, day and type. Syncing twice updates instead of duplicating.          |
@@ -39,8 +39,8 @@ Two independent signals are combined. **Presence** says whether you were at the 
 
 ```text
   presence agent ──┐                                   ┌── overrides (your corrections)
-  git reflog     ──┼─▶ events (append-only) ─▶ blocks ─┤
-  shell hook     ──┘     presence ∩ context            └── rules ─▶ review ─▶ sync ─▶ YouTrack
+  shell hook     ──┼─▶ events (append-only) ─▶ blocks ─┤
+  manual pins    ──┘     presence ∩ context            └── rules ─▶ review ─▶ sync ─▶ YouTrack
                                                                               │
                                                                           ledger (idempotent)
 ```
@@ -74,6 +74,8 @@ go install github.com/JtheGunner/ticktack/cmd/ticktack@latest
 ```
 
 Check the install with `ticktack version`.
+
+`ticktack init` writes the resolved path of the running binary into the launchd agent definition. After moving or upgrading the binary, rerun `ticktack init` (it is safe to repeat) and run `ticktack doctor` to confirm the agent still points at it.
 
 > [!NOTE]
 > The capture agents (presence sampling, launchd) are macOS-only and rely on the system tools `ioreg` and `lsappinfo`. The review and sync commands are plain Go.
@@ -129,7 +131,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this.              |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
 | `ticket_pattern`     | `[A-Z][A-Z0-9]+-\d+`   | Regular expression that extracts a ticket id from a branch name. |
-| `repo_paths`         | none                   | Repositories scanned for git history.                            |
+| `repo_paths`         | none                   | Reserved, currently not used: accepted and validated, but nothing reads it yet. |
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
 | `[[rules]]`          | none                   | Fixed mappings with `repo` (path) and `ticket`. Repeatable.      |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
@@ -174,7 +176,7 @@ All of these are **off by default** and can be enabled independently.
 
 | Integration         | How to enable                                                       | Notes                                                                 |
 |---------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------|
-| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | Reports the working directory at the prompt. Managed block in your rc file. |
+| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | The source of repository and branch context: at each prompt it records the repository root and branch. Without it only manual pins (`ticktack switch`), window-title hints or the ActivityWatch import provide context. Managed block in your rc file. |
 | 🪟 Window-title hints | `[titlehint] enabled = true` plus a project-to-repository map.    | Needs the macOS Accessibility permission. Titles are parsed in memory for a project hint and never stored. |
 | 🔌 ActivityWatch import | `[activitywatch] enabled = true`, then `ticktack import activitywatch`. | Talks only to a loopback server.                                |
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
@@ -206,7 +208,8 @@ make lint     # golangci-lint run ./...
 |-------------------|------------------------------------------------------------------|
 | `cmd/ticktack/`   | Entrypoint.                                                      |
 | `internal/cli/`   | Command tree and all user-facing strings.                        |
-| `internal/collector/` | Event sources: presence, git, window-title, ActivityWatch.   |
+| `launchd/`        | Renders the launchd job definition of the presence agent.        |
+| `internal/collector/` | Event sources: presence, window-title, ActivityWatch.   |
 | `internal/resolver/`, `internal/sessionizer/` | Pure functions that attribute tickets and build blocks. |
 | `internal/store/`, `internal/ledger/` | SQLite storage (pure Go, no CGO) and the booking ledger. |
 | `internal/sink/`, `internal/youtrack/` | The booking target and its YouTrack client.      |

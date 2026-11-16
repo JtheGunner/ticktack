@@ -11,7 +11,7 @@ First public release.
 
 ### Added
 
-- Passive capture: a macOS presence agent (`ticktack agent`, run by launchd), a git reflog scanner and a shell hook that reports the working directory.
+- Passive capture: a macOS presence agent (`ticktack agent`, run by launchd), and a shell hook that reports the repository and branch at each prompt.
 - Work blocks derived from presence and context, with a discrete confidence tier per block (`explicit`, `rule`, `learned`, `suggested`, `unknown`).
 - Ticket attribution from branch names, configured repository rules, learned rules, manual `ticktack switch` pins and suggestions from YouTrack issues assigned to you.
 - Daily commands: `status`, `today`, `switch`, `pause`, `resume`, `purge`.

@@ -44,6 +44,8 @@ release:
     owner: JtheGunner
     name: ticktack
 
+# GoReleaser v2 deprecates the brews key in favour of homebrew_casks. The tap
+# publishes a Formula (not a Cask), so brews is kept on purpose.
 brews:
   - name: ticktack
     ids:

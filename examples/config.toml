@@ -27,7 +27,7 @@ daily_cap = "10h0m0s"
 # Regular expression that extracts a ticket id from a branch name.
 ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 
-# Repositories scanned for git history.
+# Reserved, currently not used: accepted and validated, but nothing reads it yet.
 # repo_paths = ["~/Projects"]
 
 # Time zone for day boundaries (default: the system zone).
