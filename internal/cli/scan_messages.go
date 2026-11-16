@@ -7,7 +7,9 @@ const (
 	msgScanPaused      = "Capture is paused, nothing scanned. Run `ticktack resume` first."
 	msgScanBadSince    = "--since %q: expected format YYYY-MM-DD"
 	msgScanDone        = "Scanned %d of %d repositories since %s: %d new events (%d found, already known events were skipped)."
-	msgScanSkipped     = "  skipped %s: %s"
+	msgScanHeading     = "Scan"
+	msgScanRepoDone    = "%s: %d events found"
+	msgScanSkipped     = "%s: skipped, %s"
 	msgScanFailed      = "%d of %d repositories could not be scanned"
 	msgScanConfigPath  = "the config file"
 

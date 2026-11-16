@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -10,6 +12,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/collector/activitywatch"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 const (
@@ -69,7 +72,7 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 		return err
 	}
 	if paused {
-		_, err = fmt.Fprintln(deps.Out, msgImportPaused)
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, msgImportPaused))
 		return err
 	}
 
@@ -116,7 +119,8 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 		}
 	}
 	if len(events) > 0 || collectErr == nil {
-		if _, err := fmt.Fprintf(deps.Out, msgImportDone+"\n", len(events), from.In(cfg.Location).Format(time.RFC3339), presence, gaps, hints); err != nil {
+		since := from.In(cfg.Location).Format(time.RFC3339)
+		if _, err := fmt.Fprintln(deps.Out, formatImportResult(deps.Render, len(events), since, presence, gaps, hints)); err != nil {
 			return err
 		}
 	}
@@ -125,6 +129,18 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 		return fmt.Errorf(msgImportPartial, SanitizeForTerminal(collectErr.Error()))
 	}
 	return nil
+}
+
+// formatImportResult lays out the import result as a gutter line followed by
+// the per-kind counts.
+func formatImportResult(r render.Renderer, total int, since string, presence, gaps, hints int) string {
+	lines := []string{r.Gutter(render.StatusOK, fmt.Sprintf(msgImportDone, total, since))}
+	lines = append(lines, r.Labels([]render.LabelRow{
+		{Label: msgImportLabelPresence, Value: strconv.Itoa(presence)},
+		{Label: msgImportLabelGaps, Value: strconv.Itoa(gaps)},
+		{Label: msgImportLabelHints, Value: strconv.Itoa(hints)},
+	}, 5)...)
+	return strings.Join(lines, "\n")
 }
 
 // importCursor returns where the next import starts: shortly before the

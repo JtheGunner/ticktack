@@ -79,6 +79,17 @@ func storedCount(t *testing.T, deps dailyDeps) int {
 	return len(events)
 }
 
+// labelValue returns the last field of the line that starts with label.
+func labelValue(text, label string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, label) {
+			f := strings.Fields(t)
+			return f[len(f)-1]
+		}
+	}
+	return ""
+}
+
 func TestImportRequiresOptIn(t *testing.T) {
 	deps, _, out := newDailyEnv(t, "")
 	srv, _ := awTestServer(t)
@@ -103,7 +114,8 @@ func TestImportStoresEventsAndIsIdempotent(t *testing.T) {
 	}
 	first := storedCount(t, deps)
 	// 3 presence samples (9:00:00, 9:00:30, 9:01:00) and 1 context hint.
-	if first != 4 || !strings.Contains(out.String(), "3 presence") || !strings.Contains(out.String(), "1 context hints") {
+	if first != 4 || labelValue(out.String(), "Presence") != "3" || labelValue(out.String(), "Context hints") != "1" ||
+		labelValue(out.String(), "Gap markers") != "0" {
 		t.Fatalf("stored = %d, output:\n%s", first, out.String())
 	}
 	if err := runImportActivityWatch(context.Background(), deps, awSourceFor(srv, &called), "2026-03-02"); err != nil {
