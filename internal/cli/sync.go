@@ -45,6 +45,9 @@ type syncDeps struct {
 	Now     func() time.Time
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
+	// In supplies the answer to the question before standard tasks are
+	// created; nil declines. forCommand fills it from the command.
+	In io.Reader
 	// RenderFor builds Render from the running command, which does not exist
 	// yet when the default deps are built. Nil keeps Render as given.
 	RenderFor func(cmd *cobra.Command, w io.Writer) render.Renderer
@@ -63,6 +66,9 @@ func defaultSyncDeps() syncDeps {
 // forCommand returns deps with Render resolved for cmd's output stream. A
 // Render that was set explicitly (not the zero value) is never overridden.
 func (d syncDeps) forCommand(cmd *cobra.Command) syncDeps {
+	if d.In == nil {
+		d.In = cmd.InOrStdin()
+	}
 	if d.RenderFor != nil && d.Render == (render.Renderer{}) {
 		d.Render = d.RenderFor(cmd, cmd.OutOrStdout())
 	}
@@ -184,6 +190,10 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
+	if err != nil {
+		return err
+	}
+	items, err = provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
 	if err != nil {
 		return err
 	}
