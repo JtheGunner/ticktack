@@ -23,6 +23,7 @@ First public release.
 - Optional periodic scan by the agent: `[scan] interval` (off by default, minimum `5m`). `ticktack doctor` gained a "git repositories" check that reports each missing, unreadable or non-repository path.
 - Example configuration in `examples/config.toml`.
 - Release packaging with GoReleaser and installation through a Homebrew tap or `go install`.
+- GitHub Actions: a CI workflow (lint, tests on macOS and Linux, build, `go mod tidy` check) and a tag-triggered release workflow that runs GoReleaser.
 
 ### Fixed
 
