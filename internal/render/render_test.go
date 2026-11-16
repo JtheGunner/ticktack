@@ -2,6 +2,7 @@ package render
 
 import (
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,6 +168,36 @@ func TestNewForNonTerminalWriter(t *testing.T) {
 			r := New(&strings.Builder{}, tt.opts)
 			if r.Glyphs != tt.wantGlyphs || r.Width != tt.wantWidth || r.Colors.Enabled != tt.wantColours {
 				t.Errorf("New() = %+v, want glyphs %+v width %d colours %v", r, tt.wantGlyphs, tt.wantWidth, tt.wantColours)
+			}
+		})
+	}
+}
+
+func TestNewWithInjectedTerminal(t *testing.T) {
+	forced := func(io.Writer) (int, bool) { return 7, true }
+	size := func(fd int) (int, int, error) {
+		if fd != 7 {
+			t.Errorf("TermSize fd = %d, want 7", fd)
+		}
+		return 100, 40, nil
+	}
+	tests := []struct {
+		name        string
+		opts        Options
+		wantWidth   int
+		wantColours bool
+	}{
+		{"terminal gives colour and width", Options{IsTerminal: forced, TermSize: size}, 100, true},
+		{"NoColor wins", Options{IsTerminal: forced, TermSize: size, NoColor: true}, 100, false},
+		{"NO_COLOR wins", Options{IsTerminal: forced, TermSize: size, Getenv: envOf(map[string]string{"NO_COLOR": "1"})}, 100, false},
+		{"TERM=dumb wins", Options{IsTerminal: forced, TermSize: size, Getenv: envOf(map[string]string{"TERM": "dumb"})}, 100, false},
+		{"not a terminal", Options{IsTerminal: func(io.Writer) (int, bool) { return 0, false }, TermSize: size}, 78, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := New(&strings.Builder{}, tt.opts)
+			if r.Width != tt.wantWidth || r.Colors.Enabled != tt.wantColours {
+				t.Errorf("New() width %d colours %v, want %d %v", r.Width, r.Colors.Enabled, tt.wantWidth, tt.wantColours)
 			}
 		})
 	}

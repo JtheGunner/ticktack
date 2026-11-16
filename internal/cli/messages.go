@@ -37,6 +37,6 @@ const (
 
 	msgDoctorSummaryOK     = "All %d checks passed."
 	msgDoctorSummaryFailed = "%d of %d checks failed."
-)
 
-const msgNoColorUsage = "disable coloured output; NO_COLOR and TERM=dumb are honoured too"
+	msgNoColorUsage = "disable coloured output; NO_COLOR and TERM=dumb are honoured too"
+)

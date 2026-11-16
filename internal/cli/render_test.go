@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -66,12 +67,48 @@ func TestApplyNoColorFlagWithoutFlagDefined(t *testing.T) {
 	}
 }
 
-func TestRendererWithBufferIsPlain(t *testing.T) {
-	env := map[string]string{"LANG": "en_US.UTF-8", "TERM": "xterm-256color"}
-	opts := render.Options{Getenv: func(k string) string { return env[k] }}
-	r := rendererWith(&cobra.Command{Use: "bare"}, &bytes.Buffer{}, opts)
-	if r.Colors.Enabled {
-		t.Error("colour must be off for a non-terminal writer")
+// forcedTerminal makes render.New treat any writer as a terminal.
+func forcedTerminal(io.Writer) (int, bool) { return 1, true }
+
+// TestNoColorOnForcedTerminal drives a real command tree through rendererWith
+// with a forced terminal, so only the flag and the injected env decide colour.
+func TestNoColorOnForcedTerminal(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		env        map[string]string
+		wantColour bool
+	}{
+		{"colour by default", nil, nil, true},
+		{"--no-color", []string{"--no-color"}, nil, false},
+		{"NO_COLOR", nil, map[string]string{"NO_COLOR": "1"}, false},
+		{"TERM=dumb", nil, map[string]string{"TERM": "dumb"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			root := &cobra.Command{Use: "ticktack", SilenceUsage: true, SilenceErrors: true}
+			root.PersistentFlags().Bool(noColorFlag, false, msgNoColorUsage)
+			root.AddCommand(&cobra.Command{
+				Use: "probe",
+				RunE: func(cmd *cobra.Command, _ []string) error {
+					r := rendererWith(cmd, &bytes.Buffer{}, render.Options{
+						Getenv:     func(k string) string { return tc.env[k] },
+						IsTerminal: forcedTerminal,
+						TermSize:   func(int) (int, int, error) { return 100, 40, nil },
+					})
+					got = r.Heading("x") + colorTier(r, resolver.TierExplicit)
+					return nil
+				},
+			})
+			root.SetArgs(append([]string{"probe"}, tc.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if hasESC := strings.Contains(got, "\x1b"); hasESC != tc.wantColour {
+				t.Errorf("output %q: ESC present = %v, want %v", got, hasESC, tc.wantColour)
+			}
+		})
 	}
 }
 

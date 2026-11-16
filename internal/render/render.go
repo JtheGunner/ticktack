@@ -33,6 +33,10 @@ type Options struct {
 	// TermSize reports the terminal size of a file descriptor; nil means
 	// golang.org/x/term.GetSize.
 	TermSize func(fd int) (width, height int, err error)
+	// IsTerminal reports whether w is a terminal and, if so, its file
+	// descriptor for TermSize. nil means the real detection: w must be an
+	// *os.File that golang.org/x/term reports as a terminal.
+	IsTerminal func(w io.Writer) (fd int, ok bool)
 }
 
 // New builds the renderer for w. Colour is enabled only when w is a terminal
@@ -50,9 +54,13 @@ func New(w io.Writer, o Options) Renderer {
 	}
 	width := 0
 	isTTY := false
-	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+	isTerminal := o.IsTerminal
+	if isTerminal == nil {
+		isTerminal = fileTerminal
+	}
+	if fd, ok := isTerminal(w); ok {
 		isTTY = true
-		if cols, _, err := termSize(int(f.Fd())); err == nil {
+		if cols, _, err := termSize(fd); err == nil {
 			width = cols
 		}
 	}
@@ -78,4 +86,13 @@ func (r Renderer) layoutWidth() int {
 		return defaultLayoutWidth
 	}
 	return r.Width
+}
+
+// fileTerminal is the real terminal detection: w is an *os.File on a terminal.
+func fileTerminal(w io.Writer) (int, bool) {
+	f, ok := w.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		return 0, false
+	}
+	return int(f.Fd()), true
 }
