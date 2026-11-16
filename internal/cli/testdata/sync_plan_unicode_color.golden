@@ -1,0 +1,6 @@
+  [36m→[0m  ABC-1:2026-01-05:Development   60 min  dry-run-would-create
+  [2m–[0m  ABC-3:2026-01-05:Development   15 min  skipped (unchanged)
+
+[36m╭───────────────────────────────[0m[1m Plan [0m[36m───────────────────────────────╮[0m
+[36m│[0m [32mPlan: 1 to change, 1 skipped, 0 failed.[0m                            [36m│[0m
+[36m╰────────────────────────────────────────────────────────────────────╯[0m

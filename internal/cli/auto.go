@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/ledger"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -27,7 +29,7 @@ func newAutoCommandWith(deps syncDeps) *cobra.Command {
 		Long:  msgAutoLong,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAuto(cmd.Context(), cmd.OutOrStdout(), deps, dayFlag, dryRun)
+			return runAuto(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&dayFlag, "day", "", "local day to book as YYYY-MM-DD (default: today)")
@@ -47,7 +49,7 @@ func newDigestCommandWith(deps syncDeps) *cobra.Command {
 		Long:  msgDigestLong,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDigest(cmd.Context(), cmd.OutOrStdout(), deps)
+			return runDigest(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
 		},
 	}
 	cmd.Flags().BoolVar(&last, "last", true, "show the most recent digest (the default)")
@@ -79,7 +81,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	if lock := auto.Gate(cfg.Auto, streak); lock != auto.Unlocked {
-		printAutoLocked(out, lock, cfgPath, streak, auto.RequiredDays(cfg.Auto))
+		printAutoLocked(out, deps.Render, lock, cfgPath, streak, auto.RequiredDays(cfg.Auto))
 		return nil
 	}
 
@@ -100,27 +102,40 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
 	}
 	digest := auto.BuildDigest(day, sel, report, dryRun)
-	text := renderDigest(digest)
+	text := renderDigest(digest, storedDigestRenderer())
 	if !dryRun {
 		if _, err := st.AddDigest(ctx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
 			return err
 		}
 	}
 	if len(sel.Book) == 0 && len(sel.Skipped) == 0 {
-		_, _ = fmt.Fprintf(out, msgAutoNothingToBook+"\n", day)
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgAutoNothingToBook, day)))
 		return syncErr
 	}
-	_, _ = fmt.Fprintln(out, text)
+	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
 	return syncErr
 }
 
-func printAutoLocked(out io.Writer, lock auto.LockReason, cfgPath string, streak, required int) {
+// digestStoredWidth keeps long reasons whole in the stored digest.
+const digestStoredWidth = 400
+
+// storedDigestRenderer renders the digest text kept in the database: ASCII,
+// no colour and wide, so it does not depend on the terminal of the run that
+// wrote it and `ticktack digest` can show it again unchanged.
+func storedDigestRenderer() render.Renderer {
+	return render.Renderer{Glyphs: render.Plain().Glyphs, Width: digestStoredWidth}
+}
+
+func printAutoLocked(out io.Writer, r render.Renderer, lock auto.LockReason, cfgPath string, streak, required int) {
+	var lines []string
 	if lock == auto.LockedDisabled {
-		_, _ = fmt.Fprintf(out, msgAutoLockedDisabled+"\n", cfgPath)
+		lines = append(lines, r.Gutter(render.StatusWarn, fmt.Sprintf(msgAutoLockedDisabled, SanitizeForTerminal(cfgPath))))
 	}
-	_, _ = fmt.Fprintf(out, msgAutoLockedStreak+"\n", streak, required)
-	_, _ = fmt.Fprintln(out, msgAutoLockedNothing)
-	_, _ = fmt.Fprintln(out, msgAutoLockedProceed)
+	lines = append(lines,
+		r.Gutter(render.StatusWarn, fmt.Sprintf(msgAutoLockedStreak, streak, required)),
+		r.Gutter(render.StatusInfo, msgAutoLockedNothing),
+		r.Gutter(render.StatusInfo, msgAutoLockedProceed))
+	_, _ = fmt.Fprintln(out, strings.Join(lines, "\n"))
 }
 
 func runDigest(ctx context.Context, out io.Writer, deps syncDeps) error {
@@ -134,7 +149,7 @@ func runDigest(ctx context.Context, out io.Writer, deps syncDeps) error {
 		return err
 	}
 	if !found {
-		_, err = fmt.Fprintln(out, msgDigestNone)
+		_, err = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgDigestNone))
 		return err
 	}
 	_, err = fmt.Fprintln(out, d.Text)

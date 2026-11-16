@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -53,6 +54,8 @@ func seedCleanDays(t *testing.T, deps syncDeps, n int) {
 
 func runAutoFor(t *testing.T, deps syncDeps, args ...string) (string, error) {
 	t.Helper()
+	// Wide enough that the digest table does not shorten the Reason column.
+	deps.Render = narrowPlain(120)
 	var out bytes.Buffer
 	err := runAuto(context.Background(), &out, deps, "2026-01-05", containsArg(args, "--dry-run"))
 	return out.String(), err
@@ -254,7 +257,7 @@ func TestAutoModeSkipsLowTierBlocks(t *testing.T) {
 	}
 	var skipLine string
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "skipped") && strings.Contains(line, "ABC-1") {
+		if strings.Contains(line, "skipped") && strings.Contains(line, "ABC-1") {
 			skipLine = line
 		}
 	}
@@ -293,7 +296,7 @@ func TestDigestListsEveryBookedItem(t *testing.T) {
 	}
 	for id, w := range rec.items {
 		line := lineWith(out, w.Issue)
-		for _, want := range []string{"created", w.Issue, w.Date.String(), "30 min", "tier explicit"} {
+		for _, want := range []string{"created", w.Issue, w.Date.String(), "30 min", "explicit"} {
 			if !strings.Contains(line, want) {
 				t.Errorf("digest line for %s (%s) lacks %q: %q", w.Issue, id, want, line)
 			}
@@ -316,7 +319,7 @@ func TestDigestListsEveryBookedItem(t *testing.T) {
 
 func lineWith(text, needle string) string {
 	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, needle) && !strings.HasPrefix(line, "skipped") {
+		if strings.Contains(line, needle) && !strings.Contains(line, "skipped") {
 			return line
 		}
 	}
@@ -335,8 +338,9 @@ func TestAutoDigestSanitizesExternalText(t *testing.T) {
 	d := auto.Digest{Day: civil.Date{Year: 2026, Month: 1, Day: 5}, Entries: []auto.DigestEntry{
 		{Ticket: "ABC-1\x1b[31m", Date: civil.Date{Year: 2026, Month: 1, Day: 5}, Minutes: 15, Status: "failed", Reason: "bad\nreason\x1b]0;x\x07"},
 	}}
-	text := renderDigest(d)
-	if strings.ContainsAny(text, "\x1b\x07") || strings.Count(text, "\n") != 2 {
+	text := renderDigest(d, render.Plain())
+	// heading, blank, table header, one row, blank, totals
+	if strings.ContainsAny(text, "\x1b\x07") || strings.Count(text, "\n") != 5 {
 		t.Fatalf("unsanitised digest: %q", text)
 	}
 }
