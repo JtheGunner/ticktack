@@ -8,8 +8,10 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -211,8 +213,12 @@ func (s *Store) Purge(ctx context.Context) error {
 	return nil
 }
 
+// ErrBusy is returned by CheckWritable when another connection holds the
+// write lock: the database is in use, not unwritable.
+var ErrBusy = errors.New("database is in use by another process")
+
 // CheckWritable verifies that the database accepts writes by taking and
-// releasing a write lock. It stores nothing.
+// releasing a write lock. It stores nothing. A held lock yields ErrBusy.
 func (s *Store) CheckWritable(ctx context.Context) error {
 	conn, err := s.root.Conn(ctx)
 	if err != nil {
@@ -220,6 +226,9 @@ func (s *Store) CheckWritable(ctx context.Context) error {
 	}
 	defer func() { _ = conn.Close() }()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		if msg := err.Error(); strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked") {
+			return ErrBusy
+		}
 		return fmt.Errorf("check writable: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {

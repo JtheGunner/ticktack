@@ -52,6 +52,7 @@ const (
 	msgCheckDB         = "database"
 	msgDBOK            = "writable: %s"
 	msgDBFail          = "cannot open %s: %v"
+	msgDBBusy          = "%s (currently in use by another process, which is normal while the agent runs)"
 	msgDBReadOnly      = "database file is read-only: %s"
 	msgDBReadOnlyProbe = "database is not writable: %s (%v)"
 	msgDBReadOnlyFix   = "make it writable for your user, for example: chmod u+w %s (and check that its volume is not mounted read-only)"

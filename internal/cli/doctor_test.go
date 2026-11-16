@@ -19,6 +19,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/shellhook"
+	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
 )
 
@@ -407,5 +408,37 @@ func TestCheckDBFailsOnReadOnlyDatabase(t *testing.T) {
 	res := checkDB(context.Background(), env.deps.Doctor)
 	if res.Status != statusFail || !strings.Contains(res.Detail, "read-only") || res.Hint == "" {
 		t.Errorf("read-only database not reported with a fix: %+v", res)
+	}
+}
+
+func TestCheckDBReportsABusyDatabaseAsOKNotReadOnly(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	if res := checkDB(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Fatalf("fresh database: %+v", res)
+	}
+	dbPath, _ := paths.DBPath()
+	holder, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close() }()
+	ctx := context.Background()
+	var res checkResult
+	// An open write transaction holds the lock, as the running agent does.
+	err = holder.InTx(ctx, func(tx store.Tx) error {
+		if err := tx.AddOverride(ctx, event.Override{Start: time.Now(), End: time.Now().Add(time.Minute), Discard: true}); err != nil {
+			return err
+		}
+		res = checkDB(ctx, env.deps.Doctor)
+		return errors.New("roll back")
+	})
+	if err == nil {
+		t.Fatal("expected the rollback error")
+	}
+	if res.Status != statusOK || !strings.Contains(res.Detail, "in use by another process") {
+		t.Errorf("busy database = %+v, want OK with a note", res)
+	}
+	if strings.Contains(res.Detail+res.Hint, "chmod") {
+		t.Errorf("busy database must not get the read-only hint: %+v", res)
 	}
 }

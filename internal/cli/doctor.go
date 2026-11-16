@@ -388,7 +388,12 @@ func checkDB(ctx context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckDB, fmt.Sprintf(msgDBFail, path, err), msgDBFix)
 	}
 	if w, ok := st.(interface{ CheckWritable(context.Context) error }); ok {
-		if err := w.CheckWritable(ctx); err != nil {
+		if err := w.CheckWritable(ctx); errors.Is(err, store.ErrBusy) {
+			// Another process (normally the agent) holds the write lock: the
+			// database is writable, just busy right now.
+			_ = st.Close()
+			return okResult(msgCheckDB, fmt.Sprintf(msgDBBusy, path))
+		} else if err != nil {
 			_ = st.Close()
 			return failResult(msgCheckDB, fmt.Sprintf(msgDBReadOnlyProbe, path, err), fmt.Sprintf(msgDBReadOnlyFix, path))
 		}
