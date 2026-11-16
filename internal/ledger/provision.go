@@ -186,11 +186,11 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 			continue
 		}
 		if key, ok := rewrite[it.Ticket]; ok {
-			it.Ticket = key
+			it = sessionizer.RetargetItem(it, key)
 		}
 		out = append(out, it)
 	}
-	return out, report, nil
+	return sessionizer.MergeItems(out), report, nil
 }
 
 func markDropped(dropped map[string]bool, projects []string) {

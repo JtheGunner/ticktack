@@ -165,7 +165,7 @@ func TestProvisionCreatesAfterOneConfirmation(t *testing.T) {
 	if want := []string{"A", "B", "C"}; !reflect.DeepEqual(prov.created, want) {
 		t.Errorf("created = %v, want %v", prov.created, want)
 	}
-	if want := []string{"C-1", "A-1", "B-1", "A-1"}; !reflect.DeepEqual(tickets(got), want) {
+	if want := []string{"C-1", "A-1", "B-1"}; !reflect.DeepEqual(tickets(got), want) {
 		t.Errorf("tickets = %v, want %v", tickets(got), want)
 	}
 	if prov.lastSum != "Meetings / Admin" || !strings.Contains(prov.lastDesc, DefaultIssueMarker) {
@@ -245,6 +245,20 @@ func TestProvisionReportsRewrittenAndDroppedTickets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(report.DroppedTickets, []string{"B:default"}) {
 		t.Errorf("DroppedTickets = %v, want [B:default]", report.DroppedTickets)
+	}
+}
+
+func TestProvisionMergesItemsThatShareARewrittenTicket(t *testing.T) {
+	st := provisionStore(t)
+	prov := &fakeProvisioner{issues: map[string]string{"A": "A-7"}}
+	items := []sessionizer.DayItem{item("A-7", 30), item("A:default", 45)}
+
+	got, _, err := Provision(context.Background(), items, prov, st, provisionOpts(answer(true, new([][]string))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Ticket != "A-7" || got[0].Minutes != 75 {
+		t.Fatalf("items = %+v, want one A-7 item of 75 minutes", got)
 	}
 }
 

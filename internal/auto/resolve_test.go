@@ -10,6 +10,20 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
+func TestSelectionResolveMergesItemsThatShareARewrittenTicket(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: time.March, Day: 2}
+	entry := func(ticket string, minutes int) Entry {
+		return Entry{Item: sessionizer.DayItem{Date: day, Ticket: ticket, Type: "Development", Minutes: minutes}, Tier: resolver.TierRule}
+	}
+	sel := Selection{Book: []Entry{entry("A-7", 30), entry("A:default", 45)}}
+
+	got := sel.Resolve(map[string]string{"A:default": "A-7"}, nil)
+
+	if len(got.Book) != 1 || got.Book[0].Item.Ticket != "A-7" || got.Book[0].Item.Minutes != 75 {
+		t.Fatalf("Book = %+v, want one A-7 entry of 75 minutes", got.Book)
+	}
+}
+
 func TestSelectionResolveRewritesAndSkips(t *testing.T) {
 	day := civil.Date{Year: 2026, Month: time.March, Day: 2}
 	entry := func(ticket string) Entry {

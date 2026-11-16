@@ -96,9 +96,35 @@ func (s Selection) Resolve(rewritten map[string]string, dropped []string) Select
 			continue
 		}
 		if key, ok := rewritten[e.Item.Ticket]; ok {
-			e.Item.Ticket = key
+			e.Item = sessionizer.RetargetItem(e.Item, key)
 		}
 		out.Book = append(out.Book, e)
+	}
+	out.Book = mergeEntries(out.Book)
+	return out
+}
+
+// mergeEntries combines entries whose items share a ticket, date and type.
+// The merged entry keeps the lowest tier of its parts.
+func mergeEntries(entries []Entry) []Entry {
+	items := make([]sessionizer.DayItem, len(entries))
+	for i, e := range entries {
+		items[i] = e.Item
+	}
+	merged := sessionizer.MergeItems(items)
+	if len(merged) == len(entries) {
+		return entries
+	}
+	tiers := map[string]resolver.Tier{}
+	for _, e := range entries {
+		k := key(e.Item)
+		if cur, ok := tiers[k]; !ok || rank(e.Tier) > rank(cur) {
+			tiers[k] = e.Tier
+		}
+	}
+	out := make([]Entry, len(merged))
+	for i, it := range merged {
+		out[i] = Entry{Item: it, Tier: tiers[key(it)]}
 	}
 	return out
 }

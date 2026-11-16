@@ -55,6 +55,10 @@ func msgExplainRuleText(d resolver.Decision, ticket string) string {
 	case resolver.RuleLearned:
 		return fmt.Sprintf("learned rule #%d: repo %s, branch %s -> %s (`ticktack map`)",
 			d.LearnedID, anyIfEmpty(d.RuleRepo), anyIfEmpty(d.RuleBranch), ticket)
+	case resolver.RuleProjectDefault:
+		return fmt.Sprintf("standard task of the matching project %s (%s)", ticket, d.Reason)
+	case resolver.RuleGlobalDefault:
+		return fmt.Sprintf("global standard task %s (%s)", ticket, d.Reason)
 	case sessionizer.ManualRule:
 		return "manual switch to " + ticket + " (`ticktack switch`) pins the attribution"
 	default:
