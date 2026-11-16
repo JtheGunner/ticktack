@@ -54,7 +54,7 @@ When several context signals disagree, the strongest one wins:
 2. **Window-title hint** — the optional title collector's ticket or project, but only while the hinted app is the frontmost app. While another app is in front, or after you leave it, the hint is ignored.
 3. **Git and shell context** — the branch, repository rules and learned rules.
 
-A ticket key in a branch name is matched by `ticket_pattern` exactly as written, so the default `[A-Z][A-Z0-9]+-\d+` reads `feat/ABC-12-x` as `ABC-12` but `fix/utf-8-handling` or `feat/abc-12` as no ticket. Scan, the shell hook, review and `switch` all use that one pattern.
+A ticket key in a branch name is matched by `ticket_pattern` exactly as written, so the default `[A-Z][A-Z0-9]+-\d+` reads `feat/ABC-12-x` as `ABC-12` but `fix/utf-8-handling` or `feat/abc-12` as no ticket. Scan, the shell hook, review and `switch` all use that one pattern. Tickets you type (`ticktack switch`, reassigning in review) are upper-cased before they are checked against the pattern, so a custom pattern with lower-case letters cannot be entered that way.
 
 Each block carries a discrete confidence tier:
 
