@@ -48,27 +48,37 @@ func (c *Client) Projects(ctx context.Context) ([]sink.ProjectRef, error) {
 	}
 }
 
-// FindIssueByMarker returns the first issue of project whose description
-// contains marker verbatim. The server-side search only narrows the candidates;
-// the verbatim check happens here.
+// FindIssueByMarker returns the oldest issue of project that the token owner
+// reported and whose description contains marker verbatim. Issues of other
+// users are never returned: the marker is identical for every user, and a
+// colleague's issue must never be adopted as one's own standard task. The
+// server-side search only narrows the candidates; the reporter and marker
+// checks happen here.
 func (c *Client) FindIssueByMarker(ctx context.Context, project, marker string) (string, bool, error) {
 	if marker == "" {
 		return "", false, errors.New("youtrack: marker must not be empty")
 	}
+	me, err := c.ownLogin(ctx)
+	if err != nil {
+		return "", false, err
+	}
 	q := url.Values{
-		"query":  {"project: " + project + " " + searchWords(marker)},
-		"fields": {"idReadable,description"},
+		"query":  {"project: " + project + " reporter: me " + searchWords(marker) + " sort by: created asc"},
+		"fields": {"idReadable,description,reporter(login)"},
 		"$top":   {strconv.Itoa(markerSearchLimit)},
 	}
 	var issues []struct {
 		ID          string `json:"idReadable"`
 		Description string `json:"description"`
+		Reporter    struct {
+			Login string `json:"login"`
+		} `json:"reporter"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/api/issues", q, nil, &issues); err != nil {
 		return "", false, err
 	}
 	for _, it := range issues {
-		if strings.Contains(it.Description, marker) {
+		if it.Reporter.Login == me && strings.Contains(it.Description, marker) {
 			return it.ID, true, nil
 		}
 	}

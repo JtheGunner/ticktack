@@ -71,23 +71,39 @@ func TestFindIssueByMarker(t *testing.T) {
 		wantFound bool
 	}{
 		{"hit", []map[string]any{
-			{"idReadable": "G-1", "description": "unrelated"},
-			{"idReadable": "G-2", "description": "Standard task " + marker},
+			{"idReadable": "G-1", "description": "unrelated", "reporter": map[string]any{"login": "jane"}},
+			{"idReadable": "G-2", "description": "Standard task " + marker, "reporter": map[string]any{"login": "jane"}},
 		}, "G-2", true},
-		{"miss", []map[string]any{{"idReadable": "G-1", "description": "unrelated"}}, "", false},
-		{"marker not in description", []map[string]any{{"idReadable": "G-3", "description": "mentions ticktack default-issue in prose"}}, "", false},
-		{"no description", []map[string]any{{"idReadable": "G-4"}}, "", false},
+		{"miss", []map[string]any{{"idReadable": "G-1", "description": "unrelated", "reporter": map[string]any{"login": "jane"}}}, "", false},
+		{"marker not in description", []map[string]any{{"idReadable": "G-3", "description": "mentions ticktack default-issue in prose", "reporter": map[string]any{"login": "jane"}}}, "", false},
+		{"no description", []map[string]any{{"idReadable": "G-4", "reporter": map[string]any{"login": "jane"}}}, "", false},
+		{"marker created by a colleague is never adopted", []map[string]any{
+			{"idReadable": "G-5", "description": marker, "reporter": map[string]any{"login": "colleague"}},
+		}, "", false},
+		{"own issue wins after a colleague's", []map[string]any{
+			{"idReadable": "G-5", "description": marker, "reporter": map[string]any{"login": "colleague"}},
+			{"idReadable": "G-6", "description": marker, "reporter": map[string]any{"login": "jane"}},
+		}, "G-6", true},
+		{"no reporter is not adopted", []map[string]any{{"idReadable": "G-7", "description": marker}}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/api/issues" {
+				switch r.URL.Path {
+				case "/api/users/me":
+					_, _ = io.WriteString(w, `{"login":"jane"}`)
+				case "/api/issues":
+					q := r.URL.Query().Get("query")
+					if !strings.Contains(q, "project: G") || !strings.Contains(q, "reporter: me") {
+						t.Errorf("query %q must scope to the project and to the token owner as reporter", q)
+					}
+					if !strings.Contains(r.URL.Query().Get("fields"), "reporter(login)") {
+						t.Errorf("fields %q must include the reporter", r.URL.Query().Get("fields"))
+					}
+					_ = json.NewEncoder(w).Encode(tt.issues)
+				default:
 					t.Errorf("unexpected %s %s", r.Method, r.URL)
 				}
-				if q := r.URL.Query().Get("query"); !strings.Contains(q, "project: G") {
-					t.Errorf("query %q does not scope to the project", q)
-				}
-				_ = json.NewEncoder(w).Encode(tt.issues)
 			}))
 			key, found, err := c.FindIssueByMarker(context.Background(), "G", marker)
 			if err != nil {
