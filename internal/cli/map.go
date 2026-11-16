@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -121,24 +122,41 @@ func runMapList(ctx context.Context, deps dailyDeps) error {
 	if err != nil {
 		return err
 	}
-	out := deps.Out
-	_, _ = fmt.Fprintf(out, msgMapConfigHeader+"\n", SanitizeForTerminal(path))
+	r := deps.Render
+	lines := []string{r.Heading(msgMapConfigHeading), r.Gutter(render.StatusInfo, fmt.Sprintf(msgMapConfigNote, SanitizeForTerminal(path))), ""}
 	if len(cfg.Rules) == 0 {
-		_, _ = fmt.Fprintln(out, msgMapNoConfigRules)
+		lines = append(lines, r.Gutter(render.StatusInfo, msgMapNoConfigRules))
+	} else {
+		rows := make([][]string, 0, len(cfg.Rules))
+		for _, rule := range cfg.Rules {
+			rows = append(rows, []string{SanitizeForTerminal(rule.Repo), SanitizeForTerminal(rule.Ticket)})
+		}
+		lines = append(lines, r.Table([]render.Column{{Header: msgColRepo, Flex: true}, {Header: msgColTicket}}, rows)...)
 	}
-	for _, r := range cfg.Rules {
-		_, _ = fmt.Fprintf(out, msgMapConfigRule+"\n", SanitizeForTerminal(r.Repo), SanitizeForTerminal(r.Ticket))
-	}
-	_, _ = fmt.Fprintln(out, msgMapLearnedHeader)
+	lines = append(lines, "", r.Heading(msgMapLearnedHeading), r.Gutter(render.StatusInfo, msgMapLearnedNote), "")
 	if len(learned) == 0 {
-		_, _ = fmt.Fprintln(out, msgMapNoLearned)
+		lines = append(lines, r.Gutter(render.StatusInfo, msgMapNoLearned))
+	} else {
+		rows := make([][]string, 0, len(learned))
+		for _, rule := range learned {
+			rows = append(rows, []string{
+				"#" + strconv.FormatInt(rule.ID, 10),
+				SanitizeForTerminal(anyIfEmpty(rule.Repo)),
+				SanitizeForTerminal(anyIfEmpty(rule.BranchPattern)),
+				SanitizeForTerminal(rule.Ticket),
+				rule.CreatedAt.In(cfg.Location).Format(dayLayout),
+			})
+		}
+		lines = append(lines, r.Table([]render.Column{
+			{Header: msgColID, Right: true},
+			{Header: msgColRepo, Flex: true},
+			{Header: msgColBranch},
+			{Header: msgColTicket},
+			{Header: msgColCreated},
+		}, rows)...)
 	}
-	for _, r := range learned {
-		_, _ = fmt.Fprintf(out, msgMapLearnedRow+"\n", r.ID, SanitizeForTerminal(anyIfEmpty(r.Repo)),
-			SanitizeForTerminal(anyIfEmpty(r.BranchPattern)), SanitizeForTerminal(r.Ticket),
-			r.CreatedAt.In(cfg.Location).Format(dayLayout))
-	}
-	return nil
+	_, err = fmt.Fprintln(deps.Out, strings.Join(lines, "\n"))
+	return err
 }
 
 // validateRule checks the user-supplied fields before they reach the store.
@@ -232,7 +250,8 @@ func runMapRemove(ctx context.Context, deps dailyDeps, idArg string) error {
 	if err := st.DeleteLearnedRule(ctx, id); err != nil {
 		return mapStoreError(err, id)
 	}
-	_, _ = fmt.Fprintf(deps.Out, msgMapRemoved+"\n%s\n", id, msgMapRederive)
+	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, fmt.Sprintf(msgMapRemoved, id)))
+	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgMapRederive))
 	return nil
 }
 
@@ -265,6 +284,8 @@ func parseRuleID(arg string) (int64, error) {
 }
 
 func printRuleChange(deps dailyDeps, format string, r store.LearnedRule) {
-	_, _ = fmt.Fprintf(deps.Out, format+"\n%s\n", r.ID, SanitizeForTerminal(anyIfEmpty(r.Repo)),
-		SanitizeForTerminal(anyIfEmpty(r.BranchPattern)), SanitizeForTerminal(r.Ticket), msgMapRederive)
+	text := fmt.Sprintf(format, r.ID, SanitizeForTerminal(anyIfEmpty(r.Repo)),
+		SanitizeForTerminal(anyIfEmpty(r.BranchPattern)), SanitizeForTerminal(r.Ticket))
+	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, text))
+	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgMapRederive))
 }

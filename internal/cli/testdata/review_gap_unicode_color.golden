@@ -1,0 +1,22 @@
+  [1mReview for 2026-01-05[0m
+
+  [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m        [2mTier[0m     [2mReason[0m           [2mState[0m
+  1  09:00-10:00   1h01m  (unassigned)  [2munknown[0m  no ticket in b…  [33mneeds ticket[0m
+
+  [36mℹ[0m  Suggestions for 1 (assigned to you, In Progress; take one with u 1 K):
+     1) ABC-1  first
+     2) DEF-2  second
+
+  [36mℹ[0m  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+review>   [32m✓[0m  Entry 1 assigned to ABC-7.
+  [36mℹ[0m  Remember ABC-7 for /work/app? Type r for branch "spike" only, or r repo for the whole repository.
+  [1mReview for 2026-01-05[0m
+
+  [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m  [2mTier[0m      [2mReason[0m           [2mState[0m
+  1  09:00-10:00   1h01m  ABC-7   [32mexplicit[0m  manual override
+
+  [36mℹ[0m  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+review>   [31m✗[0m  Error: no such suggestion: 2
+review> 
+  [36mℹ[0m  Summary: 0 confirmed, 0 discarded, 1 unconfirmed, 0 unassigned.
+  [36mℹ[0m  Nothing confirmed yet: `ticktack sync` will book nothing.

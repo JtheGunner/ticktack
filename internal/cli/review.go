@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 )
 
@@ -31,8 +32,9 @@ type reviewDeps struct {
 	// an error (no URL, no token) just means the review shows no suggestions.
 	NewIssueSource func(cfg config.Config) (review.IssueSource, error)
 	// In supplies the scripted or interactive answers, one action per line.
-	In  io.Reader
-	Out io.Writer
+	In     io.Reader
+	Out    io.Writer
+	Render render.Renderer
 }
 
 func defaultReviewDeps(cmd *cobra.Command) reviewDeps {
@@ -55,6 +57,7 @@ func defaultReviewDeps(cmd *cobra.Command) reviewDeps {
 		NewIssueSource: newIssueSource,
 		In:             cmd.InOrStdin(),
 		Out:            cmd.OutOrStdout(),
+		Render:         rendererFor(cmd, cmd.OutOrStdout()),
 	}
 }
 
@@ -106,17 +109,18 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 	if err != nil {
 		return err
 	}
-	r := &reviewRun{ctx: ctx, s: session, out: deps.Out, in: bufio.NewScanner(deps.In), loc: loc, day: day}
+	r := &reviewRun{ctx: ctx, s: session, out: deps.Out, render: deps.Render, in: bufio.NewScanner(deps.In), loc: loc, day: day}
 	return r.loop()
 }
 
 type reviewRun struct {
-	ctx context.Context
-	s   *review.Session
-	out io.Writer
-	in  *bufio.Scanner
-	loc *time.Location
-	day civil.Date
+	ctx    context.Context
+	s      *review.Session
+	out    io.Writer
+	render render.Renderer
+	in     *bufio.Scanner
+	loc    *time.Location
+	day    civil.Date
 }
 
 func (r *reviewRun) printf(format string, args ...any) {
@@ -124,6 +128,11 @@ func (r *reviewRun) printf(format string, args ...any) {
 }
 
 func (r *reviewRun) println(line string) { _, _ = fmt.Fprintln(r.out, line) }
+
+// say prints one gutter line; text must already be sanitised.
+func (r *reviewRun) say(s render.Status, text string) {
+	r.println(r.render.Gutter(s, text))
+}
 
 func (r *reviewRun) loop() error {
 	r.show()
@@ -142,7 +151,7 @@ func (r *reviewRun) loop() error {
 		}
 		refreshed, err := r.execute(strings.Fields(line))
 		if err != nil {
-			r.println(msgReviewError(err))
+			r.say(render.StatusFail, msgReviewError(err))
 		}
 		if refreshed {
 			r.show()
@@ -158,18 +167,56 @@ func (r *reviewRun) loop() error {
 func (r *reviewRun) show() {
 	entries := r.s.Entries()
 	if len(entries) == 0 {
-		r.printf(msgReviewNoEntries+"\n", r.day)
+		r.say(render.StatusInfo, fmt.Sprintf(msgReviewNoEntries, r.day))
 		return
 	}
-	r.println(msgReviewHeader(r.day.String()))
+	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
-		r.println(msgReviewEntry(e, r.loc))
+		rows = append(rows, r.entryRow(e))
+	}
+	r.println(r.render.Heading(msgReviewHeading(r.day.String())))
+	r.println("")
+	for _, line := range r.render.Table([]render.Column{
+		{Header: msgColBlock, Right: true},
+		{Header: msgColTime},
+		{Header: msgColLength, Right: true},
+		{Header: msgColTicket},
+		{Header: msgColTier},
+		{Header: msgColReason, Flex: true},
+		{Header: msgColState},
+	}, rows) {
+		r.println(line)
+	}
+	for _, e := range entries {
 		r.showSuggestions(e)
 	}
 	if w := r.s.CapWarning(); w != nil {
-		r.println(msgReviewCapWarning(*w))
+		r.say(render.StatusWarn, msgReviewCapWarning(*w))
 	}
-	r.println(msgReviewHelp)
+	r.println("")
+	r.say(render.StatusInfo, msgReviewHelp)
+}
+
+// entryRow returns the table cells of one entry. The block number is the same
+// 1-based index the actions accept.
+func (r *reviewRun) entryRow(e review.Entry) []string {
+	ticket := ticketLabel(e.Ticket)
+	state := ""
+	switch {
+	case e.Kind == review.KindGap:
+		state = r.render.Colors.Warn(msgReviewStateNeedsTicket)
+	case e.Confirmed:
+		state = r.render.Colors.OK(msgReviewStateConfirmed)
+	}
+	return []string{
+		strconv.Itoa(e.Index),
+		e.Start.In(r.loc).Format("15:04") + "-" + e.End.In(r.loc).Format("15:04"),
+		formatMinutes(e.Minutes),
+		SanitizeForTerminal(ticket),
+		colorTier(r.render, e.Tier),
+		SanitizeForTerminal(e.Reason),
+		state,
+	}
 }
 
 func (r *reviewRun) showSuggestions(e review.Entry) {
@@ -180,7 +227,8 @@ func (r *reviewRun) showSuggestions(e review.Entry) {
 	if err != nil || len(list) == 0 {
 		return
 	}
-	r.println(msgReviewSuggestionsHeader(e.Index))
+	r.println("")
+	r.say(render.StatusInfo, msgReviewSuggestionsHeader(e.Index))
 	for i, c := range list {
 		r.println(msgReviewSuggestion(i+1, c))
 	}
@@ -188,7 +236,7 @@ func (r *reviewRun) showSuggestions(e review.Entry) {
 
 func (r *reviewRun) offerRemember() {
 	if offer, ok := r.s.Remembering(); ok {
-		r.println(msgReviewRememberOffer(offer))
+		r.say(render.StatusInfo, msgReviewRememberOffer(offer))
 	}
 }
 
@@ -198,28 +246,29 @@ func (r *reviewRun) remember(args []string) error {
 	case len(args) == 1 && args[0] == "repo":
 		wholeRepo = true
 	case len(args) > 0:
-		r.println(msgReviewUsage("r [repo]"))
+		r.say(render.StatusWarn, msgReviewUsage("r [repo]"))
 		return nil
 	}
 	rule, err := r.s.Remember(r.ctx, wholeRepo)
 	if err != nil {
 		return err
 	}
-	r.println(msgReviewRemembered(rule))
+	r.say(render.StatusOK, msgReviewRemembered(rule))
 	return nil
 }
 
 func (r *reviewRun) finish() {
 	sum := r.s.Summary()
-	r.println(msgReviewSummary(sum))
+	r.println("")
+	r.say(render.StatusInfo, msgReviewSummary(sum))
 	if sum.CapBlocked {
-		r.println(msgReviewCapBlocked)
+		r.say(render.StatusWarn, msgReviewCapBlocked)
 	}
 	if sum.Confirmed == 0 {
-		r.println(msgReviewNothingYet)
+		r.say(render.StatusInfo, msgReviewNothingYet)
 		return
 	}
-	r.println(msgReviewNextStep)
+	r.say(render.StatusGo, msgReviewNextStep)
 }
 
 // execute runs one action. refreshed reports whether the entry list changed
@@ -231,14 +280,14 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 		if err := r.s.AcknowledgeCap(r.ctx); err != nil {
 			return false, err
 		}
-		r.println(msgReviewCapAcked)
+		r.say(render.StatusOK, msgReviewCapAcked)
 		return true, nil
 	case "y":
 		n, err := r.s.ConfirmAll(r.ctx)
 		if err != nil {
 			return false, err
 		}
-		r.printf(msgReviewConfirmAll+"\n", n)
+		r.say(render.StatusOK, fmt.Sprintf(msgReviewConfirmAll, n))
 		return true, nil
 	case "r":
 		err := r.remember(args)
@@ -246,7 +295,7 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 	case "c", "d", "b", "t", "s", "u":
 		return r.entryAction(cmd, args)
 	}
-	r.println(msgReviewUnknownCommand(strings.Join(f, " ")))
+	r.say(render.StatusWarn, msgReviewUnknownCommand(strings.Join(f, " ")))
 	return false, nil
 }
 
@@ -262,12 +311,12 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 		min, max = 2, 3
 	}
 	if len(args) < min || len(args) > max {
-		r.println(msgReviewUsage(usage))
+		r.say(render.StatusWarn, msgReviewUsage(usage))
 		return false, nil
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil {
-		r.println(msgReviewUsage(usage))
+		r.say(render.StatusWarn, msgReviewUsage(usage))
 		return false, nil
 	}
 	switch cmd {
@@ -275,15 +324,15 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 		err = r.confirm(n)
 	case "d":
 		if err = r.s.Discard(r.ctx, n); err == nil {
-			r.printf(msgReviewDiscarded+"\n", n)
+			r.say(render.StatusOK, fmt.Sprintf(msgReviewDiscarded, n))
 		}
 	case "b":
 		if err = r.s.MarkBreak(r.ctx, n); err == nil {
-			r.printf(msgReviewBreak+"\n", n)
+			r.say(render.StatusOK, fmt.Sprintf(msgReviewBreak, n))
 		}
 	case "t":
 		if err = r.s.Reassign(r.ctx, n, args[1]); err == nil {
-			r.printf(msgReviewReassigned+"\n", n, strings.ToUpper(args[1]))
+			r.say(render.StatusOK, fmt.Sprintf(msgReviewReassigned, n, SanitizeForTerminal(strings.ToUpper(args[1]))))
 			r.offerRemember()
 		}
 	case "u":
@@ -297,15 +346,15 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 func (r *reviewRun) useSuggestion(n int, rawK string) error {
 	k, err := strconv.Atoi(rawK)
 	if err != nil {
-		r.println(msgReviewUsage("u N K"))
+		r.say(render.StatusWarn, msgReviewUsage("u N K"))
 		return nil
 	}
 	ticket, err := r.s.ReassignSuggestion(r.ctx, n, k)
 	if err != nil {
 		return err
 	}
-	r.printf(msgReviewReassigned+"\n", n, ticket)
-	r.println(msgReviewSuggestionNeedsConfirm)
+	r.say(render.StatusOK, fmt.Sprintf(msgReviewReassigned, n, SanitizeForTerminal(ticket)))
+	r.say(render.StatusInfo, msgReviewSuggestionNeedsConfirm)
 	r.offerRemember()
 	return nil
 }
@@ -314,7 +363,7 @@ func (r *reviewRun) confirm(n int) error {
 	if err := r.s.Confirm(r.ctx, n); err != nil {
 		return err
 	}
-	r.printf(msgReviewConfirmed+"\n", r.s.Entries()[n-1].Ticket)
+	r.say(render.StatusOK, fmt.Sprintf(msgReviewConfirmed, SanitizeForTerminal(r.s.Entries()[n-1].Ticket)))
 	return nil
 }
 
@@ -331,7 +380,7 @@ func (r *reviewRun) split(n int, rest []string) error {
 		if current == "" {
 			current = msgUnassigned
 		}
-		r.printf(msgReviewSplitPrompt, current)
+		r.printf(msgReviewSplitPrompt, SanitizeForTerminal(current))
 		if r.in.Scan() {
 			ticket = strings.TrimSpace(r.in.Text())
 		}
@@ -339,6 +388,6 @@ func (r *reviewRun) split(n int, rest []string) error {
 	if err := r.s.Split(r.ctx, n, rest[0], ticket); err != nil {
 		return err
 	}
-	r.printf(msgReviewSplit+"\n", n, rest[0])
+	r.say(render.StatusOK, fmt.Sprintf(msgReviewSplit, n, SanitizeForTerminal(rest[0])))
 	return nil
 }

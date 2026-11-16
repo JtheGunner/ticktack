@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -28,6 +27,10 @@ const (
 	msgReviewNextStep               = "Next step: run `ticktack sync` to book the confirmed items."
 	msgReviewNothingYet             = "Nothing confirmed yet: `ticktack sync` will book nothing."
 	msgReviewSuggestionNeedsConfirm = "A suggestion is only a proposal: confirm the entry (c N) to release it for booking."
+	msgReviewStateConfirmed         = "confirmed"
+	msgReviewStateNeedsTicket       = "needs ticket"
+	msgColLength                    = "Length"
+	msgColState                     = "State"
 	msgReviewCapBlocked             = "Sync is blocked by the daily cap until you acknowledge it (a)."
 )
 
@@ -36,11 +39,11 @@ func msgReviewUnknownCommand(line string) string {
 }
 
 func msgReviewSuggestionsHeader(index int) string {
-	return fmt.Sprintf("      suggestions for %d (assigned to you, In Progress; take one with u %d K):", index, index)
+	return fmt.Sprintf("Suggestions for %d (assigned to you, In Progress; take one with u %d K):", index, index)
 }
 
 func msgReviewSuggestion(k int, c suggest.Candidate) string {
-	return fmt.Sprintf("        %d) %s  %s", k, SanitizeForTerminal(c.Key), SanitizeForTerminal(c.Summary))
+	return fmt.Sprintf("     %d) %s  %s", k, SanitizeForTerminal(c.Key), SanitizeForTerminal(c.Summary))
 }
 
 func msgReviewRememberOffer(o review.RememberOffer) string {
@@ -83,17 +86,4 @@ func msgReviewSummary(s review.Summary) string {
 		s.Confirmed, s.Discarded, s.Unconfirmed, s.Unassigned)
 }
 
-func msgReviewHeader(day string) string { return "Review for " + day + ":" }
-
-func msgReviewEntry(e review.Entry, loc *time.Location) string {
-	ticket, status := e.Ticket, ""
-	switch {
-	case e.Kind == review.KindGap:
-		ticket, status = msgUnassigned, "  needs a ticket (t N TICKET)"
-	case e.Confirmed:
-		status = "  [confirmed]"
-	}
-	return fmt.Sprintf("%3d  %s-%s  %6s  %-12s %-9s %s%s",
-		e.Index, e.Start.In(loc).Format("15:04"), e.End.In(loc).Format("15:04"),
-		formatMinutes(e.Minutes), SanitizeForTerminal(ticket), e.Tier, SanitizeForTerminal(e.Reason), status)
-}
+func msgReviewHeading(day string) string { return "Review for " + day }
