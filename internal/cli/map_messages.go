@@ -7,6 +7,7 @@ import "fmt"
 const (
 	msgMapConfigHeader  = "Configured rules (read-only, edit them in the config file %s):"
 	msgMapConfigRule    = "  %s -> %s"
+	msgMapUnknownPath   = "(unknown)"
 	msgMapNoConfigRules = "  (none)"
 	msgMapLearnedHeader = "Learned rules (change with `ticktack map add|edit|rm`):"
 	msgMapNoLearned     = "  (none)"

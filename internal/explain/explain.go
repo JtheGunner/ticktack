@@ -24,6 +24,9 @@ const (
 	SourceOverride Source = "override"
 	// SourceNoContext: presence without any earlier context event.
 	SourceNoContext Source = "no-context"
+	// SourceMerged: the block was merged from several context signals with
+	// different rules (Merged lists them).
+	SourceMerged Source = "merged"
 	// SourceTooShort: the block was shorter than the minimum duration and
 	// could not be merged into a same-ticket neighbour.
 	SourceTooShort Source = "too-short"
@@ -66,6 +69,8 @@ type Explanation struct {
 	// Decision is the resolver verdict (SourceContext only); for a manual
 	// switch its Rule is sessionizer.ManualRule.
 	Decision resolver.Decision
+	// Merged lists the distinct deciding signals of a SourceMerged block.
+	Merged []sessionizer.ContextDecision
 	// Skipped lists the higher-priority rules that did not apply, in
 	// resolution order (SourceContext only).
 	Skipped []resolver.RuleKind
@@ -93,25 +98,76 @@ func Block(in Input) Explanation {
 		ex.Source = SourceTooShort
 		return ex
 	}
-	cd, ok := sessionizer.ContextAt(in.Events, in.Rules, in.Block.Start)
-	if !ok || in.Block.Reason == sessionizer.NoContextReason {
+	steps := stepsOf(in)
+	if len(steps) == 0 || in.Block.Reason == sessionizer.NoContextReason {
 		ex.Source = SourceNoContext
+		return ex
+	}
+	cd, ok := matchingStep(steps, in.Block)
+	if !ok {
+		ex.Source = SourceMerged
+		ex.Merged = distinctSteps(steps)
 		return ex
 	}
 	ex.Source = SourceContext
 	ex.Event = cd.Event
 	ex.Signal = cd.Signal
 	ex.Decision = cd.Decision
+	if cd.Decision.Rule == sessionizer.ManualRule {
+		return ex
+	}
 	for _, kind := range resolutionOrder {
 		if kind == cd.Decision.Rule {
 			break
 		}
 		ex.Skipped = append(ex.Skipped, kind)
 	}
-	if cd.Decision.Rule == sessionizer.ManualRule {
-		ex.Skipped = nil
-	}
 	return ex
+}
+
+// stepsOf returns the context steps that can have contributed to the block:
+// the one in effect at its start and those beginning inside it.
+func stepsOf(in Input) []sessionizer.ContextDecision {
+	all := sessionizer.ContextSteps(in.Events, in.Rules)
+	var out []sessionizer.ContextDecision
+	for i, s := range all {
+		if s.At.After(in.Block.Start) {
+			if s.At.Before(in.Block.End) {
+				out = append(out, s)
+			}
+			continue
+		}
+		if i+1 == len(all) || all[i+1].At.After(in.Block.Start) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// matchingStep returns the first step whose attribution equals the block's
+// own ticket, tier and reason; a merged short block keeps the neighbour's
+// reason, so the step at its start does not always match.
+func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (sessionizer.ContextDecision, bool) {
+	for _, s := range steps {
+		a := s.Decision.Attribution
+		if a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+			return s, true
+		}
+	}
+	return sessionizer.ContextDecision{}, false
+}
+
+// distinctSteps drops steps that repeat an earlier attribution.
+func distinctSteps(steps []sessionizer.ContextDecision) []sessionizer.ContextDecision {
+	var out []sessionizer.ContextDecision
+	seen := map[resolver.Attribution]bool{}
+	for _, s := range steps {
+		if !seen[s.Decision.Attribution] {
+			seen[s.Decision.Attribution] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // overrideFor returns the last non-discarding override covering the block

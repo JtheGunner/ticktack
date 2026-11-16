@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -257,5 +258,107 @@ func TestExplainAndMapAreRegistered(t *testing.T) {
 	}
 	if c, _, err := root.Find([]string{"map", "rm"}); err != nil || c.Name() != "rm" {
 		t.Error("map rm not registered")
+	}
+}
+
+func TestMapStoresTrimmedValuesAndKeepsRelativeRepoOnTicketEdit(t *testing.T) {
+	ctx := context.Background()
+	deps, dbPath, _ := mapEnv(t)
+	if err := runMapAdd(ctx, deps, "  /work/api ", "  dev ", "abc-1"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := st.LearnedRules(ctx)
+	if err != nil || len(rules) != 1 || rules[0].Repo != "/work/api" || rules[0].BranchPattern != "dev" {
+		t.Fatalf("stored = %+v, %v", rules, err)
+	}
+	legacy, err := st.AddLearnedRule(ctx, store.LearnedRule{Repo: "rel/path", Ticket: "OLD-1", CreatedAt: dailyNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	id := strconv.FormatInt(legacy.ID, 10)
+	if err := runMapEdit(ctx, deps, id, mapChanges{ticket: ptrIf(true, "new-2")}); err != nil {
+		t.Fatalf("ticket-only edit of a relative repo failed: %v", err)
+	}
+	if err := runMapEdit(ctx, deps, id, mapChanges{repo: ptrIf(true, "still/rel")}); err == nil {
+		t.Error("changing the repo to a relative path must fail")
+	}
+	if err := runMapEdit(ctx, deps, id, mapChanges{repo: ptrIf(true, "  /abs/path ")}); err != nil {
+		t.Fatal(err)
+	}
+	st, err = store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	rules, _ = st.LearnedRules(ctx)
+	if got := rules[len(rules)-1]; got.Repo != "/abs/path" || got.Ticket != "NEW-2" {
+		t.Fatalf("rule = %+v", got)
+	}
+}
+
+func TestMapListSanitizesStoredRules(t *testing.T) {
+	ctx := context.Background()
+	deps, dbPath, out := mapEnv(t)
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddLearnedRule(ctx, store.LearnedRule{Repo: "/w/\x1b[31mred", BranchPattern: "b\x07\rranch", Ticket: "AB\x1bC-1", CreatedAt: dailyNow}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	if err := runMapList(ctx, deps); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"\x1b", "\x07", "\r"} {
+		if strings.Contains(out.String(), bad) {
+			t.Fatalf("output contains %q:\n%q", bad, out.String())
+		}
+	}
+}
+
+func TestExplainClockTimeOnDSTDays(t *testing.T) {
+	zurich, err := time.LoadLocation("Europe/Zurich")
+	if err != nil {
+		t.Skip("tzdata unavailable")
+	}
+	explainAt := func(t *testing.T, day string, events func(st *store.Store), target string) string {
+		t.Helper()
+		deps, st, out := newDailyEnv(t, "")
+		deps.LoadConfig = func() (config.Config, error) {
+			cfg, err := config.LoadOrDefault(filepath.Join(t.TempDir(), "missing.toml"))
+			cfg.Location = zurich
+			return cfg, err
+		}
+		events(st)
+		if err := runExplain(context.Background(), deps, day, target); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	// Spring forward 2026-03-29: 02:00-03:00 does not exist; 02:15 means 03:15.
+	spring := explainAt(t, "2026-03-29", func(st *store.Store) {
+		start := time.Date(2026, 3, 29, 3, 0, 0, 0, zurich)
+		mustAppend(t, st, shellContext(start, "/work/api", "ABC-7"))
+		seedPresence(t, st, start, 30)
+	}, "02:15")
+	if !strings.Contains(spring, "Block 1") || !strings.Contains(spring, "03:00-03:30") {
+		t.Errorf("spring-forward target 02:15 not normalised to 03:15:\n%s", spring)
+	}
+	// Fall back 2026-10-25: 02:00-03:00 occurs twice; 02:10 means the first.
+	fall := explainAt(t, "2026-10-25", func(st *store.Store) {
+		first := time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC) // 02:00 CEST
+		mustAppend(t, st, shellContext(first, "/work/api", "AAA-1"), shellContext(first.Add(time.Hour), "/work/api", "BBB-2"))
+		seedPresence(t, st, first, 20)
+		seedPresence(t, st, first.Add(time.Hour), 20)
+	}, "02:10")
+	if !strings.Contains(fall, "AAA-1") || strings.Contains(fall, "BBB-2") {
+		t.Errorf("repeated 02:10 must mean the first occurrence:\n%s", fall)
 	}
 }

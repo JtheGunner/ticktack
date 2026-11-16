@@ -99,3 +99,63 @@ func TestPresenceEvidenceReportsGapsAndNeighbours(t *testing.T) {
 		t.Fatalf("presence = %+v", ex.Presence)
 	}
 }
+
+func shortCfg() sessionizer.Config {
+	cfg := sessionizer.DefaultConfig()
+	cfg.MinBlock = 10 * time.Minute
+	return cfg
+}
+
+func ctxAt(at time.Time, repo, branch, ticket string) event.Event {
+	return event.Event{At: at, Kind: event.KindContext, Source: "shell", Repo: repo, Branch: branch, Ticket: ticket}
+}
+
+func TestBlockMergedShortBlockUsesMatchingStep(t *testing.T) {
+	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}}}
+	cfg := shortCfg()
+	// A 4 min block with an explicit CFG-1 ticket precedes a 20 min repo-rule
+	// block for CFG-1: they merge under the longer block's tier and reason.
+	events := []event.Event{ctxAt(t0, "/cfg", "main", "CFG-1"), ctxAt(t0.Add(4*time.Minute), "/cfg", "main", "")}
+	events = append(events, presenceRun(t0, 24)...)
+	blocks := sessionizer.Derive(events, nil, cfg, rules)
+	if len(blocks) != 1 || blocks[0].Tier != resolver.TierRule {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[0], Events: events, Rules: rules, Config: cfg})
+	if ex.Source != SourceContext || ex.Decision.Rule != resolver.RuleRepo || ex.Decision.Tier != blocks[0].Tier {
+		t.Fatalf("explanation names %v/%v for a %v block", ex.Source, ex.Decision.Rule, blocks[0].Tier)
+	}
+	if !ex.Event.At.Equal(t0.Add(4 * time.Minute)) {
+		t.Errorf("deciding event at %v", ex.Event.At)
+	}
+}
+
+func TestBlockSpanningTwoStepsWithSameAttribution(t *testing.T) {
+	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}}}
+	cfg := sessionizer.DefaultConfig()
+	events := []event.Event{ctxAt(t0, "/cfg", "main", ""), ctxAt(t0.Add(10*time.Minute), "/cfg", "main", "")}
+	events = append(events, presenceRun(t0, 30)...)
+	blocks := sessionizer.Derive(events, nil, cfg, rules)
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[0], Events: events, Rules: rules, Config: cfg})
+	if ex.Source != SourceContext || !ex.Event.At.Equal(t0) {
+		t.Fatalf("explanation = %+v", ex)
+	}
+}
+
+func TestBlockMergedFromDifferentRulesListsSignals(t *testing.T) {
+	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}}}
+	events := []event.Event{ctxAt(t0, "/cfg", "main", ""), ctxAt(t0.Add(10*time.Minute), "/x", "main", "CFG-1")}
+	// A block whose attribution matches none of its steps (as after a merge
+	// that no single signal explains).
+	b := sessionizer.Block{Start: t0, End: t0.Add(20 * time.Minute), Ticket: "CFG-1", Tier: resolver.TierLearned, Reason: "learned rule for /y"}
+	ex := Block(Input{Block: b, Events: events, Rules: rules, Config: sessionizer.DefaultConfig()})
+	if ex.Source != SourceMerged || len(ex.Merged) != 2 {
+		t.Fatalf("explanation = %+v", ex)
+	}
+	if ex.Merged[0].Decision.Rule != resolver.RuleRepo || ex.Merged[1].Decision.Rule != resolver.RuleEventTicket {
+		t.Errorf("merged rules = %v, %v", ex.Merged[0].Decision.Rule, ex.Merged[1].Decision.Rule)
+	}
+}

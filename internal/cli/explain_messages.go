@@ -26,9 +26,11 @@ const (
 	msgExplainAfter      = "  next present sample: %s (%s after the block)"
 	msgExplainGap        = "  idle gap: %s-%s"
 
-	msgExplainNoContext = "none: presence without any earlier context event"
-	msgExplainTooShort  = "none: the block is shorter than the minimum duration and has no same-ticket neighbour"
-	msgExplainNoRule    = "no rule matched (no ticket on the event or in the branch, no configured or learned rule)"
+	msgExplainMergedSignal = "none single: the block was merged from several signals with different rules"
+	msgExplainMergedItem   = "  - %s -> %s"
+	msgExplainNoContext    = "none: presence without any earlier context event"
+	msgExplainTooShort     = "none: the block is shorter than the minimum duration and has no same-ticket neighbour"
+	msgExplainNoRule       = "no rule matched (no ticket on the event or in the branch, no configured or learned rule)"
 )
 
 func msgExplainEventSignal(source, kind, at, repo, branch, ticket string) string {

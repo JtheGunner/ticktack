@@ -19,7 +19,8 @@ func newExplainCommand() *cobra.Command {
 		Use:   "explain <N|HH:MM>",
 		Short: "Show the signal and rule behind a block",
 		Long: "Show which signal and which rule decided a block of `ticktack today`.\n" +
-			"The argument is the block number printed by `ticktack today`, or a local time HH:MM inside a block.",
+			"The argument is the block number printed by `ticktack today`, or a local time HH:MM inside a block.\n" +
+			"On days with a daylight-saving change, a skipped time means the following hour and a repeated time its first occurrence.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExplain(cmd.Context(), defaultDailyDeps(cmd), day, args[0])
@@ -66,7 +67,11 @@ func runExplain(ctx context.Context, deps dailyDeps, day, target string) error {
 	return nil
 }
 
-// selectBlock returns the 1-based number of the block named by target.
+// selectBlock returns the 1-based number of the block named by target. A
+// clock time is read in the configured zone on the selected day: a time that
+// does not exist because clocks spring forward is normalised to the following
+// hour, and a time that occurs twice when clocks fall back means its first
+// occurrence.
 func selectBlock(blocks []sessionizer.Block, target string, dayStart time.Time, loc *time.Location, label string) (int, error) {
 	if !strings.Contains(target, ":") {
 		n, err := strconv.Atoi(target)
@@ -83,6 +88,11 @@ func selectBlock(blocks []sessionizer.Block, target string, dayStart time.Time, 
 		return 0, fmt.Errorf(msgExplainBadTarget, SanitizeForTerminal(target))
 	}
 	at := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), clock.Hour(), clock.Minute(), 0, 0, loc)
+	// time.Date resolves a repeated wall-clock time to either occurrence;
+	// pick the first one explicitly.
+	if earlier := at.Add(-time.Hour).In(loc); earlier.Hour() == clock.Hour() && earlier.Minute() == clock.Minute() {
+		at = earlier
+	}
 	for i, b := range blocks {
 		if !at.Before(b.Start) && at.Before(b.End) {
 			return i + 1, nil
@@ -106,6 +116,14 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 	case explain.SourceOverride:
 		line(msgExplainSignal, msgExplainOverrideSignal(clock(ex.Override.Start), clock(ex.Override.End)))
 		line(msgExplainRule, SanitizeForTerminal(msgExplainOverrideRule(ex.Override.Ticket)))
+	case explain.SourceMerged:
+		line(msgExplainSignal, msgExplainMergedSignal)
+		for _, m := range ex.Merged {
+			me := m.Event
+			line(msgExplainMergedItem, SanitizeForTerminal(msgExplainEventSignal(
+				me.Source, string(me.Kind), clock(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
+				SanitizeForTerminal(msgExplainRuleText(m.Decision, m.Decision.Ticket)))
+		}
 	case explain.SourceNoContext:
 		line(msgExplainSignal, msgExplainNoContext)
 	case explain.SourceTooShort:

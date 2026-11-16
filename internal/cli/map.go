@@ -101,7 +101,7 @@ func runMapList(ctx context.Context, deps dailyDeps) error {
 	if err != nil {
 		return err
 	}
-	path := "(unknown)"
+	path := msgMapUnknownPath
 	if deps.ConfigPath != nil {
 		if p, perr := deps.ConfigPath(); perr == nil {
 			path = p
@@ -139,12 +139,15 @@ func runMapList(ctx context.Context, deps dailyDeps) error {
 }
 
 // validateRule checks the user-supplied fields before they reach the store.
-func validateRule(cfg config.Config, repo, branch, ticket string) (string, error) {
+// repo and branch are trimmed; the repo must be absolute only when
+// checkRepo is set, so a stored rule with an older relative repo can still
+// have its ticket edited.
+func validateRule(cfg config.Config, repo, branch, ticket string, checkRepo bool) (string, error) {
 	repo, branch = strings.TrimSpace(repo), strings.TrimSpace(branch)
 	if repo == "" && branch == "" {
 		return "", errors.New(msgMapEmptyRule)
 	}
-	if repo != "" && !filepath.IsAbs(repo) {
+	if checkRepo && repo != "" && !filepath.IsAbs(repo) {
 		return "", fmt.Errorf(msgMapRelativeRepo, SanitizeForTerminal(repo))
 	}
 	return review.NormalizeTicket(cfg, ticket)
@@ -155,7 +158,8 @@ func runMapAdd(ctx context.Context, deps dailyDeps, repo, branch, ticket string)
 	if err != nil {
 		return err
 	}
-	normalized, err := validateRule(cfg, repo, branch, ticket)
+	repo, branch = strings.TrimSpace(repo), strings.TrimSpace(branch)
+	normalized, err := validateRule(cfg, repo, branch, ticket, true)
 	if err != nil {
 		return err
 	}
@@ -194,15 +198,15 @@ func runMapEdit(ctx context.Context, deps dailyDeps, idArg string, changes mapCh
 		return err
 	}
 	if changes.repo != nil {
-		rule.Repo = *changes.repo
+		rule.Repo = strings.TrimSpace(*changes.repo)
 	}
 	if changes.branch != nil {
-		rule.BranchPattern = *changes.branch
+		rule.BranchPattern = strings.TrimSpace(*changes.branch)
 	}
 	if changes.ticket != nil {
 		rule.Ticket = *changes.ticket
 	}
-	if rule.Ticket, err = validateRule(cfg, rule.Repo, rule.BranchPattern, rule.Ticket); err != nil {
+	if rule.Ticket, err = validateRule(cfg, rule.Repo, rule.BranchPattern, rule.Ticket, changes.repo != nil); err != nil {
 		return err
 	}
 	if err := st.UpdateLearnedRule(ctx, rule); err != nil {
