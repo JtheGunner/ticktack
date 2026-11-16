@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
 ### Added
 
 - Styled command output: headings, aligned tables and status lines with colours and glyphs, adapted to the terminal width.
@@ -71,6 +73,7 @@ First public release.
 - The git scan (`ticktack scan` and the agent scan) now honours the configured `ticket_pattern` instead of always using the default.
 - The ActivityWatch URL check rejects IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`) and zoned loopback addresses; numerically encoded and `localhost`-lookalike hosts stay rejected.
 
-[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/JtheGunner/ticktack/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/JtheGunner/ticktack/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/JtheGunner/ticktack/releases/tag/v0.1.0
