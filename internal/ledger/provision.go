@@ -51,6 +51,10 @@ type ProvisionReport struct {
 	Declined []string
 	// WouldCreate lists the projects a dry run found without a task.
 	WouldCreate []string
+	// WouldBook maps each project of WouldCreate to the minutes of its items
+	// that a dry run left out because the task does not exist yet. The time
+	// is booked once a real run has created the task.
+	WouldBook map[string]int
 	// Rewritten maps every ticket that was replaced to its real issue key.
 	Rewritten map[string]string
 	// DroppedTickets lists the tickets whose items were left out.
@@ -179,6 +183,12 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 	droppedSeen := map[string]bool{}
 	for _, it := range items {
 		if project, isTask := projectOf[it.Ticket]; isTask && dropped[project] {
+			if o.DryRun {
+				if report.WouldBook == nil {
+					report.WouldBook = map[string]int{}
+				}
+				report.WouldBook[project] += it.Minutes
+			}
 			if !droppedSeen[it.Ticket] {
 				droppedSeen[it.Ticket] = true
 				report.DroppedTickets = append(report.DroppedTickets, it.Ticket)

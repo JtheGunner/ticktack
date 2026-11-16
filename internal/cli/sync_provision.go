@@ -21,13 +21,13 @@ import (
 // once, on in, before creating anything; an empty or missing answer declines.
 // Items whose task could not be provided are dropped from the result and the
 // reason is printed, so they are never booked on a guess.
-func provisionStandardTasks(ctx context.Context, out io.Writer, in io.Reader, r render.Renderer, cfg config.Config, st *store.Store, target sink.TimeSink, items []sessionizer.DayItem, dryRun bool) ([]sessionizer.DayItem, error) {
+func provisionStandardTasks(ctx context.Context, out io.Writer, in io.Reader, r render.Renderer, cfg config.Config, st *store.Store, target sink.TimeSink, items []sessionizer.DayItem, dryRun bool) ([]sessionizer.DayItem, ledger.ProvisionReport, error) {
 	if cfg.DefaultIssue == nil {
-		return items, nil
+		return items, ledger.ProvisionReport{}, nil
 	}
 	prov, ok := target.(sink.TaskProvisioner)
 	if !ok {
-		return dropPlaceholders(out, r, items), nil
+		return dropPlaceholders(out, r, items), ledger.ProvisionReport{}, nil
 	}
 	confirm := func(projects []string) ([]string, error) {
 		_, _ = fmt.Fprintf(out, msgSyncCreatePrompt, sanitizedList(projects))
@@ -49,10 +49,10 @@ func provisionStandardTasks(ctx context.Context, out io.Writer, in io.Reader, r 
 		DryRun:  dryRun,
 	})
 	if err != nil {
-		return nil, err
+		return nil, report, err
 	}
 	printProvisionReport(out, r, report)
-	return provisioned, nil
+	return provisioned, report, nil
 }
 
 // dropPlaceholders removes items that still point at a standard task that does
@@ -82,6 +82,11 @@ func printProvisionReport(out io.Writer, r render.Renderer, report ledger.Provis
 	}
 	if len(report.WouldCreate) > 0 {
 		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgSyncTaskWouldCreate, sanitizedList(report.WouldCreate))))
+	}
+	for _, project := range report.WouldCreate {
+		if minutes := report.WouldBook[project]; minutes > 0 {
+			_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgSyncTaskWouldBook, SanitizeForTerminal(project), formatMinutes(minutes))))
+		}
 	}
 	if len(report.Declined) > 0 {
 		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusWarn, fmt.Sprintf(msgSyncTaskDeclined, sanitizedList(report.Declined))))

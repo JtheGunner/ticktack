@@ -9,6 +9,7 @@ const (
 	msgSyncTaskCreated      = "Created standard task %s in %s."
 	msgSyncTaskFound        = "Using the existing standard task %s in %s."
 	msgSyncTaskWouldCreate  = "Would create the standard task in: %s."
+	msgSyncTaskWouldBook    = "%s: %s would be booked once the standard task exists."
 	msgSyncTaskDeclined     = "Standard task not created in: %s. That time was not booked; run `ticktack sync` again to create it."
 	msgSyncSinkCannotCreate = "%d item(s) skipped: the booking target cannot create standard tasks."
 	// msgSyncItem is the per-item line: key, minutes, action.

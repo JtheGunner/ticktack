@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ticktack sync --dry-run` no longer claims "No time to book" when the time waits for a standard task that does not exist yet. It names each project and the time that would be booked once the task is created.
+
 ## [0.3.0] - 2026-11-16
 
 ### Added
