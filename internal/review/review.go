@@ -86,7 +86,7 @@ func LoadRules(ctx context.Context, r interface {
 		return resolver.Rules{}, err
 	}
 	for _, l := range learned {
-		rules.Learned = append(rules.Learned, resolver.LearnedRule{Repo: l.Repo, Branch: l.BranchPattern, Ticket: l.Ticket})
+		rules.Learned = append(rules.Learned, resolver.LearnedRule{ID: l.ID, Repo: l.Repo, Branch: l.BranchPattern, Ticket: l.Ticket})
 	}
 	return rules, nil
 }

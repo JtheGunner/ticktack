@@ -35,24 +35,72 @@ type Attribution struct {
 	Reason string
 }
 
+// RuleKind names the rule that decided an attribution.
+type RuleKind string
+
+// Rule kinds, in resolution order.
+const (
+	RuleEventTicket  RuleKind = "event-ticket"
+	RuleBranchTicket RuleKind = "branch-ticket"
+	RuleRepo         RuleKind = "repo-rule"
+	RuleLearned      RuleKind = "learned-rule"
+	RuleNone         RuleKind = "none"
+)
+
+// Decision is an Attribution together with the rule that produced it.
+type Decision struct {
+	Attribution
+	Rule RuleKind
+	// RuleRepo and RuleBranch are the match criteria of the deciding repo or
+	// learned rule; RuleBranch is only set for learned rules.
+	RuleRepo   string
+	RuleBranch string
+	// LearnedID is the store ID of the deciding learned rule (0 when unknown).
+	LearnedID int64
+}
+
 // Resolve attributes the signal to a ticket. Order: explicit ticket (event or
 // branch name), repo rule, learned rule, unknown.
 func Resolve(signal ContextSignal, rules Rules) Attribution {
+	return Decide(signal, rules).Attribution
+}
+
+// Decide is Resolve that also reports which rule decided.
+func Decide(signal ContextSignal, rules Rules) Decision {
 	if ticket := strings.ToUpper(strings.TrimSpace(signal.Ticket)); ticket != "" {
-		return Attribution{Ticket: ticket, Tier: TierExplicit, Reason: fmt.Sprintf("explicit ticket %s on event", ticket)}
+		return Decision{
+			Attribution: Attribution{Ticket: ticket, Tier: TierExplicit, Reason: fmt.Sprintf("explicit ticket %s on event", ticket)},
+			Rule:        RuleEventTicket,
+		}
 	}
 	if ticket := ticketid.Extract(signal.Branch, rules.TicketPattern); ticket != "" {
-		return Attribution{
-			Ticket: ticket,
-			Tier:   TierExplicit,
-			Reason: fmt.Sprintf("ticket %s found in branch %q", ticket, signal.Branch),
+		return Decision{
+			Attribution: Attribution{
+				Ticket: ticket,
+				Tier:   TierExplicit,
+				Reason: fmt.Sprintf("ticket %s found in branch %q", ticket, signal.Branch),
+			},
+			Rule: RuleBranchTicket,
 		}
 	}
 	if rule, ok := matchRepoRule(rules.Repos, signal.Repo); ok {
-		return Attribution{Ticket: rule.Ticket, Tier: TierRule, Reason: "repo rule for " + signal.Repo}
+		return Decision{
+			Attribution: Attribution{Ticket: rule.Ticket, Tier: TierRule, Reason: "repo rule for " + signal.Repo},
+			Rule:        RuleRepo,
+			RuleRepo:    rule.Repo,
+		}
 	}
 	if rule, ok := matchLearned(rules.Learned, signal.Repo, signal.Branch); ok {
-		return Attribution{Ticket: rule.Ticket, Tier: TierLearned, Reason: "learned rule for " + signal.Repo}
+		return Decision{
+			Attribution: Attribution{Ticket: rule.Ticket, Tier: TierLearned, Reason: "learned rule for " + signal.Repo},
+			Rule:        RuleLearned,
+			RuleRepo:    rule.Repo,
+			RuleBranch:  rule.Branch,
+			LearnedID:   rule.ID,
+		}
 	}
-	return Attribution{Tier: TierUnknown, Reason: "no ticket in branch and no rule for repo"}
+	return Decision{
+		Attribution: Attribution{Tier: TierUnknown, Reason: "no ticket in branch and no rule for repo"},
+		Rule:        RuleNone,
+	}
 }

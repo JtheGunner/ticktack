@@ -24,6 +24,9 @@ type dailyStore interface {
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
+	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
+	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
+	DeleteLearnedRule(ctx context.Context, id int64) error
 	Purge(ctx context.Context) error
 	Close() error
 }
@@ -34,6 +37,8 @@ type dailyDeps struct {
 	OpenStore func() (dailyStore, error)
 	// LoadConfig returns the user configuration (defaults when absent).
 	LoadConfig func() (config.Config, error)
+	// ConfigPath returns the config file location; nil means config.DefaultPath.
+	ConfigPath func() (string, error)
 	// Now returns the current time.
 	Now func() time.Time
 	// PausePath returns the location of the pause flag file.
@@ -55,6 +60,7 @@ func defaultDailyDeps(cmd *cobra.Command) dailyDeps {
 			}
 			return config.LoadOrDefault(path)
 		},
+		ConfigPath: config.DefaultPath,
 		// Round(0) strips the monotonic reading so stored times are wall-clock.
 		Now:       func() time.Time { return time.Now().Round(0) },
 		PausePath: paths.PausePath,
@@ -83,6 +89,8 @@ func addDailyCommands(root *cobra.Command) {
 		newPauseCommand(),
 		newResumeCommand(),
 		newPurgeCommand(),
+		newExplainCommand(),
+		newMapCommand(),
 	)
 }
 
