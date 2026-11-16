@@ -36,9 +36,13 @@ var ErrNotRepository = errors.New("not a git repository")
 // carry the absolute worktree root. Repositories without a reflog (fresh,
 // bare, or with logs disabled) yield no events and no error.
 //
+// pattern extracts the ticket ID from branch names; nil means the default
+// pattern. The pattern is not part of the key, so events keep their identity
+// across pattern changes.
+//
 // Events carry a deterministic Key, so appending the result of repeated scans
 // to the store is harmless. The result is ordered by time, then key.
-func Scan(ctx context.Context, repo string, from, to time.Time) ([]event.Event, error) {
+func Scan(ctx context.Context, repo string, from, to time.Time, pattern *regexp.Regexp) ([]event.Event, error) {
 	bare, err := gitOutput(ctx, repo, "rev-parse", "--is-bare-repository")
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", repo, ErrNotRepository)
@@ -73,7 +77,7 @@ func Scan(ctx context.Context, repo string, from, to time.Time) ([]event.Event, 
 	}
 
 	var events []event.Event
-	for _, e := range buildEvents(root, entries, current, known) {
+	for _, e := range buildEvents(root, entries, current, known, pattern) {
 		if !from.IsZero() && e.At.Before(from) {
 			continue
 		}
@@ -213,7 +217,7 @@ var (
 // only the final branch state at the end of the rebase is reported. Reset,
 // pull and merge lines never change the branch. currentBranch seeds the
 // branch for commits that precede the first checkout when no checkout exists.
-func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBranch func(string) bool) []event.Event {
+func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBranch func(string) bool, pattern *regexp.Regexp) []event.Event {
 	branch := currentBranch
 	for _, e := range entries {
 		if m := checkoutLine.FindStringSubmatch(e.Subject); m != nil {
@@ -236,7 +240,7 @@ func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBra
 			Kind:   event.KindContext,
 			Repo:   repo,
 			Branch: branchName,
-			Ticket: ticketid.Extract(branchName, nil),
+			Ticket: ticketid.Extract(branchName, pattern),
 			Key:    key,
 		})
 	}

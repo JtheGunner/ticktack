@@ -48,7 +48,7 @@ func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoSca
 			}
 			current := now()
 			from := scanStartOfLookback(current, cfg.Location)
-			report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, current.Add(scanFutureSlack), scan, sink)
+			report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, current.Add(scanFutureSlack), scanTicketPattern(cfg), scan, sink)
 			for _, s := range report.Skipped {
 				logf(msgRepoLogSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))
 			}

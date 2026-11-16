@@ -75,7 +75,7 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 		}
 		total += item.Minutes
 		overCap = overCap || item.OverCap
-		_, _ = fmt.Fprintf(out, "  %-12s %6s  (raw %s)\n", ticketLabel(item.Ticket), formatMinutes(item.Minutes), formatMinutes(item.RawMinutes))
+		_, _ = fmt.Fprintf(out, "  %-12s %6s  (raw %s)\n", SanitizeForTerminal(ticketLabel(item.Ticket)), formatMinutes(item.Minutes), formatMinutes(item.RawMinutes))
 	}
 	_, err = fmt.Fprintf(out, "  %-12s %6s%s\n", "Total", formatMinutes(total), overCapNote(overCap, cfg.DailyCap))
 	return err

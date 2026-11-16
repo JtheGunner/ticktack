@@ -42,7 +42,9 @@ func isLoopbackHost(host string) bool {
 		return true
 	}
 	addr, err := netip.ParseAddr(host)
-	return err == nil && addr.IsLoopback()
+	// Only plain IPv4 and IPv6 loopback literals qualify: IPv4-mapped IPv6
+	// forms and zoned addresses are rejected so the accepted set stays minimal.
+	return err == nil && !addr.Is4In6() && addr.Zone() == "" && addr.IsLoopback()
 }
 
 // Control is a net.Dialer Control function that refuses to connect to any

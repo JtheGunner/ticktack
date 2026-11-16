@@ -8,7 +8,7 @@ It watches when you are at the keyboard and which repository and branch you work
 <code>🖥️ presence + 🌿 shell context (repo, branch)</code> &nbsp;→&nbsp; <code>🧮 work blocks</code> &nbsp;→&nbsp; <code>✅ review</code> &nbsp;→&nbsp; <code>📒 YouTrack</code>
 
 ![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)
-![Go](https://img.shields.io/badge/go-1.27%2B-3776ab?style=flat-square&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/go-1.27.3%2B-3776ab?style=flat-square&logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS-0ea5e9?style=flat-square&logo=apple&logoColor=white)
 ![Privacy](https://img.shields.io/badge/telemetry-none-8b5cf6?style=flat-square)
 ![Status](https://img.shields.io/badge/status-pre--release-f59e0b?style=flat-square)
@@ -68,7 +68,7 @@ Each block carries a discrete confidence tier:
 brew install JtheGunner/tap/ticktack
 ```
 
-**Go** (1.27 or newer):
+**Go** (1.27.3 or newer):
 
 ```sh
 go install github.com/JtheGunner/ticktack/cmd/ticktack@latest

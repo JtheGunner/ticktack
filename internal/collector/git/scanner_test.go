@@ -66,7 +66,7 @@ func newRepo(t *testing.T) string {
 
 func scan(t *testing.T, repo string) []event.Event {
 	t.Helper()
-	events, err := Scan(context.Background(), repo, time.Time{}, time.Time{})
+	events, err := Scan(context.Background(), repo, time.Time{}, time.Time{}, nil)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestScanRangeFiltersEvents(t *testing.T) {
 	commit(t, repo, at(2, 9), "b.txt")
 	commit(t, repo, at(3, 9), "c.txt")
 
-	events, err := Scan(context.Background(), repo, at(2, 0), at(2, 23))
+	events, err := Scan(context.Background(), repo, at(2, 0), at(2, 23), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestScanIgnoresRepoWithoutReflog(t *testing.T) {
 
 func TestScanRejectsNonRepository(t *testing.T) {
 	isolateGit(t)
-	_, err := Scan(context.Background(), t.TempDir(), time.Time{}, time.Time{})
+	_, err := Scan(context.Background(), t.TempDir(), time.Time{}, time.Time{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
@@ -316,7 +316,7 @@ func TestBuildEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got []string
-			for _, e := range buildEvents("/r", tt.entries, tt.current, isBranch) {
+			for _, e := range buildEvents("/r", tt.entries, tt.current, isBranch, nil) {
 				got = append(got, strconv.FormatInt(e.At.Unix(), 10)+" "+e.Branch)
 			}
 			if !reflect.DeepEqual(got, tt.want) {

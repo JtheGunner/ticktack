@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -28,7 +29,8 @@ const (
 )
 
 // repoScanner reads context events of one repository within [from, to].
-type repoScanner func(ctx context.Context, repo string, from, to time.Time) ([]event.Event, error)
+// pattern extracts ticket IDs from branch names; nil means the default.
+type repoScanner func(ctx context.Context, repo string, from, to time.Time, pattern *regexp.Regexp) ([]event.Event, error)
 
 // eventAppender is the part of the store a scan writes to.
 type eventAppender interface {
@@ -37,11 +39,21 @@ type eventAppender interface {
 
 // defaultRepoScanner runs the read-only reflog scanner. It reports a missing
 // git binary as its own error instead of "not a repository".
-func defaultRepoScanner(ctx context.Context, repo string, from, to time.Time) ([]event.Event, error) {
+func defaultRepoScanner(ctx context.Context, repo string, from, to time.Time, pattern *regexp.Regexp) ([]event.Event, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return nil, errGitMissing
 	}
-	return gitscan.Scan(ctx, repo, from, to)
+	return gitscan.Scan(ctx, repo, from, to, pattern)
+}
+
+// scanTicketPattern returns the configured ticket pattern for the git scanner,
+// or nil while it is the built-in default. nil keeps the scanner's
+// case-insensitive default matching, so default setups behave as before.
+func scanTicketPattern(cfg config.Config) *regexp.Regexp {
+	if cfg.TicketPattern == nil || cfg.TicketPattern.String() == config.DefaultTicketPattern {
+		return nil
+	}
+	return cfg.TicketPattern
 }
 
 var errGitMissing = errors.New(msgRepoGitMissing)
@@ -97,7 +109,7 @@ type scanReport struct {
 // failing repository is recorded and does not stop the others. Only a failed
 // append or a cancelled ctx aborts the pass. Appending is idempotent because
 // every event carries a deterministic key.
-func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, scan repoScanner, sink eventAppender) (scanReport, error) {
+func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, sink eventAppender) (scanReport, error) {
 	report := scanReport{Total: len(repos)}
 	for _, raw := range repos {
 		if err := ctx.Err(); err != nil {
@@ -113,7 +125,7 @@ func scanRepositories(ctx context.Context, repos []string, home string, from, to
 			continue
 		}
 		repoCtx, cancel := context.WithTimeout(ctx, scanRepoTimeout)
-		events, err := scan(repoCtx, path, from, to)
+		events, err := scan(repoCtx, path, from, to, pattern)
 		timedOut := repoCtx.Err() != nil
 		cancel()
 		if err != nil {
@@ -221,7 +233,7 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	if err != nil {
 		return err
 	}
-	report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, to, scan, st)
+	report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, to, scanTicketPattern(cfg), scan, st)
 	if err != nil {
 		return err
 	}
