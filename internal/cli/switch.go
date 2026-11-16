@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -61,10 +62,10 @@ func runSwitch(ctx context.Context, deps dailyDeps, args []string, clearFlag boo
 		return err
 	}
 	if clearPin {
-		_, err = fmt.Fprintln(deps.Out, msgSwitchCleared)
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgSwitchCleared))
 		return err
 	}
-	_, err = fmt.Fprintln(deps.Out, msgSwitched(ticket))
+	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgSwitched(SanitizeForTerminal(ticket))))
 	return err
 }
 
