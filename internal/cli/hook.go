@@ -45,6 +45,9 @@ type hookDeps struct {
 	// Pattern returns the configured ticket pattern. A nil pattern or an error
 	// falls back to the default pattern; the hook never fails on it.
 	Pattern func() (*regexp.Regexp, error)
+	// ConfigErrorDue reports whether a config error may be logged now; nil
+	// means always. It keeps a broken config from adding a log line per prompt.
+	ConfigErrorDue func() bool
 	// Logf records an error. It must never write to stdout or stderr.
 	Logf func(format string, args ...any)
 }
@@ -83,8 +86,9 @@ func defaultHookDeps() hookDeps {
 			}
 			return pauseFlagCheck(p)()
 		},
-		Pattern: configuredTicketPattern,
-		Logf:    fileLogf,
+		Pattern:        configuredTicketPattern,
+		ConfigErrorDue: configErrorLogDue,
+		Logf:           fileLogf,
 	}
 }
 
@@ -126,6 +130,41 @@ func gitRepoInfo(ctx context.Context, cwd string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// hookConfigErrorEvery is the shortest time between two logged config errors.
+const hookConfigErrorEvery = 10 * time.Minute
+
+// configErrorLogDue throttles the config error line using the modification
+// time of a marker file next to the log file.
+func configErrorLogDue() bool {
+	logPath, err := paths.LogPath()
+	if err != nil {
+		return false
+	}
+	return markerDue(filepath.Join(filepath.Dir(logPath), "hook-config-error.marker"), time.Now(), hookConfigErrorEvery)
+}
+
+// markerDue reports whether more than every has passed since the marker file
+// was last touched, and touches it when it has. A missing marker is due. A
+// marker from the future (clock change) is due. When the marker cannot be
+// written the answer is still true: the log write itself then fails quietly.
+func markerDue(marker string, now time.Time, every time.Duration) bool {
+	if info, err := os.Stat(marker); err == nil {
+		if age := now.Sub(info.ModTime()); age >= 0 && age < every {
+			return false
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return true
+	}
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return true
+	}
+	_ = f.Close()
+	_ = os.Chtimes(marker, now, now)
+	return true
 }
 
 // fileLogf appends to the log file and stays silent when it cannot.
@@ -176,7 +215,10 @@ func runHook(ctx context.Context, deps hookDeps, cwd string) error {
 	pattern, err := deps.Pattern()
 	if err != nil {
 		// Fall back to the default pattern; the prompt must keep working.
-		deps.Logf("load ticket pattern: %v", err)
+		if deps.ConfigErrorDue == nil || deps.ConfigErrorDue() {
+			// %q keeps a multi-line TOML or regex error on one log line.
+			deps.Logf("load ticket pattern: %q", err.Error())
+		}
 		pattern = nil
 	}
 

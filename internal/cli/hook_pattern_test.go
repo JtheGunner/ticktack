@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHookFallsBackToDefaultPatternWhenConfigFails(t *testing.T) {
@@ -94,4 +96,61 @@ func BenchmarkHookPromptCost(b *testing.B) {
 			_, _ = gitRepoInfo(context.Background(), repo)
 		}
 	})
+}
+
+func TestMarkerDueThrottlesToOncePerWindow(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "logs", "marker")
+	start := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	steps := []struct {
+		name string
+		at   time.Time
+		want bool
+	}{
+		{"first error is logged", start, true},
+		{"again right away is not", start.Add(time.Second), false},
+		{"just before the window is not", start.Add(10*time.Minute - time.Second), false},
+		{"after the window is logged again", start.Add(10 * time.Minute), true},
+		{"and throttled again", start.Add(11 * time.Minute), false},
+		{"a clock set back is logged", start.Add(-time.Hour), true},
+	}
+	for _, s := range steps {
+		if got := markerDue(marker, s.at, hookConfigErrorEvery); got != s.want {
+			t.Errorf("%s: due = %v, want %v", s.name, got, s.want)
+		}
+	}
+}
+
+func TestHookLogsConfigErrorOnOneLineAndHonoursThrottle(t *testing.T) {
+	multiline := errors.New("parse config: line 1\nunexpected \"x\"\nline 3")
+	tests := []struct {
+		name    string
+		due     func() bool
+		wantLog bool
+	}{
+		{"due", func() bool { return true }, true},
+		{"throttled", func() bool { return false }, false},
+		{"no throttle configured", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink := &fakeSink{}
+			var lines []string
+			deps, _ := newTestDeps(sink, "/r\nfeat/ABC-12-x\n", nil)
+			deps.Pattern = func() (*regexp.Regexp, error) { return nil, multiline }
+			deps.ConfigErrorDue = tt.due
+			deps.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+			if err := runHook(context.Background(), deps, "/r"); err != nil {
+				t.Fatal(err)
+			}
+			if len(sink.events) != 2 || sink.events[0].Ticket != "ABC-12" {
+				t.Fatalf("events = %+v, want the default pattern fallback", sink.events)
+			}
+			if (len(lines) == 1) != tt.wantLog || len(lines) > 1 {
+				t.Fatalf("log lines = %q, wantLog %v", lines, tt.wantLog)
+			}
+			if tt.wantLog && strings.Contains(lines[0], "\n") {
+				t.Errorf("log entry spans several lines: %q", lines[0])
+			}
+		})
+	}
 }
