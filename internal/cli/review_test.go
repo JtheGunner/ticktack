@@ -171,7 +171,7 @@ func TestReviewCommandSanitizesSuggestionText(t *testing.T) {
 	deps, _, out := repoOnlyDeps(t, "q\n")
 	deps.NewIssueSource = func(config.Config) (review.IssueSource, error) {
 		return fakeIssueSource{issues: []youtrack.Issue{
-			{ID: "ABC-1\x1b]0;pwned\x07", Summary: "\x1b[2Jclear\rfake‮evil\x9b", Updated: 1},
+			{ID: "ABC-1\x1b]0;pwned\x07", Summary: "\x1b[2Jclear\rfake\u202eevil\x9b", Updated: 1},
 		}}, nil
 	}
 	if err := runReview(context.Background(), deps, "2026-01-05"); err != nil {
