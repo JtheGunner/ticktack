@@ -270,3 +270,53 @@ func TestMapSanitisesBeforeStyling(t *testing.T) {
 		}
 	}
 }
+
+// TestReviewReasonCellIsSanitised reaches the Reason cell with external text:
+// a learned rule's reason embeds the repository path of the event. The
+// renderer is wide so the hostile part is not truncated away.
+func TestReviewReasonCellIsSanitised(t *testing.T) {
+	wide := func(r render.Renderer) render.Renderer { r.Width = 200; return r }
+	for _, r := range []render.Renderer{wide(render.Plain()), wide(unicodeColorRenderer())} {
+		run := func(repo string) string {
+			deps, st, out := reviewTestDeps(t, "q\n")
+			if err := st.Purge(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			start := time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
+			if _, err := st.AddLearnedRule(ctx, store.LearnedRule{Repo: "/work", Ticket: "LRN-5", CreatedAt: start}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.Append(ctx, event.Event{At: start, Source: "test", Kind: event.KindContext, Repo: repo, Branch: "dev"}); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i <= 60; i++ {
+				if err := st.Append(ctx, event.Event{At: start.Add(time.Duration(i) * time.Minute), Source: "test", Kind: event.KindPresence}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			deps.Render = r
+			if err := runReview(ctx, deps, "2026-01-05"); err != nil {
+				t.Fatal(err)
+			}
+			return out.String()
+		}
+		benign := run("/work/app")
+		hostile := run("/work/\x1b[2Jred\x07\nFAKE LINE\r\u202eevil")
+		if !strings.Contains(stripANSI(benign), "learned rule for /work/app") {
+			t.Fatalf("benign reason not shown, test would be vacuous:\n%s", benign)
+		}
+		if !strings.Contains(stripANSI(hostile), "learned rule for /work/") || !strings.Contains(stripANSI(hostile), "FAKE LINE") {
+			t.Fatalf("hostile reason does not reach the table:\n%s", hostile)
+		}
+		if strings.Contains(hostile, "\x1b[2J") || strings.ContainsAny(stripANSI(hostile), "\x1b\x07\r\u202e") {
+			t.Errorf("control characters survive: %q", hostile)
+		}
+		if !r.Colors.Enabled && strings.Contains(hostile, "\x1b") {
+			t.Errorf("plain output contains ESC: %q", hostile)
+		}
+		if got, want := strings.Count(hostile, "\n"), strings.Count(benign, "\n"); got != want {
+			t.Errorf("hostile reason changed the line count: %d, want %d\n%s", got, want, hostile)
+		}
+	}
+}
