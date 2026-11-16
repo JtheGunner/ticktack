@@ -166,3 +166,19 @@ func TestReviewCommandSuggestionSetupFailureIsIgnored(t *testing.T) {
 		t.Errorf("unexpected suggestions:\n%s", out.String())
 	}
 }
+
+func TestReviewCommandSanitizesSuggestionText(t *testing.T) {
+	deps, _, out := repoOnlyDeps(t, "q\n")
+	deps.NewIssueSource = func(config.Config) (review.IssueSource, error) {
+		return fakeIssueSource{issues: []youtrack.Issue{
+			{ID: "ABC-1\x1b]0;pwned\x07", Summary: "\x1b[2Jclear\rfake‮evil\x9b", Updated: 1},
+		}}, nil
+	}
+	if err := runReview(context.Background(), deps, "2026-01-05"); err != nil {
+		t.Fatal(err)
+	}
+	assertNoControl(t, out.String())
+	if !strings.Contains(out.String(), "ABC-1") {
+		t.Errorf("suggestion missing:\n%q", out.String())
+	}
+}

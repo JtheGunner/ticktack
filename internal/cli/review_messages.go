@@ -38,29 +38,29 @@ func msgReviewSuggestionsHeader(index int) string {
 }
 
 func msgReviewSuggestion(k int, c suggest.Candidate) string {
-	return fmt.Sprintf("        %d) %s  %s", k, c.Key, c.Summary)
+	return fmt.Sprintf("        %d) %s  %s", k, SanitizeForTerminal(c.Key), SanitizeForTerminal(c.Summary))
 }
 
 func msgReviewRememberOffer(o review.RememberOffer) string {
 	if o.Branch == "" {
-		return fmt.Sprintf("Remember %s for %s? Type r to write the rule.", o.Ticket, o.Repo)
+		return fmt.Sprintf("Remember %s for %s? Type r to write the rule.", SanitizeForTerminal(o.Ticket), SanitizeForTerminal(o.Repo))
 	}
 	return fmt.Sprintf("Remember %s for %s? Type r for branch %q only, or r repo for the whole repository.",
-		o.Ticket, o.Repo, o.Branch)
+		SanitizeForTerminal(o.Ticket), SanitizeForTerminal(o.Repo), SanitizeForTerminal(o.Branch))
 }
 
 func msgReviewRemembered(r store.LearnedRule) string {
-	branch := r.BranchPattern
+	branch := SanitizeForTerminal(r.BranchPattern)
 	if branch == "" {
 		branch = "(any branch)"
 	}
 	return fmt.Sprintf("Learned rule #%d: repo %s, branch %s -> %s (visible and editable; tier learned).",
-		r.ID, r.Repo, branch, r.Ticket)
+		r.ID, SanitizeForTerminal(r.Repo), branch, SanitizeForTerminal(r.Ticket))
 }
 
 func msgReviewUsage(usage string) string { return "Usage: " + usage }
 
-func msgReviewError(err error) string { return "Error: " + err.Error() }
+func msgReviewError(err error) string { return "Error: " + SanitizeForTerminal(err.Error()) }
 
 func msgReviewCapWarning(w review.CapWarning) string {
 	state := "NOT acknowledged: sync is blocked"
@@ -88,5 +88,5 @@ func msgReviewEntry(e review.Entry, loc *time.Location) string {
 	}
 	return fmt.Sprintf("%3d  %s-%s  %6s  %-12s %-9s %s%s",
 		e.Index, e.Start.In(loc).Format("15:04"), e.End.In(loc).Format("15:04"),
-		formatMinutes(e.Minutes), ticket, e.Tier, e.Reason, status)
+		formatMinutes(e.Minutes), SanitizeForTerminal(ticket), e.Tier, SanitizeForTerminal(e.Reason), status)
 }

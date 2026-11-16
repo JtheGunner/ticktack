@@ -192,12 +192,12 @@ func printReport(out io.Writer, r ledger.Report, planOnly bool) {
 		return
 	}
 	for _, it := range r.Items {
-		line := fmt.Sprintf("%-28s %4d min  %s", it.Key, it.Minutes, it.Action)
+		line := fmt.Sprintf("%-28s %4d min  %s", SanitizeForTerminal(it.Key), it.Minutes, it.Action)
 		switch {
 		case it.Error != "":
-			line += ": " + it.Error
+			line += ": " + SanitizeForTerminal(it.Error)
 		case it.Reason != "":
-			line += " (" + it.Reason + ")"
+			line += " (" + SanitizeForTerminal(it.Reason) + ")"
 		}
 		_, _ = fmt.Fprintln(out, line)
 	}

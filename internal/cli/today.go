@@ -70,7 +70,7 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	for _, b := range blocks {
 		_, _ = fmt.Fprintf(out, "  %s-%s  %-12s %-9s %s\n",
 			b.Start.In(loc).Format("15:04"), b.End.In(loc).Format("15:04"),
-			ticketLabel(b.Ticket), b.Tier, b.Reason)
+			SanitizeForTerminal(ticketLabel(b.Ticket)), b.Tier, SanitizeForTerminal(b.Reason))
 	}
 
 	_, _ = fmt.Fprintln(out, "Totals:")

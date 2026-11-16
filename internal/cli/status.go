@@ -71,11 +71,11 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 		branch = msgNoRepo
 	}
 	out := deps.Out
-	_, _ = fmt.Fprintf(out, "Repo:      %s\n", repo)
-	_, _ = fmt.Fprintf(out, "Branch:    %s\n", branch)
-	_, _ = fmt.Fprintf(out, "Ticket:    %s\n", ticket)
+	_, _ = fmt.Fprintf(out, "Repo:      %s\n", SanitizeForTerminal(repo))
+	_, _ = fmt.Fprintf(out, "Branch:    %s\n", SanitizeForTerminal(branch))
+	_, _ = fmt.Fprintf(out, "Ticket:    %s\n", SanitizeForTerminal(ticket))
 	_, _ = fmt.Fprintf(out, "Tier:      %s\n", current.Attribution.Tier)
-	_, _ = fmt.Fprintf(out, "Reason:    %s\n", current.Attribution.Reason)
+	_, _ = fmt.Fprintf(out, "Reason:    %s\n", SanitizeForTerminal(current.Attribution.Reason))
 	if paused {
 		_, _ = fmt.Fprintln(out, msgCapturePaused)
 	} else {
