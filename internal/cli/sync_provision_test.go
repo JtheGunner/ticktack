@@ -151,6 +151,38 @@ func TestSyncDryRunNamesTheTasksItWouldCreate(t *testing.T) {
 	}
 }
 
+func TestSyncDryRunNamesTheTimeItWouldBookOnANewStandardTask(t *testing.T) {
+	deps, prov := standardTaskDeps(t)
+	confirmDay(t, deps)
+
+	out, _, err := execCommandWithInput(t, deps, "", "sync", "--day", "2026-01-05", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "No time to book") {
+		t.Errorf("dry run claims there is nothing to book although time waits for a new task:\n%s", out)
+	}
+	if !strings.Contains(out, "GEN: 1h would be booked once the standard task exists") {
+		t.Errorf("dry run does not name the project and the time:\n%s", out)
+	}
+	if len(prov.created) != 0 || len(prov.items) != 0 {
+		t.Errorf("dry run acted: created %v booked %v", prov.created, prov.items)
+	}
+}
+
+func TestSyncDryRunStillSaysNothingToBookWhenNothingWaits(t *testing.T) {
+	deps, prov := standardTaskDeps(t)
+	prov.existing["GEN"] = "GEN-5"
+	// Nothing confirmed for the day, so there is truly nothing to book.
+	out, _, err := execCommandWithInput(t, deps, "", "sync", "--day", "2026-01-05", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "would be booked once") {
+		t.Errorf("dry run announces time that does not exist:\n%s", out)
+	}
+}
+
 func TestSyncUsesAnExistingStandardTaskWithoutAsking(t *testing.T) {
 	deps, prov := standardTaskDeps(t)
 	prov.existing["GEN"] = "GEN-5"
@@ -181,7 +213,7 @@ func TestProvisionOutputNeverEchoesControlCharactersOfProjectKeys(t *testing.T) 
 
 	for name, in := range map[string]io.Reader{"declined": strings.NewReader("n\n"), "approved": strings.NewReader("y\n")} {
 		out := &bytes.Buffer{}
-		if _, err := provisionStandardTasks(context.Background(), out, in, render.Renderer{}, cfg, st, prov, items, false); err != nil {
+		if _, _, err := provisionStandardTasks(context.Background(), out, in, render.Renderer{}, cfg, st, prov, items, false); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if strings.ContainsAny(out.String(), "\x1b\x07") {
@@ -190,7 +222,7 @@ func TestProvisionOutputNeverEchoesControlCharactersOfProjectKeys(t *testing.T) 
 	}
 
 	out := &bytes.Buffer{}
-	if _, err := provisionStandardTasks(context.Background(), out, nil, render.Renderer{}, cfg, st, prov, items, true); err != nil {
+	if _, _, err := provisionStandardTasks(context.Background(), out, nil, render.Renderer{}, cfg, st, prov, items, true); err != nil {
 		t.Fatal(err)
 	}
 	if strings.ContainsAny(out.String(), "\x1b\x07") {

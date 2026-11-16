@@ -193,9 +193,14 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if err != nil {
 		return err
 	}
-	items, err = provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
+	items, provisioned, err := provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
 	if err != nil {
 		return err
+	}
+	if len(items) == 0 && len(provisioned.WouldBook) > 0 {
+		// A dry run left out time that waits for a new standard task; the
+		// lines above name it, so "No time to book" would be wrong.
+		return nil
 	}
 	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
 	printReport(out, deps.Render, report, dryRun)
