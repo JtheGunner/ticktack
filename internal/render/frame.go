@@ -41,23 +41,32 @@ func (r Renderer) Rule(title string) string {
 
 // Box draws a rounded box the width of the layout with title centred in the
 // top border. Rows are padded to the inner width; a row wider than the box is
-// shortened with an ellipsis.
+// shortened with an ellipsis. The border uses the accent colour.
 func (r Renderer) Box(title string, rows []string) string {
+	return r.BoxStatus(StatusInfo, title, rows)
+}
+
+// BoxStatus is Box with a border coloured by status: green for StatusOK,
+// yellow for StatusWarn, red for StatusFail, dim for StatusSkip and the accent
+// colour otherwise. The border shape is the same for every status, so the
+// outcome must also be stated in the rows.
+func (r Renderer) BoxStatus(s Status, title string, rows []string) string {
 	g, c, width := r.glyphs(), r.Colors, r.layoutWidth()
+	border := c.forStatus(s)
 	inner := max(width-2, 0)
-	top := c.Accent(g.TL + strings.Repeat(g.H, inner) + g.TR)
+	top := border(g.TL + strings.Repeat(g.H, inner) + g.TR)
 	if title != "" {
 		padded := " " + fit(title, max(width-titleMargin, 1), g.Ellipsis) + " "
 		left, right := splitPadding(inner - visibleWidth(padded))
-		top = c.Accent(g.TL+strings.Repeat(g.H, left)) + c.Bold(padded) + c.Accent(strings.Repeat(g.H, right)+g.TR)
+		top = border(g.TL+strings.Repeat(g.H, left)) + c.Bold(padded) + border(strings.Repeat(g.H, right)+g.TR)
 	}
 	lines := make([]string, 0, len(rows)+2)
 	lines = append(lines, top)
 	for _, row := range rows {
 		cell := padVisible(fit(row, max(inner-2, 1), g.Ellipsis), max(inner-2, 0))
-		lines = append(lines, c.Accent(g.V)+" "+cell+" "+c.Accent(g.V))
+		lines = append(lines, border(g.V)+" "+cell+" "+border(g.V))
 	}
-	lines = append(lines, c.Accent(g.BL+strings.Repeat(g.H, inner)+g.BR))
+	lines = append(lines, border(g.BL+strings.Repeat(g.H, inner)+g.BR))
 	return strings.Join(lines, "\n")
 }
 

@@ -50,3 +50,20 @@ func (c Colors) Warn(s string) string { return c.paint(ansiYellow, s) }
 
 // Fail renders s in red.
 func (c Colors) Fail(s string) string { return c.paint(ansiRed, s) }
+
+// forStatus returns the painter for a status: green, yellow, red, dim or the
+// accent colour.
+func (c Colors) forStatus(s Status) func(string) string {
+	switch s {
+	case StatusOK:
+		return c.OK
+	case StatusWarn:
+		return c.Warn
+	case StatusFail:
+		return c.Fail
+	case StatusSkip:
+		return c.Dim
+	default:
+		return c.Accent
+	}
+}
