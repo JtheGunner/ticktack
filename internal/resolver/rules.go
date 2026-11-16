@@ -32,6 +32,19 @@ type Rules struct {
 	Learned []LearnedRule
 	// TicketPattern extracts ticket IDs from branch names; nil means ticketid.DefaultPattern.
 	TicketPattern *regexp.Regexp
+
+	// FolderOf returns the folder name of a repository below the configured
+	// repo roots; false when the repository is outside every root. Nil turns
+	// the per-project standard task off.
+	FolderOf func(repo string) (folder string, ok bool)
+	// Projects are the YouTrack projects a folder name is matched against.
+	Projects []ProjectInfo
+	// GlobalProject is the project of the global standard task; empty turns
+	// the global standard task off.
+	GlobalProject string
+	// DefaultTasks maps a project key to the issue key of its standard task,
+	// for the projects whose task already exists.
+	DefaultTasks map[string]string
 }
 
 func trimRepo(repo string) string {
