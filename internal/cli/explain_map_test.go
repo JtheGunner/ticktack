@@ -102,7 +102,7 @@ func TestTodayNumbersBlocks(t *testing.T) {
 	if err := runToday(context.Background(), deps, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), " 1. 08:00-08:30") {
+	if !strings.Contains(out.String(), "1  08:00-08:30") {
 		t.Fatalf("blocks are not numbered:\n%s", out)
 	}
 }

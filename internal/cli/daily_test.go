@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/config"
@@ -206,7 +208,7 @@ func TestTodayListsBlocksAndTotals(t *testing.T) {
 	if err := runToday(context.Background(), deps, ""); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Blocks for 2026-03-02", "08:00-08:40", "ABC-7", "explicit", "Totals:", "Total"} {
+	for _, want := range []string{"Blocks for 2026-03-02", "08:00-08:40", "ABC-7", "explicit", "Totals", "Total"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("today output lacks %q:\n%s", want, out)
 		}
@@ -430,3 +432,91 @@ func TestDailyCommandsAreRegistered(t *testing.T) {
 		}
 	}
 }
+
+// seedTodayBlocks records two attributed blocks on dailyNow's day: ABC-7 from
+// 08:00 and an unmapped repo from 09:30.
+func seedTodayBlocks(t *testing.T, st *store.Store) {
+	t.Helper()
+	start := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	mustAppend(t, st, shellContext(start, "/work/api", "ABC-7-fix"))
+	seedPresence(t, st, start, 40)
+	later := time.Date(2026, 3, 2, 9, 30, 0, 0, time.UTC)
+	mustAppend(t, st, shellContext(later, "/work/misc", "scratch"))
+	seedPresence(t, st, later, 20)
+}
+
+func TestTodayGolden(t *testing.T) {
+	unicodeColor := render.Renderer{
+		Colors: render.Colors{Enabled: true},
+		Glyphs: render.GlyphsFromEnv(func(k string) string {
+			if k == "LANG" {
+				return "en_US.UTF-8"
+			}
+			return ""
+		}),
+		Width: 70,
+	}
+	tests := []struct {
+		name   string
+		day    string
+		seed   bool
+		cap    time.Duration
+		render render.Renderer
+	}{
+		{"today_plain", "", true, 0, render.Plain()},
+		{"today_empty_plain", "2026-03-01", false, 0, render.Plain()},
+		{"today_over_cap_plain", "", true, 30 * time.Minute, render.Plain()},
+		{"today_over_cap_unicode_color", "", true, 30 * time.Minute, unicodeColor},
+		{"today_narrow_plain", "", true, 0, render.Renderer{Glyphs: render.Plain().Glyphs, Width: 60}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			deps, st, out := newDailyEnv(t, "")
+			deps.Render = tc.render
+			if tc.cap > 0 {
+				load := deps.LoadConfig
+				deps.LoadConfig = func() (config.Config, error) {
+					cfg, err := load()
+					cfg.DailyCap = tc.cap
+					return cfg, err
+				}
+			}
+			if tc.seed {
+				seedTodayBlocks(t, st)
+			}
+			if err := runToday(context.Background(), deps, tc.day); err != nil {
+				t.Fatal(err)
+			}
+			got := out.String()
+			assertGolden(t, tc.name, got)
+			hasESC := strings.Contains(got, "\x1b")
+			if hasESC != tc.render.Colors.Enabled {
+				t.Errorf("ESC present = %v, colour enabled = %v", hasESC, tc.render.Colors.Enabled)
+			}
+			limit := tc.render.Width
+			if limit == 0 {
+				limit = 78
+			}
+			for _, line := range strings.Split(got, "\n") {
+				if n := utf8.RuneCountInString(stripANSI(line)); n > limit {
+					t.Errorf("line is %d columns, limit %d: %q", n, limit, line)
+				}
+			}
+		})
+	}
+}
+
+func TestTodayOverCapWarnsOnlyWhenOver(t *testing.T) {
+	deps, st, out := newDailyEnv(t, "")
+	seedTodayBlocks(t, st)
+	if err := runToday(context.Background(), deps, ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "OVER DAILY CAP") {
+		t.Errorf("unexpected cap warning:\n%s", out)
+	}
+}
+
+func stripANSI(s string) string { return ansiPattern.ReplaceAllString(s, "") }
+
+var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")

@@ -28,6 +28,14 @@ const (
 	msgLabelTicket     = "Ticket"
 	msgLabelTier       = "Tier"
 	msgLabelReason     = "Reason"
+	msgTotalsHeading   = "Totals"
+	msgColBlock        = "#"
+	msgColTime         = "Time"
+	msgColTicket       = "Ticket"
+	msgColTier         = "Tier"
+	msgColReason       = "Reason"
+	msgColRaw          = "Raw"
+	msgLabelTotal      = "Total"
 )
 
 func msgSwitched(ticket string) string { return "Switched to " + ticket + "." }
@@ -54,4 +62,10 @@ func formatMinutes(minutes int) string {
 	default:
 		return fmt.Sprintf("%dh%02dm", h, m)
 	}
+}
+
+func msgTodayHeading(day string) string { return "Blocks for " + day }
+
+func msgOverDailyCap(dailyCap time.Duration) string {
+	return fmt.Sprintf("OVER DAILY CAP (%s)", dailyCap)
 }
