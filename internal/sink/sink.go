@@ -22,6 +22,27 @@ type WorkItem struct {
 	Text string
 }
 
+// ProjectRef is a project of the booking target, identified by its key and
+// matched to repository folders by its name.
+type ProjectRef struct {
+	Key  string
+	Name string
+}
+
+// TaskProvisioner lists projects and finds or creates the standard task of a
+// project in the booking target. It is separate from TimeSink so a sink that
+// only books time need not implement it.
+type TaskProvisioner interface {
+	// Projects returns every non-archived project the user can see.
+	Projects(ctx context.Context) ([]ProjectRef, error)
+	// FindIssueByMarker returns the issue of project whose description
+	// contains marker verbatim.
+	FindIssueByMarker(ctx context.Context, project, marker string) (key string, found bool, err error)
+	// CreateIssue creates an issue in project, assigned to the user the sink
+	// acts for, and returns its readable key.
+	CreateIssue(ctx context.Context, project, summary, description string) (key string, err error)
+}
+
 // TimeSink stores, changes and looks up work items.
 //
 // The id returned by Create and FindByMarker is opaque to callers and must be
