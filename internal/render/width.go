@@ -3,6 +3,8 @@ package render
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -44,23 +46,54 @@ func ansiLen(s string) int {
 	return end + 1
 }
 
-// visibleWidth counts the runes of s that are shown on screen; ANSI colour
-// sequences are skipped.
+// cells measures text in terminal cells. East Asian ambiguous-width
+// characters count as one cell regardless of the locale, so output and golden
+// files do not depend on the environment.
+var cells = &runewidth.Condition{StrictEmojiNeutral: true}
+
+// visibleWidth counts the terminal cells of s that are shown on screen; ANSI
+// colour sequences are skipped. Wide characters (CJK, emoji) count as two
+// cells and combining marks as none.
 func visibleWidth(s string) int {
-	n := 0
+	var plain strings.Builder
 	for i := 0; i < len(s); {
 		if l := ansiLen(s[i:]); l > 0 {
 			i += l
 			continue
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
+		r, size := utf8.DecodeRuneInString(s[i:])
+		plain.WriteRune(r)
 		i += size
-		n++
 	}
-	return n
+	return cells.StringWidth(plain.String())
 }
 
-// padVisible pads s with spaces to width visible runes; it never shortens s.
+// cutIndex returns the byte index after the last rune of s that still fits
+// into n cells, and whether an ANSI sequence lies before that index. A wide
+// rune that would cross the limit is left for the next piece; zero-width runes
+// directly after the last kept rune stay with it. At least one rune is kept
+// when n is positive and s has text, so splitting always makes progress.
+func cutIndex(s string, n int) (end int, sawEscape bool) {
+	shown, seen := 0, false
+	for i := 0; i < len(s); {
+		if l := ansiLen(s[i:]); l > 0 {
+			seen = true
+			i += l
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		w := cells.RuneWidth(r)
+		if w > 0 && shown+w > n && (shown > 0 || n <= 0) {
+			return end, sawEscape
+		}
+		shown += w
+		i += size
+		end, sawEscape = i, seen
+	}
+	return len(s), seen
+}
+
+// padVisible pads s with spaces to width terminal cells; it never shortens s.
 func padVisible(s string, width int) string {
 	if n := width - visibleWidth(s); n > 0 {
 		return s + strings.Repeat(" ", n)
@@ -68,7 +101,7 @@ func padVisible(s string, width int) string {
 	return s
 }
 
-// padLeftVisible left-pads s with spaces to width visible runes.
+// padLeftVisible left-pads s with spaces to width terminal cells.
 func padLeftVisible(s string, width int) string {
 	if n := width - visibleWidth(s); n > 0 {
 		return strings.Repeat(" ", n) + s
@@ -76,41 +109,26 @@ func padLeftVisible(s string, width int) string {
 	return s
 }
 
-// fit shortens s to at most width visible runes, ending in ell when it had to
+// fit shortens s to at most width terminal cells, ending in ell when it had to
 // cut. ANSI sequences are kept and do not count; a cut coloured string ends in
 // a reset. A width of 0 or less means unlimited.
 func fit(s string, width int, ell string) string {
 	if width <= 0 || visibleWidth(s) <= width {
 		return s
 	}
-	ellRunes := []rune(ell)
-	keep := max(width-len(ellRunes), 0)
-	if width < len(ellRunes) {
-		ellRunes = ellRunes[:width]
+	if visibleWidth(ell) > width {
+		end, _ := cutIndex(ell, width)
+		ell = ell[:end]
 	}
-	var b strings.Builder
-	sawEscape := false
-	shown := 0
-	for i := 0; i < len(s) && shown < keep; {
-		if l := ansiLen(s[i:]); l > 0 {
-			b.WriteString(s[i : i+l])
-			sawEscape = true
-			i += l
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		b.WriteRune(r)
-		i += size
-		shown++
-	}
-	b.WriteString(string(ellRunes))
+	end, sawEscape := cutIndex(s, width-visibleWidth(ell))
+	out := s[:end] + ell
 	if sawEscape {
-		b.WriteString(ansiReset)
+		out += ansiReset
 	}
-	return b.String()
+	return out
 }
 
-// wrapVisible breaks s at spaces into lines of at most width visible runes.
+// wrapVisible breaks s at spaces into lines of at most width terminal cells.
 // A word longer than width is split without loss. ANSI sequences do not count;
 // a line that was cut inside a coloured word ends in a reset. A width of 0 or
 // less is treated as 1.
@@ -146,26 +164,14 @@ func wrapVisible(s string, width int) []string {
 	return lines
 }
 
-// splitVisible splits s after n visible runes. When the cut falls inside
-// ANSI-styled text the head ends in a reset.
+// splitVisible splits s after n terminal cells. A wide rune that would cross
+// the limit goes to rest, but head always holds at least one rune. When the
+// cut falls inside ANSI-styled text the head ends in a reset.
 func splitVisible(s string, n int) (head, rest string) {
-	shown, sawEscape := 0, false
-	for i := 0; i < len(s); {
-		if l := ansiLen(s[i:]); l > 0 {
-			sawEscape = true
-			i += l
-			continue
-		}
-		if shown == n {
-			head = s[:i]
-			if sawEscape {
-				head += ansiReset
-			}
-			return head, s[i:]
-		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		i += size
-		shown++
+	end, sawEscape := cutIndex(s, n)
+	head = s[:end]
+	if sawEscape && end < len(s) {
+		head += ansiReset
 	}
-	return s, ""
+	return head, s[end:]
 }
