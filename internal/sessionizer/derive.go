@@ -38,6 +38,8 @@
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
 //     neighbour with the same ticket; if there is none it is kept as unknown.
+//     Touching unknown blocks of that kind merge into one, so a burst of short
+//     context flips shows as a single block that needs a ticket.
 //   - Events are sorted by time (then ID) first, so backwards clock jumps
 //     never produce a block with End <= Start.
 //   - Overrides are applied last: the override interval is cut out of the
@@ -446,6 +448,10 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
 			blocks[i].Reason = minBlockReason
+			// The old context no longer describes the block; keeping it would
+			// stop neighbouring demoted blocks from merging into one.
+			blocks[i].Repo = ""
+			blocks[i].Branch = ""
 		}
 	}
 	return blocks

@@ -41,6 +41,9 @@ func RoundingConfigFrom(c config.Config) RoundingConfig {
 	if c.DailyCap > 0 {
 		rc.DailyCap = c.DailyCap
 	}
+	if c.DailyCapDisabled {
+		rc.DailyCap = 0
+	}
 	return rc
 }
 

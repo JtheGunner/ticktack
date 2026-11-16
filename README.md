@@ -136,9 +136,10 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 |----------------------|------------------------|------------------------------------------------------------------|
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance.                              |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
-| `min_block_duration` | `"10m0s"`              | Blocks shorter than this are dropped.                            |
+| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this.              |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
+| `daily_cap_enabled`  | `true`                 | `false` turns the daily cap off: no warning, and neither `sync` nor `auto` is blocked by it. |
 | `ticket_pattern`     | `[A-Z][A-Z0-9]+-\d+`   | Regular expression that extracts a ticket id from a branch name. |
 | `repo_paths`         | none                   | Repositories read by `ticktack scan` and the agent's periodic scan. Each entry is the root of one repository, as an absolute path or starting with `~/`; subdirectories are not searched. |
 | `repo_roots`         | none                   | Folders whose direct subfolders are scanned like `repo_paths` entries, for example `["~/Projects", "~/StudioProjects"]`. A subfolder counts when it contains `.git`. |

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+
+	"github.com/JtheGunner/ticktack/internal/config"
 )
 
 func blockAt(start time.Time, d time.Duration, ticket string) Block {
@@ -112,5 +114,20 @@ func TestAggregateKeepsUnknownTicket(t *testing.T) {
 	items := Aggregate([]Block{blockAt(base, 30*time.Minute, "")}, rounding(15*time.Minute, 0), time.UTC)
 	if len(items) != 1 || items[0].Ticket != "" || items[0].Minutes != 30 || items[0].Description != "unassigned — 1 block" {
 		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestRoundingConfigFromHonoursDisabledDailyCap(t *testing.T) {
+	cfg := config.Config{DailyCap: 8 * time.Hour}
+	if got := RoundingConfigFrom(cfg).DailyCap; got != 8*time.Hour {
+		t.Fatalf("DailyCap = %v", got)
+	}
+	cfg.DailyCapDisabled = true
+	if got := RoundingConfigFrom(cfg).DailyCap; got != 0 {
+		t.Fatalf("disabled cap must be zero, got %v", got)
+	}
+	long := []Block{blockAt(base, 12*time.Hour, "AAA-1")}
+	if items := Aggregate(long, RoundingConfigFrom(cfg), time.UTC); items[0].OverCap {
+		t.Fatalf("disabled cap flagged the day: %+v", items)
 	}
 }

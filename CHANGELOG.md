@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `daily_cap_enabled = false` turns the daily cap off: no warning in `ticktack review`, and neither `ticktack sync` nor `ticktack auto` is blocked by it.
+
+### Changed
+
+- `ticktack review` prints the feedback of an action below the re-rendered table, next to the prompt, so there is no need to scroll up.
+- Short blocks that cannot join a same-ticket neighbour now merge with their touching neighbours of the same kind into one block that needs a ticket, instead of a long list of one- and two-minute rows.
+
 ## [0.3.1] - 2026-11-16
 
 ### Fixed

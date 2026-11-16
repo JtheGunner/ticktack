@@ -143,6 +143,10 @@ type reviewRun struct {
 	in     *bufio.Scanner
 	loc    *time.Location
 	day    civil.Date
+	// held collects the feedback lines of the running action so they print
+	// below the re-rendered table, next to the prompt.
+	held []string
+	hold bool
 }
 
 func (r *reviewRun) printf(format string, args ...any) {
@@ -153,7 +157,21 @@ func (r *reviewRun) println(line string) { _, _ = fmt.Fprintln(r.out, line) }
 
 // say prints one gutter line; text must already be sanitised.
 func (r *reviewRun) say(s render.Status, text string) {
-	r.println(r.render.Gutter(s, text))
+	line := r.render.Gutter(s, text)
+	if r.hold {
+		r.held = append(r.held, line)
+		return
+	}
+	r.println(line)
+}
+
+// flushHeld prints the held feedback lines and stops holding.
+func (r *reviewRun) flushHeld() {
+	r.hold = false
+	for _, line := range r.held {
+		r.println(line)
+	}
+	r.held = nil
 }
 
 func (r *reviewRun) loop() error {
@@ -171,13 +189,17 @@ func (r *reviewRun) loop() error {
 		if line == "q" {
 			break
 		}
+		r.hold = true
 		refreshed, err := r.execute(strings.Fields(line))
 		if err != nil {
 			r.say(render.StatusFail, msgReviewError(err))
 		}
 		if refreshed {
+			r.hold = false
 			r.show()
+			r.hold = true
 		}
+		r.flushHeld()
 	}
 	if err := r.in.Err(); err != nil {
 		return err
