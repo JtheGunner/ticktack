@@ -16,6 +16,9 @@ import (
 const (
 	ReasonUnassigned = "unassigned time needs a ticket"
 	ReasonOverCap    = "day total exceeds the daily cap: a capped day needs a human"
+	// ReasonStandardTask explains time left unbooked because its standard task
+	// does not exist yet and auto mode may not create it unasked.
+	ReasonStandardTask = "standard task does not exist yet: confirm creating it with `ticktack sync`"
 )
 
 // LockReason says why auto mode is locked.
@@ -73,6 +76,31 @@ type Selection struct {
 	CapExceeded  bool
 	TotalMinutes int
 	CapMinutes   int
+}
+
+// Resolve applies the outcome of providing standard tasks: items whose ticket
+// is in dropped are skipped with ReasonStandardTask, and tickets in rewritten
+// are replaced by their real issue key. The receiver is not changed.
+func (s Selection) Resolve(rewritten map[string]string, dropped []string) Selection {
+	drop := make(map[string]bool, len(dropped))
+	for _, ticket := range dropped {
+		drop[ticket] = true
+	}
+	out := s
+	out.Book = nil
+	out.Skipped = append([]Entry(nil), s.Skipped...)
+	for _, e := range s.Book {
+		if drop[e.Item.Ticket] {
+			e.Reason = ReasonStandardTask
+			out.Skipped = append(out.Skipped, e)
+			continue
+		}
+		if key, ok := rewritten[e.Item.Ticket]; ok {
+			e.Item.Ticket = key
+		}
+		out.Book = append(out.Book, e)
+	}
+	return out
 }
 
 // Items returns the items to book.
