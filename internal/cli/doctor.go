@@ -157,6 +157,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkTools,
 		checkActivityWatch,
 		checkTitleHint,
+		checkRepositories,
 	}
 	failed := 0
 	for _, check := range checks {
@@ -417,4 +418,40 @@ func checkTitleHint(ctx context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckTitleHint, fmt.Sprintf(msgTitleReadFail, err), msgTitleReadFix)
 	}
 	return okResult(msgCheckTitleHint, msgTitleOK)
+}
+
+// checkRepositories is independent of the other checks and is skipped while
+// repo_paths is empty. Otherwise it inspects every configured path and names
+// each unusable one with its reason and fix.
+func checkRepositories(_ context.Context, deps doctorDeps) checkResult {
+	cfg, path, err := loadConfig(deps)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return skipResult(msgCheckRepos, msgReposConfigBad)
+	}
+	if len(cfg.RepoPaths) == 0 {
+		return skipResult(msgCheckRepos, msgReposNone)
+	}
+	var details, fixes []string
+	for _, raw := range cfg.RepoPaths {
+		expanded, err := config.ExpandRepoPath(raw, deps.Home)
+		if err != nil {
+			details = append(details, fmt.Sprintf("%s %s", raw, fmt.Sprintf(msgRepoBadPath, err)))
+			fixes = append(fixes, raw+": "+msgReposFixBadPath)
+			continue
+		}
+		if problem := inspectRepoPath(expanded); problem != nil {
+			details = append(details, fmt.Sprintf("%s %s", raw, problem.Reason))
+			fix := problem.Fix
+			if strings.Contains(fix, "%s") {
+				fix = fmt.Sprintf(fix, path)
+			}
+			fixes = append(fixes, raw+": "+fix)
+		}
+	}
+	if len(details) == 0 {
+		return okResult(msgCheckRepos, fmt.Sprintf(msgReposOK, len(cfg.RepoPaths)))
+	}
+	return failResult(msgCheckRepos,
+		fmt.Sprintf(msgReposFail, len(details), len(cfg.RepoPaths), strings.Join(details, msgReposDetailJoiner)),
+		strings.Join(fixes, msgReposDetailJoiner))
 }

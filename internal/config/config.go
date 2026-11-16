@@ -31,7 +31,18 @@ const (
 	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
 	// that unlocks auto mode.
 	DefaultAutoTrustedDays = 10
+	// DefaultScanInterval is the agent's git scan interval; zero turns the
+	// periodic scan off.
+	DefaultScanInterval time.Duration = 0
+	// MinScanInterval is the shortest accepted non-zero scan interval.
+	MinScanInterval = 5 * time.Minute
 )
+
+// Scan configures the optional periodic git reflog scan run by the agent.
+// Interval zero means off.
+type Scan struct {
+	Interval time.Duration
+}
 
 // Auto configures the optional auto mode. It is off by default and only
 // books once TrustedDays consecutive reviewed days passed without correction.
@@ -70,6 +81,7 @@ type Config struct {
 	ActivityWatch    ActivityWatch
 	TitleHint        TitleHint
 	Auto             Auto
+	Scan             Scan
 }
 
 // TitleHint configures the optional window-title collector. It is off unless
@@ -104,6 +116,10 @@ type fileConfig struct {
 	} `toml:"activitywatch"`
 
 	TitleHint titleHintFile `toml:"titlehint"`
+
+	Scan struct {
+		Interval string `toml:"interval"`
+	} `toml:"scan"`
 
 	Auto struct {
 		Enabled     bool `toml:"enabled"`
@@ -235,6 +251,16 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.TitleHint = hint
+	for i, p := range raw.RepoPaths {
+		if !validRepoPathSyntax(p) {
+			return Config{}, fmt.Errorf("repo_paths[%d] must be an absolute path or start with \"~/\"", i)
+		}
+	}
+	scan, err := buildScan(raw)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Scan = scan
 	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
 	if days := raw.Auto.TrustedDays; days != nil {
 		if *days < 1 {
@@ -281,6 +307,40 @@ func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 		hint.Projects[name] = repo
 	}
 	return hint, nil
+}
+
+// buildScan validates the [scan] table. Zero turns the periodic scan off;
+// any other value must be at least MinScanInterval.
+func buildScan(raw fileConfig) (Scan, error) {
+	interval, err := parseDuration("scan.interval", raw.Scan.Interval, DefaultScanInterval)
+	if err != nil {
+		return Scan{}, err
+	}
+	if interval != 0 && interval < MinScanInterval {
+		return Scan{}, fmt.Errorf("scan.interval must be 0 (off) or at least %s", MinScanInterval)
+	}
+	return Scan{Interval: interval}, nil
+}
+
+// validRepoPathSyntax reports whether p is an absolute path or a path below
+// the home directory written as "~" or "~/...".
+func validRepoPathSyntax(p string) bool {
+	return filepath.IsAbs(p) || p == "~" || strings.HasPrefix(p, "~/")
+}
+
+// ExpandRepoPath resolves one repo_paths entry: a leading "~" becomes home and
+// the result is a clean absolute path. It does not touch the file system.
+func ExpandRepoPath(p, home string) (string, error) {
+	if !validRepoPathSyntax(p) {
+		return "", errors.New("path must be absolute or start with \"~/\"")
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if !filepath.IsAbs(home) {
+			return "", errors.New("home directory is not available")
+		}
+		p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+	}
+	return filepath.Clean(p), nil
 }
 
 func parseDuration(key, value string, fallback time.Duration) (time.Duration, error) {

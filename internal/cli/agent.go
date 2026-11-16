@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -70,12 +71,24 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if collector := loadTitleCollector(st, interval, pausePath, logger.Printf); collector != nil {
-		go func() { _ = collector.Run(ctx) }()
+	cfg, cfgOK := loadAgentConfig(logger.Printf)
+	var jobs []backgroundJob
+	if cfgOK {
+		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, interval, logger.Printf); collector != nil {
+			jobs = append(jobs, func(ctx context.Context) { _ = collector.Run(ctx) })
+		}
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			logger.Printf("git scan disabled: %v", homeErr)
+		} else {
+			jobs = append(jobs, newScanJob(cfg, home, st, defaultRepoScanner, pauseFlagCheck(pausePath),
+				cfg.Scan.Interval, func() time.Time { return time.Now().Round(0) }, logger.Printf))
+		}
 	}
 
 	agent := newPresenceAgent(presence.NewSampler(), st, interval, pausePath, logger.Printf)
-	return agent.Run(ctx)
+	// All collector goroutines finish before the deferred store close runs.
+	return runWithBackground(ctx, jobs, agent.Run)
 }
 
 // newPresenceAgent builds the production presence agent. It stores nothing
@@ -102,20 +115,19 @@ func pauseFlagCheck(path string) func() bool {
 	}
 }
 
-// loadTitleCollector starts the optional window-title collector when the
-// config enables it. A broken config disables only the collector, never the
-// presence agent.
-func loadTitleCollector(sink title.Appender, interval time.Duration, pausePath string, logf func(format string, args ...any)) *title.Collector {
+// loadAgentConfig loads the configuration for the optional collectors. A
+// broken config disables only the collectors, never the presence agent.
+func loadAgentConfig(logf func(format string, args ...any)) (config.Config, bool) {
 	path, err := config.DefaultPath()
 	if err != nil {
-		return nil
+		return config.Config{}, false
 	}
 	cfg, err := config.LoadOrDefault(path)
 	if err != nil {
-		logf("title hints disabled: config not loadable: %v", err)
-		return nil
+		logf("optional collectors disabled: config not loadable: %v", err)
+		return config.Config{}, false
 	}
-	return newTitleCollector(cfg, title.NewSource(), sink, pausePath, interval, logf)
+	return cfg, true
 }
 
 // newTitleCollector builds the window-title collector, or returns nil while
