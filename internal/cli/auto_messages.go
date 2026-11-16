@@ -16,6 +16,10 @@ set and the last N consecutive reviewed days (default 10, "[auto] trusted_days")
 passed without a single correction. A later correction in "ticktack review"
 locks it again.
 
+A day counts towards that streak only when its review session took place on
+the same calendar day or the next one (in your configured time zone). Reviews
+made later with "ticktack review --day" stay valid for booking but do not count.
+
 Only blocks attributed at the explicit or rule tier are booked, and only when
 the day total stays within the daily cap. An item with any lower-tier block is
 skipped as a whole, and a day above the cap is not booked at all: both need a

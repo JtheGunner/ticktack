@@ -194,7 +194,7 @@ All of these are **off by default** and can be enabled independently.
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
 
 > [!IMPORTANT]
-> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive days were reviewed **without a single correction**. A later correction in `ticktack review` locks it again. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
+> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive days were reviewed **without a single correction**. A later correction in `ticktack review` locks it again. A day counts only if its review session took place on that same calendar day or the next one (in your configured time zone); catch-up reviews with `ticktack review --day` stay valid for booking but do not add to the streak. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
 
 ---
 

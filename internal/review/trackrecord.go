@@ -26,12 +26,20 @@ type ReviewLog interface {
 // whose sessions confirmed nothing and corrected nothing neither count nor
 // break the streak. Days booked by auto mode have no review record and so
 // never count.
+//
+// Review-day rule: a session confirms a day for the streak only when it took
+// place on that calendar day or the next one, in the time zone of now
+// (the configured one). ticktack review --day may still review older days
+// and their confirmations stay valid for booking, but such catch-up reviews
+// do not add to the streak. Corrections always count, however late: a
+// correction ends the streak either way.
 func TrackRecord(ctx context.Context, log ReviewLog, now time.Time) (int, error) {
 	records, err := log.ReviewRecords(ctx)
 	if err != nil {
 		return 0, err
 	}
 	type dayTotals struct{ corrections, confirmed int }
+	loc := now.Location()
 	today := civil.DateOf(now).String()
 	byDay := map[string]*dayTotals{}
 	for _, r := range records {
@@ -44,7 +52,9 @@ func TrackRecord(ctx context.Context, log ReviewLog, now time.Time) (int, error)
 			byDay[r.Day] = t
 		}
 		t.corrections += r.Corrections
-		t.confirmed += r.Confirmed
+		if timelyReview(r, loc) {
+			t.confirmed += r.Confirmed
+		}
 	}
 	days := make([]string, 0, len(byDay))
 	for d := range byDay {
@@ -62,4 +72,15 @@ func TrackRecord(ctx context.Context, log ReviewLog, now time.Time) (int, error)
 		}
 	}
 	return streak, nil
+}
+
+// timelyReview reports whether the session started on the record's day or the
+// day after, judged by calendar dates in loc so DST never shifts the cut-off.
+func timelyReview(r store.ReviewRecord, loc *time.Location) bool {
+	day, err := civil.ParseDate(r.Day)
+	if err != nil {
+		return false
+	}
+	started := civil.DateOf(r.SessionStart.In(loc))
+	return started == day || started == day.AddDays(1)
 }
