@@ -283,3 +283,64 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+func TestTableStacksColumnsThatDoNotFit(t *testing.T) {
+	cols := []Column{
+		{Header: "#", Right: true},
+		{Header: "Time"},
+		{Header: "Reason", Flex: true, Wrap: true},
+		{Header: "State", Stack: true},
+	}
+	rows := [][]string{
+		{"1", "09:00-10:00", "because", "needs ticket assignment"},
+		{"2", "10:00-11:00", "x", ""},
+	}
+	t.Run("narrow layout moves the stacked cell below its row", func(t *testing.T) {
+		got := Renderer{Glyphs: asciiGlyphs, Width: 40}.Table(cols, rows)
+		want := []string{
+			"  #  Time         Reason",
+			"  1  09:00-10:00  because",
+			"    needs ticket assignment",
+			"  2  10:00-11:00  x",
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	})
+	t.Run("wide layout keeps it inline", func(t *testing.T) {
+		got := Renderer{Glyphs: asciiGlyphs, Width: 78}.Table(cols, rows)
+		want := []string{
+			"  #  Time         Reason   State",
+			"  1  09:00-10:00  because  needs ticket assignment",
+			"  2  10:00-11:00  x",
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	})
+}
+
+func TestTableStacksSeveralColumnsOnOneLine(t *testing.T) {
+	cols := []Column{
+		{Header: "Name"},
+		{Header: "Tier", Stack: true},
+		{Header: "State", Stack: true},
+	}
+	rows := [][]string{
+		{"alpha", "rule", "confirmed"},
+		{"beta", "", "needs ticket"},
+		{"gamma", "", ""},
+	}
+	got := Renderer{Glyphs: asciiGlyphs, Width: 20}.Table(cols, rows)
+	want := []string{
+		"  Name",
+		"  alpha",
+		"    rule  confirmed",
+		"  beta",
+		"    needs ticket",
+		"  gamma",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

@@ -356,3 +356,30 @@ func TestReviewReasonIsNeverCut(t *testing.T) {
 		}
 	}
 }
+
+// TestReviewStateIsNeverCut proves the state of a block reaches the screen at
+// every layout width: it moves below its row when the columns do not fit, and
+// no table line is wider than the layout.
+func TestReviewStateIsNeverCut(t *testing.T) {
+	for _, width := range []int{40, 50, 60, 70, 78} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			deps, out := reviewBranchDeps(t, "q\n", "/work/app", "spike")
+			deps.Render = render.Renderer{Glyphs: render.Plain().Glyphs, Width: width}
+			if err := runReview(context.Background(), deps, "2026-01-05"); err != nil {
+				t.Fatal(err)
+			}
+			got := out.String()
+			table := strings.SplitN(got, "\n\n", 3)[1]
+			for _, want := range []string{"needs ticket", "unknown", "(unassigned)", "09:00-10:00"} {
+				if !strings.Contains(table, want) {
+					t.Errorf("%q was cut:\n%s", want, got)
+				}
+			}
+			for _, line := range strings.Split(table, "\n") {
+				if n := utf8.RuneCountInString(line); n > max(width, 40) {
+					t.Errorf("line %q is %d wide, layout is %d", line, n, width)
+				}
+			}
+		})
+	}
+}
