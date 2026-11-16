@@ -48,6 +48,14 @@ Two independent signals are combined. **Presence** says whether you were at the 
 
 Blocks are always re-derived from the stored events, your rules and your overrides. Corrections never rewrite events.
 
+When several context signals disagree, the strongest one wins:
+
+1. **Pin** — `ticktack switch <TICKET>` holds until you clear it (`--clear` or `switch auto`).
+2. **Window-title hint** — the optional title collector's ticket or project, but only while the hinted app is the frontmost app. While another app is in front, or after you leave it, the hint is ignored.
+3. **Git and shell context** — the branch, repository rules and learned rules.
+
+A ticket key in a branch name is matched by `ticket_pattern` exactly as written, so the default `[A-Z][A-Z0-9]+-\d+` reads `feat/ABC-12-x` as `ABC-12` but `fix/utf-8-handling` or `feat/abc-12` as no ticket. Scan, the shell hook, review and `switch` all use that one pattern.
+
 Each block carries a discrete confidence tier:
 
 | Tier        | Meaning                                                                  |

@@ -1,5 +1,11 @@
 // Package resolver derives a ticket attribution from a context signal and
 // rules. It is a pure function: no I/O, no clock access.
+//
+// The resolver only judges one signal. Which signal is in effect is decided
+// by the sessionizer, in this precedence: an explicit pin (ticktack switch),
+// then a window-title hint while its app is frontmost, then git/shell
+// context. Within one signal the order is: ticket on the event, ticket in
+// the branch name, repo rule, learned rule, unknown.
 package resolver
 
 import (
