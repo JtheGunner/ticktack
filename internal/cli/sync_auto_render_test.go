@@ -264,27 +264,6 @@ func TestDigestKeepsLongReasonsWhole(t *testing.T) {
 	}
 }
 
-func TestWrapWords(t *testing.T) {
-	tests := []struct {
-		name  string
-		text  string
-		width int
-		want  []string
-	}{
-		{"fits", "one two", 20, []string{"one two"}},
-		{"wraps at spaces", "one two three", 7, []string{"one two", "three"}},
-		{"splits a long word", "abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
-		{"empty", "", 10, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := wrapWords(tt.text, tt.width); strings.Join(got, "|") != strings.Join(tt.want, "|") {
-				t.Errorf("wrapWords(%q, %d) = %q, want %q", tt.text, tt.width, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDigestStoredTextIsPlainAndWhole(t *testing.T) {
 	long := strings.Repeat("reason ", 30)
 	d := sampleDigest(auto.DigestEntry{Ticket: "ABC-1", Date: civil.Date{Year: 2026, Month: 1, Day: 5}, Minutes: 15, Status: "skipped", Reason: long})

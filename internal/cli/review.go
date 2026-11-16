@@ -182,7 +182,7 @@ func (r *reviewRun) show() {
 		{Header: msgColLength, Right: true},
 		{Header: msgColTicket},
 		{Header: msgColTier},
-		{Header: msgColReason, Flex: true},
+		{Header: msgColReason, Flex: true, Wrap: true},
 		{Header: msgColState},
 	}, rows) {
 		r.println(line)

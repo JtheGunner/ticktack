@@ -1,7 +1,8 @@
   [1mReview for 2026-01-05[0m
 
-  [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m        [2mTier[0m     [2mReason[0m           [2mState[0m
-  1  09:00-10:00   1h01m  (unassigned)  [2munknown[0m  no ticket in b…  [33mneeds ticket[0m
+  [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m        [2mTier[0m     [2mReason[0m  [2mState[0m
+  1  09:00-10:00   1h01m  (unassigned)  [2munknown[0m          [33mneeds ticket[0m
+    [2mno ticket in branch and no rule for repo[0m
 
   [36mℹ[0m  Suggestions for 1 (assigned to you, In Progress; take one with u 1 K):
      1) ABC-1  first

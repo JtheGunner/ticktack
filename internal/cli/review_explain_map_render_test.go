@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -317,6 +318,41 @@ func TestReviewReasonCellIsSanitised(t *testing.T) {
 		}
 		if got, want := strings.Count(hostile, "\n"), strings.Count(benign, "\n"); got != want {
 			t.Errorf("hostile reason changed the line count: %d, want %d\n%s", got, want, hostile)
+		}
+	}
+}
+
+// TestReviewReasonIsNeverCut proves the whole reason reaches the screen at
+// ordinary terminal widths, wrapped under its row when the row has no room.
+func TestReviewReasonIsNeverCut(t *testing.T) {
+	tests := []struct {
+		name   string
+		gap    bool
+		reason string
+	}{
+		{"gap", true, "no ticket in branch and no rule for repo"},
+		{"explicit", false, "explicit ticket ABC-1 on event"},
+	}
+	for _, tt := range tests {
+		for _, width := range []int{78, 60} {
+			t.Run(fmt.Sprintf("%s_%d", tt.name, width), func(t *testing.T) {
+				var deps reviewDeps
+				var out *bytes.Buffer
+				if tt.gap {
+					deps, out = reviewBranchDeps(t, "q\n", "/work/app", "spike")
+				} else {
+					deps, _, out = reviewTestDeps(t, "q\n")
+				}
+				deps.Render = render.Renderer{Glyphs: render.Plain().Glyphs, Width: width}
+				if err := runReview(context.Background(), deps, "2026-01-05"); err != nil {
+					t.Fatal(err)
+				}
+				got := out.String()
+				table := strings.SplitN(got, "\n\n", 3)[1]
+				if !strings.Contains(strings.Join(strings.Fields(table), " "), tt.reason) {
+					t.Errorf("reason %q was cut:\n%s", tt.reason, got)
+				}
+			})
 		}
 	}
 }
