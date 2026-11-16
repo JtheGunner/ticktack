@@ -1,0 +1,7 @@
+  +  config: valid: /home/u/.config/ticktack/config.toml
+  -  activitywatch: disabled
+  -  window title hints: disabled (set enabled = true under [titlehint] to turn on)
+
++--------------------------------- Summary ----------------------------------+
+| All 3 checks passed.                                                       |
++----------------------------------------------------------------------------+

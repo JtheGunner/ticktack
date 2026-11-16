@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/explain"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -102,63 +103,72 @@ func selectBlock(blocks []sessionizer.Block, target string, dayStart time.Time, 
 }
 
 func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label string, loc *time.Location) {
-	out := deps.Out
+	r := deps.Render
 	clock := func(t time.Time) string { return t.In(loc).Format("15:04:05") }
 	b := ex.Block
 	minutes := int(b.Duration() / time.Minute)
-	line := func(format string, args ...any) { _, _ = fmt.Fprintf(out, format+"\n", args...) }
 
-	line(msgExplainHeader, n, label, b.Start.In(loc).Format("15:04"), b.End.In(loc).Format("15:04"), formatMinutes(minutes))
-	line(msgExplainTicket, SanitizeForTerminal(ticketLabel(b.Ticket)))
-	line(msgExplainTier, b.Tier)
-
+	lines := []string{
+		r.Heading(fmt.Sprintf(msgExplainHeader, n, label, b.Start.In(loc).Format("15:04"), b.End.In(loc).Format("15:04"), formatMinutes(minutes))),
+		"",
+	}
+	rows := []render.LabelRow{
+		{Label: msgLabelTicket, Value: SanitizeForTerminal(ticketLabel(b.Ticket))},
+		{Label: msgLabelTier, Value: colorTier(r, b.Tier)},
+	}
+	var conclusions, merged []string
 	switch ex.Source {
 	case explain.SourceOverride:
-		line(msgExplainSignal, msgExplainOverrideSignal(clock(ex.Override.Start), clock(ex.Override.End)))
-		line(msgExplainRule, SanitizeForTerminal(msgExplainOverrideRule(ex.Override.Ticket)))
+		rows = append(rows,
+			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainOverrideSignal(clock(ex.Override.Start), clock(ex.Override.End)))},
+			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainOverrideRule(ex.Override.Ticket))})
 	case explain.SourceMerged:
-		line(msgExplainSignal, msgExplainMergedSignal)
+		rows = append(rows, render.LabelRow{Label: msgLabelSignal, Value: msgExplainMergedSignal})
 		for _, m := range ex.Merged {
 			me := m.Event
-			line(msgExplainMergedItem, SanitizeForTerminal(msgExplainEventSignal(
+			merged = append(merged, fmt.Sprintf(msgExplainMergedItem, SanitizeForTerminal(msgExplainEventSignal(
 				me.Source, string(me.Kind), clock(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
-				SanitizeForTerminal(msgExplainRuleText(m.Decision, m.Decision.Ticket)))
+				SanitizeForTerminal(msgExplainRuleText(m.Decision, m.Decision.Ticket))))
 		}
 	case explain.SourceNoContext:
-		line(msgExplainSignal, msgExplainNoContext)
+		conclusions = append(conclusions, r.Gutter(render.StatusWarn, msgExplainNoContext))
 	case explain.SourceTooShort:
-		line(msgExplainSignal, msgExplainTooShort)
+		conclusions = append(conclusions, r.Gutter(render.StatusWarn, msgExplainTooShort))
 	default:
 		e := ex.Event
-		line(msgExplainSignal, SanitizeForTerminal(msgExplainEventSignal(
-			e.Source, string(e.Kind), clock(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket))))
-		line(msgExplainRule, SanitizeForTerminal(msgExplainRuleText(ex.Decision, b.Ticket)))
+		rows = append(rows,
+			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainEventSignal(
+				e.Source, string(e.Kind), clock(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket)))},
+			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainRuleText(ex.Decision, b.Ticket))})
 		var skipped []string
 		for _, kind := range ex.Skipped {
 			skipped = append(skipped, msgExplainSkipped(kind, noneIfEmpty(ex.Signal.Repo), noneIfEmpty(ex.Signal.Branch)))
 		}
 		if len(skipped) > 0 {
-			line(msgExplainNotApplied, SanitizeForTerminal(strings.Join(skipped, "; ")))
+			rows = append(rows, render.LabelRow{Label: msgLabelNotApplied, Value: SanitizeForTerminal(strings.Join(skipped, "; "))})
 		}
 	}
-	printPresence(line, ex.Presence, b.Start, b.End, clock)
-}
-
-func printPresence(line func(string, ...any), p explain.Presence, start, end time.Time, clock func(time.Time) string) {
+	p := ex.Presence
 	if p.Samples == 0 {
-		line(msgExplainNoSamples)
+		rows = append(rows, render.LabelRow{Label: msgLabelPresence, Value: msgExplainNoSamples})
 	} else {
-		line(msgExplainPresence, p.Samples, clock(p.First), clock(p.Last))
+		rows = append(rows, render.LabelRow{Label: msgLabelPresence, Value: fmt.Sprintf(msgExplainPresence, p.Samples, clock(p.First), clock(p.Last))})
 	}
+	lines = append(lines, r.Labels(rows, 2)...)
+	for _, m := range merged {
+		lines = append(lines, "    "+m)
+	}
+	lines = append(lines, conclusions...)
 	if !p.Previous.IsZero() {
-		line(msgExplainBefore, clock(p.Previous), start.Sub(p.Previous).Round(time.Second))
+		lines = append(lines, r.Gutter(render.StatusInfo, fmt.Sprintf(msgExplainBefore, clock(p.Previous), b.Start.Sub(p.Previous).Round(time.Second))))
 	}
 	if !p.Next.IsZero() {
-		line(msgExplainAfter, clock(p.Next), p.Next.Sub(end).Round(time.Second))
+		lines = append(lines, r.Gutter(render.StatusInfo, fmt.Sprintf(msgExplainAfter, clock(p.Next), p.Next.Sub(b.End).Round(time.Second))))
 	}
 	for _, g := range p.Gaps {
-		line(msgExplainGap, clock(g.Start), clock(g.End))
+		lines = append(lines, r.Gutter(render.StatusInfo, fmt.Sprintf(msgExplainGap, clock(g.Start), clock(g.End))))
 	}
+	_, _ = fmt.Fprintln(deps.Out, strings.Join(lines, "\n"))
 }
 
 func noneIfEmpty(s string) string {

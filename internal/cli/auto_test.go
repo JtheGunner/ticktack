@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -252,10 +253,16 @@ func TestAutoModeSkipsLowTierBlocks(t *testing.T) {
 	if _, ok := rec.items["ABC-2/1"]; !ok || len(rec.items) != 1 {
 		t.Fatalf("booked items = %v\n%s", rec.items, out)
 	}
+	// The reason of a skipped item may sit on the indented line below its row
+	// when it does not fit the table, so check the row together with that line.
 	var skipLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "skipped") && strings.Contains(line, "ABC-1") {
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "skipped") && strings.Contains(line, "ABC-1") {
 			skipLine = line
+			if i+1 < len(lines) && strings.HasPrefix(lines[i+1], "    ") {
+				skipLine += " " + strings.TrimSpace(lines[i+1])
+			}
 		}
 	}
 	if skipLine == "" || !strings.Contains(skipLine, "learned") || !strings.Contains(skipLine, "needs review") {
@@ -293,7 +300,7 @@ func TestDigestListsEveryBookedItem(t *testing.T) {
 	}
 	for id, w := range rec.items {
 		line := lineWith(out, w.Issue)
-		for _, want := range []string{"created", w.Issue, w.Date.String(), "30 min", "tier explicit"} {
+		for _, want := range []string{"created", w.Issue, w.Date.String(), "30 min", "explicit"} {
 			if !strings.Contains(line, want) {
 				t.Errorf("digest line for %s (%s) lacks %q: %q", w.Issue, id, want, line)
 			}
@@ -309,14 +316,16 @@ func TestDigestListsEveryBookedItem(t *testing.T) {
 	if err := runDigest(context.Background(), &again, deps); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(again.String()) != strings.TrimSpace(out) {
+	// The screen output may wrap a long reason below its row, the stored text
+	// keeps it on the row: both must carry exactly the same words.
+	if strings.Join(strings.Fields(again.String()), " ") != strings.Join(strings.Fields(out), " ") {
 		t.Errorf("stored digest differs:\n%s\nvs\n%s", again.String(), out)
 	}
 }
 
 func lineWith(text, needle string) string {
 	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, needle) && !strings.HasPrefix(line, "skipped") {
+		if strings.Contains(line, needle) && !strings.Contains(line, "skipped") {
 			return line
 		}
 	}
@@ -335,8 +344,9 @@ func TestAutoDigestSanitizesExternalText(t *testing.T) {
 	d := auto.Digest{Day: civil.Date{Year: 2026, Month: 1, Day: 5}, Entries: []auto.DigestEntry{
 		{Ticket: "ABC-1\x1b[31m", Date: civil.Date{Year: 2026, Month: 1, Day: 5}, Minutes: 15, Status: "failed", Reason: "bad\nreason\x1b]0;x\x07"},
 	}}
-	text := renderDigest(d)
-	if strings.ContainsAny(text, "\x1b\x07") || strings.Count(text, "\n") != 2 {
+	text := renderDigest(d, render.Plain())
+	// heading, blank, table header, one row, blank, totals
+	if strings.ContainsAny(text, "\x1b\x07") || strings.Count(text, "\n") != 5 {
 		t.Fatalf("unsanitised digest: %q", text)
 	}
 }

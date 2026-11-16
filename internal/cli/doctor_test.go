@@ -36,11 +36,11 @@ func TestDoctorReportsEachCheckIndependently(t *testing.T) {
 	}
 	text := out.String()
 	for _, name := range []string{"config:", "shell hook:", "agent:", "token:", "youtrack:", "database:", "presence tools:"} {
-		if !strings.Contains(text, "FAIL "+name) {
+		if !strings.Contains(text, "x  "+name) {
 			t.Errorf("missing failing line for %s:\n%s", name, text)
 		}
 	}
-	if got := strings.Count(text, "     fix: "); got != 7 {
+	if got := strings.Count(text, "fix: "); got != 7 {
 		t.Errorf("fix hints = %d, want 7:\n%s", got, text)
 	}
 	if !strings.Contains(text, "7 of 10 checks failed.") {
@@ -86,11 +86,11 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 	}
 	text := out.String()
 	for _, name := range []string{"config:", "shell hook:", "agent:", "youtrack:", "database:", "presence tools:"} {
-		if !strings.Contains(text, "OK   "+name) {
+		if !strings.Contains(text, "+  "+name) {
 			t.Errorf("expected OK for %s:\n%s", name, text)
 		}
 	}
-	if !strings.Contains(text, "FAIL token:") || !strings.Contains(text, "1 of 10 checks failed.") {
+	if !strings.Contains(text, "x  token:") || !strings.Contains(text, "1 of 10 checks failed.") {
 		t.Errorf("token failure not reported alone:\n%s", text)
 	}
 
@@ -338,7 +338,7 @@ func TestDoctorRunsTitleHintCheck(t *testing.T) {
 	env := newTestEnv(t, "", "")
 	var out bytes.Buffer
 	_ = runDoctor(context.Background(), env.deps.Doctor, &out)
-	if !strings.Contains(out.String(), "SKIP window title hints:") {
+	if !strings.Contains(out.String(), "-  window title hints:") {
 		t.Errorf("doctor output lacks the title hint line:\n%s", out.String())
 	}
 }

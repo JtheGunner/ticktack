@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/ledger"
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 func newUndoCommand() *cobra.Command {
@@ -23,7 +24,7 @@ items it updated are restored to their previous minutes. Running undo again
 reverts the run before it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps)
+			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
 		},
 	}
 }
@@ -41,7 +42,7 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	if _, found, err := st.LastSyncRun(ctx); err != nil {
 		return err
 	} else if !found {
-		_, _ = fmt.Fprintln(out, "Nothing to undo.")
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgNothingToUndo))
 		return nil
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
@@ -49,6 +50,11 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 		return err
 	}
 	res, err := ledger.Undo(ctx, target, st, deps.Now)
-	_, _ = fmt.Fprintf(out, "Deleted %d, restored %d, forgotten %d.\n", res.Deleted, res.Restored, res.Forgotten)
+	status := render.StatusOK
+	if err != nil {
+		status = render.StatusWarn
+	}
+	line := msgUndoResult(res.Deleted, res.Restored, res.Forgotten)
+	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
 	return err
 }

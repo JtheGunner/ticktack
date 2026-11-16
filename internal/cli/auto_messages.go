@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 // User-facing strings of the auto and digest commands live here so a German
@@ -52,17 +53,15 @@ func msgDigestTitle(d auto.Digest) string {
 	return title
 }
 
-func msgDigestLine(e auto.DigestEntry) string {
-	tier := string(e.Tier)
-	if tier == "" {
-		tier = "-"
-	}
-	line := fmt.Sprintf("%-12s %-10s %-12s %4d min  tier %-9s", e.Status, SanitizeForTerminal(e.Ticket), e.Date, e.Minutes, tier)
-	if e.Reason != "" {
-		line += "  " + SanitizeForTerminal(e.Reason)
-	}
-	return strings.TrimRight(line, " ")
-}
+// Column headers of the digest table.
+const (
+	msgDigestColStatus = "Status"
+	msgDigestColTicket = "Ticket"
+	msgDigestColDate   = "Date"
+	msgDigestColTime   = "Time"
+	msgDigestColTier   = "Tier"
+	msgDigestColReason = "Reason"
+)
 
 func msgDigestCap(d auto.Digest) string {
 	return fmt.Sprintf("Day total %s exceeds the daily cap of %s: nothing was booked, review the day with `ticktack review`.",
@@ -74,19 +73,51 @@ func msgDigestTotals(d auto.Digest) string {
 		d.Created, d.Updated, d.Recovered, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 
-// renderDigest formats the digest text that is printed and stored. External
-// text (ticket keys, reasons, server errors) is sanitised line by line.
-func renderDigest(d auto.Digest) string {
-	lines := []string{msgDigestTitle(d)}
-	for _, e := range d.Entries {
-		lines = append(lines, msgDigestLine(e))
+// renderDigest formats the digest text that is printed (with the run's
+// renderer) and stored (with render.Plain). External text (ticket keys,
+// reasons, server errors) is sanitised before it is styled or padded.
+func renderDigest(d auto.Digest, r render.Renderer) string {
+	lines := []string{r.Heading(msgDigestTitle(d))}
+	if len(d.Entries) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, digestTable(r, d.Entries)...)
+		lines = append(lines, "")
 	}
 	if d.CapExceeded {
-		lines = append(lines, msgDigestCap(d))
+		lines = append(lines, r.Gutter(render.StatusWarn, msgDigestCap(d)))
 	}
-	lines = append(lines, msgDigestTotals(d))
+	lines = append(lines, r.Gutter(render.StatusInfo, msgDigestTotals(d)))
 	if d.Changed() && !d.DryRun {
-		lines = append(lines, msgDigestUndoHint)
+		lines = append(lines, r.Gutter(render.StatusGo, msgDigestUndoHint))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// digestTable lays out the entries as a table. A reason that does not fit the
+// flexible column is never cut: the table wraps it onto dimmed lines under its
+// row.
+func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		tier := "-"
+		if e.Tier != "" {
+			tier = colorTier(r, e.Tier)
+		}
+		rows = append(rows, []string{
+			colorAction(r, e.Status),
+			SanitizeForTerminal(e.Ticket),
+			e.Date.String(),
+			fmt.Sprintf("%d min", e.Minutes),
+			tier,
+			SanitizeForTerminal(e.Reason),
+		})
+	}
+	return r.Table([]render.Column{
+		{Header: msgDigestColStatus},
+		{Header: msgDigestColTicket},
+		{Header: msgDigestColDate},
+		{Header: msgDigestColTime, Right: true},
+		{Header: msgDigestColTier},
+		{Header: msgDigestColReason, Flex: true, Wrap: true},
+	}, rows)
 }

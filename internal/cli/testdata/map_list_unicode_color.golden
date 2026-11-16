@@ -1,0 +1,19 @@
+  [32m✓[0m  Added learned rule #1: repo /work/api, branch dev -> ABC-1.
+  [36mℹ[0m  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  [32m✓[0m  Added learned rule #2: repo /work/web, branch (any) -> ABC-2.
+  [36mℹ[0m  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  [32m✓[0m  Updated learned rule #2: repo /work/web, branch (any) -> ABC-3.
+  [36mℹ[0m  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  [32m✓[0m  Removed learned rule #1.
+  [36mℹ[0m  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  [1mConfigured rules[0m
+  [36mℹ[0m  read-only, edit them in the config file /home/x/config.toml
+
+  [2mRepo[0m       [2mTicket[0m
+  /cfg/repo  CFG-1
+
+  [1mLearned rules[0m
+  [36mℹ[0m  change with `ticktack map add|edit|rm`
+
+  [2mID[0m  [2mRepo[0m       [2mBranch[0m  [2mTicket[0m  [2mCreated[0m
+  #2  /work/web  (any)   ABC-3   2026-03-02

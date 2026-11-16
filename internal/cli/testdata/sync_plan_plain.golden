@@ -1,0 +1,6 @@
+  >  ABC-1:2026-01-05:Development   60 min  dry-run-would-create
+  -  ABC-3:2026-01-05:Development   15 min  skipped (unchanged)
+
++----------------------------------- Plan -----------------------------------+
+| Plan: 1 to change, 1 skipped, 0 failed.                                    |
++----------------------------------------------------------------------------+

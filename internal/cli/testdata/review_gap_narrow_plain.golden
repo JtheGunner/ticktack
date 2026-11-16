@@ -1,0 +1,14 @@
+  Review for 2026-01-05
+
+  #  Time         Length  Ticket        Tier     Reason  State
+  1  09:00-10:00   1h01m  (unassigned)  unknown          needs ticket
+    no ticket in branch and no rule for repo
+
+  i  Suggestions for 1 (assigned to you, In Progress; take one with u 1 K):
+     1) ABC-1  first
+     2) DEF-2  second
+
+  i  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+review> 
+  i  Summary: 0 confirmed, 0 discarded, 0 unconfirmed, 1 unassigned.
+  i  Nothing confirmed yet: `ticktack sync` will book nothing.

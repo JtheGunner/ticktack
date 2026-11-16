@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 func newPurgeCommand() *cobra.Command {
@@ -35,7 +37,7 @@ func runPurge(ctx context.Context, deps dailyDeps, yes bool) error {
 			return err
 		}
 		if !confirmed {
-			_, err = fmt.Fprintln(deps.Out, msgPurgeAborted)
+			_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgPurgeAborted))
 			return err
 		}
 	}
@@ -47,7 +49,7 @@ func runPurge(ctx context.Context, deps dailyDeps, yes bool) error {
 	if err := st.Purge(ctx); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(deps.Out, msgPurged)
+	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgPurged))
 	return err
 }
 

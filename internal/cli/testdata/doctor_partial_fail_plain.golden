@@ -1,0 +1,10 @@
+  +  config: valid: /home/u/.config/ticktack/config.toml
+  x  token: no token in the keychain
+     >  fix: run `ticktack init` and enter the token
+  -  agent: launchd is macOS-only
+  x  youtrack: https://yt.example.com is not reachable: timeout
+     >  fix: check network, VPN and youtrack_url
+
++--------------------------------- Summary ----------------------------------+
+| 2 of 4 checks failed.                                                      |
++----------------------------------------------------------------------------+

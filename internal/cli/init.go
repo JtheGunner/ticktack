@@ -17,6 +17,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/shellhook"
 	"github.com/JtheGunner/ticktack/internal/token"
 	"github.com/JtheGunner/ticktack/launchd"
@@ -47,6 +48,8 @@ type initDeps struct {
 	Binary  func() (string, error)
 	Getenv  func(key string) string
 	LogPath func() (string, error)
+	// Render styles the output; the zero value renders plain text.
+	Render render.Renderer
 }
 
 func newInitCommand() *cobra.Command {
@@ -68,7 +71,7 @@ func newInitCommand() *cobra.Command {
 				_, err = io.WriteString(cmd.OutOrStdout(), script)
 				return err
 			}
-			deps := defaultInitDeps(bufio.NewReader(cmd.InOrStdin()))
+			deps := defaultInitDeps(cmd, bufio.NewReader(cmd.InOrStdin()))
 			return runInit(cmd.Context(), deps, opts, cmd.OutOrStdout())
 		},
 	}
@@ -84,9 +87,10 @@ func newInitCommand() *cobra.Command {
 	return cmd
 }
 
-func defaultInitDeps(in *bufio.Reader) initDeps {
+func defaultInitDeps(cmd *cobra.Command, in *bufio.Reader) initDeps {
 	return initDeps{
-		Doctor: defaultDoctorDeps(),
+		Doctor: defaultDoctorDeps(cmd),
+		Render: rendererFor(cmd, cmd.OutOrStdout()),
 		In:     in,
 		ReadSecret: func() (string, error) {
 			fd := int(os.Stdin.Fd())
@@ -127,13 +131,30 @@ func currentBinary() (string, error) {
 
 // initRun carries the state shared by the init steps.
 type initRun struct {
-	deps initDeps
-	opts initOptions
-	out  io.Writer
+	deps     initDeps
+	opts     initOptions
+	out      io.Writer
+	sections int
+	// failed is set once any step reported a failure.
+	failed bool
 }
 
-func (r *initRun) say(format string, args ...any) {
-	_, _ = fmt.Fprintf(r.out, format+"\n", args...)
+// step prints a step header as a heading, separated from the previous step by
+// a blank line.
+func (r *initRun) step(format string, args ...any) {
+	if r.sections > 0 {
+		_, _ = fmt.Fprintln(r.out)
+	}
+	r.sections++
+	_, _ = fmt.Fprintln(r.out, r.deps.Render.Heading(fmt.Sprintf(format, args...)))
+}
+
+// say prints one result line behind the gutter symbol of status.
+func (r *initRun) say(status render.Status, format string, args ...any) {
+	if status == render.StatusFail {
+		r.failed = true
+	}
+	_, _ = fmt.Fprintln(r.out, r.deps.Render.Gutter(status, fmt.Sprintf(format, args...)))
 }
 
 // confirm asks a [Y/n] question. --yes accepts; end of input declines.
@@ -159,27 +180,33 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 	r.tokenStep(ctx)
 	r.hookStep()
 	r.agentStep(ctx)
-	r.say("%s", msgInitFinished)
+	_, _ = fmt.Fprintln(out)
+	if r.failed {
+		r.say(render.StatusWarn, "%s", msgInitFinishedWithFailures)
+		return nil
+	}
+	r.say(render.StatusOK, "%s", msgInitFinished)
 	return nil
 }
 
 func (r *initRun) configStep() {
 	path, err := r.deps.Doctor.ConfigPath()
 	if err != nil {
-		r.say(msgInitConfigFailed, SanitizeForTerminal(err.Error()))
+		r.step("%s", msgInitConfigIntroNoPath)
+		r.say(render.StatusFail, msgInitConfigFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitConfigIntro, SanitizeForTerminal(path))
+	r.step(msgInitConfigIntro, SanitizeForTerminal(path))
 	if r.opts.SkipConfig {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	if fileExists(path) {
-		r.say(msgInitConfigKept, SanitizeForTerminal(path))
+		r.say(render.StatusOK, msgInitConfigKept, SanitizeForTerminal(path))
 		return
 	}
 	if !r.confirm(msgInitConfirm) {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	address := strings.TrimSpace(r.opts.URL)
@@ -190,15 +217,15 @@ func (r *initRun) configStep() {
 	}
 	if address != "" {
 		if u, err := url.Parse(address); err != nil || u.Scheme == "" || u.Host == "" {
-			r.say(msgInitConfigBadURL, SanitizeForTerminal(address))
+			r.say(render.StatusFail, msgInitConfigBadURL, SanitizeForTerminal(address))
 			return
 		}
 	}
 	if err := writeNewConfig(path, config.DefaultTOML(address)); err != nil {
-		r.say(msgInitConfigFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusFail, msgInitConfigFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitConfigWritten, SanitizeForTerminal(path))
+	r.say(render.StatusOK, msgInitConfigWritten, SanitizeForTerminal(path))
 }
 
 // writeNewConfig creates the config file with mode 0600 and never overwrites.
@@ -218,13 +245,13 @@ func writeNewConfig(path, content string) error {
 }
 
 func (r *initRun) tokenStep(ctx context.Context) {
-	r.say("%s", msgInitTokenIntro)
+	r.step("%s", msgInitTokenIntro)
 	if r.opts.SkipToken {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	if !r.confirm(msgInitConfirm) {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	_, _ = fmt.Fprint(r.out, msgInitTokenPrompt)
@@ -233,20 +260,22 @@ func (r *initRun) tokenStep(ctx context.Context) {
 	secret = strings.TrimSpace(secret)
 	if err != nil {
 		// The reader error carries no input; the token is never formatted.
-		r.say(msgInitTokenFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusFail, msgInitTokenFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	if secret == "" {
-		r.say("%s", msgInitTokenSkipped)
+		r.say(render.StatusSkip, "%s", msgInitTokenSkipped)
 		return
 	}
 	if err := r.deps.SetToken(secret); err != nil {
-		r.say(msgInitTokenFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusFail, msgInitTokenFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say("%s", msgInitTokenStored)
+	r.say(render.StatusOK, "%s", msgInitTokenStored)
 	if r.confirm(msgInitTokenValidate) {
-		printResult(r.out, checkToken(ctx, r.deps.Doctor))
+		res := checkToken(ctx, r.deps.Doctor)
+		r.failed = r.failed || res.Status == statusFail
+		printResult(r.out, r.deps.Render, res)
 	}
 }
 
@@ -257,29 +286,30 @@ func (r *initRun) hookStep() {
 	}
 	script, err := shellhook.Script(shell)
 	if err != nil {
-		r.say(msgInitHookUnsupported, SanitizeForTerminal(shell))
+		r.step("%s", msgInitHookIntroNoPath)
+		r.say(render.StatusFail, msgInitHookUnsupported, SanitizeForTerminal(shell))
 		return
 	}
 	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell)
 	if err != nil {
-		r.say(msgInitHookFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.say(msgInitHookIntro, SanitizeForTerminal(rc))
+	r.step(msgInitHookIntro, SanitizeForTerminal(rc))
 	if r.opts.SkipHook || !r.confirm(msgInitConfirm) {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	changed, err := upsertHook(rc, script)
 	if err != nil {
-		r.say(msgInitHookFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	if changed {
-		r.say(msgInitHookWritten, SanitizeForTerminal(rc))
+		r.say(render.StatusOK, msgInitHookWritten, SanitizeForTerminal(rc))
 		return
 	}
-	r.say(msgInitHookUnchanged, SanitizeForTerminal(rc))
+	r.say(render.StatusOK, msgInitHookUnchanged, SanitizeForTerminal(rc))
 }
 
 // upsertHook writes the managed block and reports whether the file changed.
@@ -303,23 +333,23 @@ func upsertHook(rc, script string) (bool, error) {
 
 func (r *initRun) agentStep(ctx context.Context) {
 	plist := agentPlistPath(r.deps.Doctor.Home)
-	r.say(msgInitAgentIntro, SanitizeForTerminal(plist))
+	r.step(msgInitAgentIntro, SanitizeForTerminal(plist))
 	if r.opts.SkipAgent {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	if r.deps.Doctor.GOOS != "darwin" {
-		r.say("%s", msgInitAgentNotMac)
+		r.say(render.StatusSkip, "%s", msgInitAgentNotMac)
 		return
 	}
 	if !r.confirm(msgInitConfirm) {
-		r.say("%s", msgInitSkipped)
+		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
 	uid := r.deps.Doctor.UID
 	if err := r.installAgent(ctx, plist, uid); err != nil {
-		r.say(msgInitAgentFailed, SanitizeForTerminal(err.Error()))
-		r.say(msgInitAgentHint, uid, SanitizeForTerminal(plist))
+		r.say(render.StatusFail, msgInitAgentFailed, SanitizeForTerminal(err.Error()))
+		r.say(render.StatusInfo, msgInitAgentHint, uid, SanitizeForTerminal(plist))
 	}
 }
 
@@ -341,12 +371,12 @@ func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error
 	}
 	existing, readErr := os.ReadFile(plist)
 	if readErr == nil && string(existing) == rendered {
-		r.say(msgInitAgentKept, SanitizeForTerminal(plist))
+		r.say(render.StatusOK, msgInitAgentKept, SanitizeForTerminal(plist))
 	} else {
 		if err := writeFileAtomic(plist, []byte(rendered), 0o644); err != nil {
 			return err
 		}
-		r.say(msgInitAgentWritten, SanitizeForTerminal(plist))
+		r.say(render.StatusOK, msgInitAgentWritten, SanitizeForTerminal(plist))
 	}
 
 	domain := fmt.Sprintf("gui/%d", uid)
@@ -359,6 +389,6 @@ func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error
 	if out, err := r.deps.Launchctl(ctx, "bootstrap", domain, plist); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w: %s", err, out)
 	}
-	r.say("%s", msgInitAgentLoaded)
+	r.say(render.StatusOK, "%s", msgInitAgentLoaded)
 	return nil
 }

@@ -1,0 +1,10 @@
+  [32m✓[0m  [1mconfig[0m[2m: valid: /home/u/.config/ticktack/config.toml[0m
+  [31m✗[0m  [1mtoken[0m: no token in the keychain
+     [36m→[0m  fix: run `ticktack init` and enter the token
+  [2m–[0m  [1magent[0m[2m: launchd is macOS-only[0m
+  [31m✗[0m  [1myoutrack[0m: https://yt.example.com is not reachable: timeout
+     [36m→[0m  fix: check network, VPN and youtrack_url
+
+[36m╭─────────────────────────────[0m[1m Summary [0m[36m──────────────────────────────╮[0m
+[36m│[0m [31m2 of 4 checks failed.[0m                                              [36m│[0m
+[36m╰────────────────────────────────────────────────────────────────────╯[0m

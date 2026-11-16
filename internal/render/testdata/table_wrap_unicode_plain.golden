@@ -1,0 +1,13 @@
+  #  Ticket    Reason       State
+  1  TICKT-47  branch name  ok
+  2  -
+    learned from earlier days of the same repository and
+    branch
+  3  TICKT-9                needs ticket
+  4  TICKT-1
+    https://example.invalid/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    xx
+  5  TICKT-2
+    Ünïcödé reasön wïth ümlauts that is rather long and has
+    to wrap somewhere

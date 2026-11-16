@@ -1,0 +1,9 @@
+  [1mBlock 2 on 2026-03-02: 09:00-09:30 (30m)[0m
+
+  [2mTicket[0m       LRN-5
+  [2mTier[0m         [36mlearned[0m
+  [2mSignal[0m       context event from shell at 09:00:00 (repo /work/api, branch dev, ticket (none))
+  [2mRule[0m         learned rule #1: repo /work/api, branch dev -> LRN-5 (`ticktack map`)
+  [2mNot applied[0m  no explicit ticket on the event; no ticket ID in branch dev; no configured rule matches repo /work/api
+  [2mPresence[0m     31 sample(s) between 09:00:00 and 09:30:00
+  [36mℹ[0m  previous present sample: 08:30:00 (30m0s before the block)

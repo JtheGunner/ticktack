@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -15,6 +16,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -41,6 +43,11 @@ type syncDeps struct {
 	// log or return the token.
 	NewSink func(cfg config.Config, configPath string) (sink.TimeSink, error)
 	Now     func() time.Time
+	// Render styles the output; the zero value renders plain text.
+	Render render.Renderer
+	// RenderFor builds Render from the running command, which does not exist
+	// yet when the default deps are built. Nil keeps Render as given.
+	RenderFor func(cmd *cobra.Command, w io.Writer) render.Renderer
 }
 
 func defaultSyncDeps() syncDeps {
@@ -49,7 +56,17 @@ func defaultSyncDeps() syncDeps {
 		OpenStore:  openLedgerStore,
 		NewSink:    newYouTrackSink,
 		Now:        func() time.Time { return time.Now().Round(0) },
+		RenderFor:  rendererFor,
 	}
+}
+
+// forCommand returns deps with Render resolved for cmd's output stream. A
+// Render that was set explicitly (not the zero value) is never overridden.
+func (d syncDeps) forCommand(cmd *cobra.Command) syncDeps {
+	if d.RenderFor != nil && d.Render == (render.Renderer{}) {
+		d.Render = d.RenderFor(cmd, cmd.OutOrStdout())
+	}
+	return d
 }
 
 func loadConfigFile() (config.Config, string, error) {
@@ -126,7 +143,7 @@ duplicating. Unconfirmed items are never booked; a day above the daily cap is
 only booked after the cap warning was acknowledged in review.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSync(cmd.Context(), cmd.OutOrStdout(), deps, dayFlag, dryRun)
+			return runSync(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&dayFlag, "day", "", "local day to book as YYYY-MM-DD (default: today)")
@@ -163,7 +180,7 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	if len(items) == 0 {
-		_, err = fmt.Fprintf(out, msgNothingConfirmed+"\n", day)
+		_, err = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgNothingConfirmed, day)))
 		return err
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
@@ -171,7 +188,7 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
-	printReport(out, report, dryRun)
+	printReport(out, deps.Render, report, dryRun)
 	return syncErr
 }
 
@@ -186,25 +203,40 @@ func parseDay(flag string, now time.Time) (civil.Date, error) {
 	return d, nil
 }
 
-func printReport(out io.Writer, r ledger.Report, planOnly bool) {
-	if len(r.Items) == 0 {
-		_, _ = fmt.Fprintln(out, "No time to book.")
+// printReport writes one gutter line per item and a summary box. Text from
+// outside the program (keys, reasons, server errors) is sanitised before it is
+// laid out or styled.
+func printReport(out io.Writer, r render.Renderer, report ledger.Report, planOnly bool) {
+	if len(report.Items) == 0 {
+		_, _ = fmt.Fprintln(out, r.Gutter(render.StatusInfo, msgNoTimeToBook))
 		return
 	}
-	for _, it := range r.Items {
-		line := fmt.Sprintf("%-28s %4d min  %s", SanitizeForTerminal(it.Key), it.Minutes, it.Action)
+	lines := make([]string, 0, len(report.Items)+4)
+	for _, it := range report.Items {
+		text := fmt.Sprintf(msgSyncItem, SanitizeForTerminal(it.Key), it.Minutes, it.Action)
 		switch {
 		case it.Error != "":
-			line += ": " + SanitizeForTerminal(it.Error)
+			text += ": " + SanitizeForTerminal(it.Error)
 		case it.Reason != "":
-			line += " (" + SanitizeForTerminal(it.Reason) + ")"
+			text += " (" + SanitizeForTerminal(it.Reason) + ")"
 		}
-		_, _ = fmt.Fprintln(out, line)
+		lines = append(lines, r.Gutter(actionStatus(string(it.Action)), text))
+	}
+	title := msgSyncSummaryTitle
+	summary := []string{
+		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered),
+		fmt.Sprintf(msgSyncTotalsOutcome, report.Skipped, report.Failed, report.NotSent),
 	}
 	if planOnly {
-		_, _ = fmt.Fprintf(out, "Plan: %d to change, %d skipped, %d failed.\n", r.Planned, r.Skipped, r.Failed)
-		return
+		title, summary = msgSyncPlanTitle, []string{fmt.Sprintf(msgSyncPlan, report.Planned, report.Skipped, report.Failed)}
 	}
-	_, _ = fmt.Fprintf(out, "Created %d, updated %d, recovered %d, skipped %d, failed %d, not sent %d.\n",
-		r.Created, r.Updated, r.Recovered, r.Skipped, r.Failed, r.NotSent)
+	for i, row := range summary {
+		if report.Failed > 0 || report.NotSent > 0 {
+			summary[i] = r.Colors.Fail(row)
+		} else {
+			summary[i] = r.Colors.OK(row)
+		}
+	}
+	lines = append(lines, "", r.Box(title, summary))
+	_, _ = fmt.Fprintln(out, strings.Join(lines, "\n"))
 }

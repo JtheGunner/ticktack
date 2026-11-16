@@ -47,7 +47,7 @@ func TestExplainNamesDecidingSignal(t *testing.T) {
 	seedPresence(t, st, day.Add(time.Hour), 30)
 
 	first := runExplainOut(t, deps, out, "1")
-	for _, want := range []string{"Block 1", "08:00-08:30", "ABC-7", "explicit", "shell", "/work/api", "ABC-7-fix", "found in the branch name", "Presence:"} {
+	for _, want := range []string{"Block 1", "08:00-08:30", "ABC-7", "explicit", "shell", "/work/api", "ABC-7-fix", "found in the branch name", "Presence"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("explain 1 lacks %q:\n%s", want, first)
 		}
@@ -102,7 +102,7 @@ func TestTodayNumbersBlocks(t *testing.T) {
 	if err := runToday(context.Background(), deps, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), " 1. 08:00-08:30") {
+	if !strings.Contains(out.String(), "1  08:00-08:30") {
 		t.Fatalf("blocks are not numbered:\n%s", out)
 	}
 }
@@ -200,7 +200,7 @@ func TestMapListAddRemoveAndValidation(t *testing.T) {
 	if err := runMapList(ctx, deps); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"/home/x/config.toml", "/cfg/repo -> CFG-1", "#1", "/work/api", "dev", "ABC-1", "2026-03-02"} {
+	for _, want := range []string{"/home/x/config.toml", "/cfg/repo  CFG-1", "#1", "/work/api", "dev", "ABC-1", "2026-03-02"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("list lacks %q:\n%s", want, out)
 		}

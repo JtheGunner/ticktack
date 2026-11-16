@@ -1,0 +1,19 @@
+  +  Added learned rule #1: repo /work/api, branch dev -> ABC-1.
+  i  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  +  Added learned rule #2: repo /work/web, branch (any) -> ABC-2.
+  i  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  +  Updated learned rule #2: repo /work/web, branch (any) -> ABC-3.
+  i  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  +  Removed learned rule #1.
+  i  Blocks are re-derived from the recorded events: the change applies to all days. Confirmations whose minutes change must be confirmed again in `ticktack review`.
+  Configured rules
+  i  read-only, edit them in the config file /home/x/config.toml
+
+  Repo       Ticket
+  /cfg/repo  CFG-1
+
+  Learned rules
+  i  change with `ticktack map add|edit|rm`
+
+  ID  Repo       Branch  Ticket  Created
+  #2  /work/web  (any)   ABC-3   2026-03-02

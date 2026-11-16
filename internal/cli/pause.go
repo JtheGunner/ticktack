@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 func newPauseCommand() *cobra.Command {
@@ -48,7 +50,7 @@ func runPause(deps dailyDeps) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("create pause flag: %w", err)
 	}
-	_, err = fmt.Fprintln(deps.Out, msgPaused)
+	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, msgPaused))
 	return err
 }
 
@@ -61,6 +63,6 @@ func runResume(deps dailyDeps) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove pause flag: %w", err)
 	}
-	_, err = fmt.Fprintln(deps.Out, msgResumed)
+	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgResumed))
 	return err
 }

@@ -6,9 +6,13 @@ const (
 	msgImportDisabled   = "the ActivityWatch import is off: set enabled = true in the [activitywatch] section of %s"
 	msgImportPaused     = "Capture is paused, nothing imported. Run `ticktack resume` first."
 	msgImportBadSince   = "--since %q: expected format YYYY-MM-DD"
-	msgImportDone       = "Imported %d ActivityWatch events since %s (%d presence, %d gap markers, %d context hints). Already known events were skipped."
+	msgImportDone       = "Imported %d ActivityWatch events since %s. Already known events were skipped."
 	msgImportPartial    = "ActivityWatch import incomplete: %v"
 	msgImportConfigPath = "the config file"
+
+	msgImportLabelPresence = "Presence"
+	msgImportLabelGaps     = "Gap markers"
+	msgImportLabelHints    = "Context hints"
 
 	msgCheckActivityWatch = "activitywatch"
 	msgAWDisabled         = "import disabled (optional)"

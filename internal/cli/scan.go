@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 const (
@@ -87,11 +89,20 @@ type skippedRepo struct {
 	Reason string
 }
 
+// scannedRepo is a configured path that was scanned, with the number of
+// events found in it.
+type scannedRepo struct {
+	Path  string
+	Found int
+}
+
 // scanReport is the outcome of one pass over the configured repositories.
 type scanReport struct {
 	Total   int
 	Scanned int
 	Found   int
+	// Repos lists the scanned repositories in configuration order.
+	Repos   []scannedRepo
 	Skipped []skippedRepo
 }
 
@@ -132,6 +143,7 @@ func scanRepositories(ctx context.Context, repos []string, home string, from, to
 		}
 		report.Scanned++
 		report.Found += len(events)
+		report.Repos = append(report.Repos, scannedRepo{Path: raw, Found: len(events)})
 	}
 	return report, nil
 }
@@ -199,7 +211,7 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 		return err
 	}
 	if paused {
-		_, err = fmt.Fprintln(deps.Out, msgScanPaused)
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, msgScanPaused))
 		return err
 	}
 
@@ -232,19 +244,32 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 		return err
 	}
 
-	if _, err := fmt.Fprintf(deps.Out, msgScanDone+"\n", report.Scanned, report.Total,
-		from.In(cfg.Location).Format(dayLayout), after-before, report.Found); err != nil {
+	if _, err := fmt.Fprintln(deps.Out, formatScanReport(deps.Render, report, from.In(cfg.Location).Format(dayLayout), after-before)); err != nil {
 		return err
-	}
-	for _, s := range report.Skipped {
-		if _, err := fmt.Fprintf(deps.Out, msgScanSkipped+"\n", SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason)); err != nil {
-			return err
-		}
 	}
 	if len(report.Skipped) > 0 {
 		return fmt.Errorf(msgScanFailed, len(report.Skipped), report.Total)
 	}
 	return nil
+}
+
+// formatScanReport lays out the scan result: a heading, one gutter line per
+// repository and the summary. Paths come from the configuration and error
+// text may carry external text, so both are sanitised before they are styled.
+func formatScanReport(r render.Renderer, report scanReport, since string, newEvents int) string {
+	lines := []string{r.Heading(msgScanHeading), ""}
+	for _, repo := range report.Repos {
+		lines = append(lines, r.Gutter(render.StatusOK, fmt.Sprintf(msgScanRepoDone, SanitizeForTerminal(repo.Path), repo.Found)))
+	}
+	for _, s := range report.Skipped {
+		lines = append(lines, r.Gutter(render.StatusFail, fmt.Sprintf(msgScanSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))))
+	}
+	status := render.StatusOK
+	if len(report.Skipped) > 0 {
+		status = render.StatusWarn
+	}
+	lines = append(lines, "", r.Gutter(status, fmt.Sprintf(msgScanDone, report.Scanned, report.Total, since, newEvents, report.Found)))
+	return strings.Join(lines, "\n")
 }
 
 // countGitEvents counts stored events of the git scanner within [from, to).

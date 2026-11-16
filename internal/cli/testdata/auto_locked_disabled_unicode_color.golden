@@ -1,0 +1,4 @@
+  [33m⚠[0m  Auto mode is disabled: set "enabled = true" in the [auto] section of /cfg/ticktack/config.toml to opt in.
+  [33m⚠[0m  Auto mode is locked: 2 of 10 required consecutive reviewed days without a correction.
+  [36mℹ[0m  Nothing was booked.
+  [36mℹ[0m  To build the track record, run `ticktack review` each day and confirm without corrections.

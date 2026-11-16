@@ -1,0 +1,10 @@
+  Auto digest for 2026-01-05
+
+  Status   Ticket  Date          Time  Tier      Reason
+  created  ABC-1   2026-01-05  60 min  explicit
+  skipped  ABC-2   2026-01-05  90 min  learned
+    tier learned is below rule: needs review
+  failed   ABC-3   2026-01-05  30 min  rule      HTTP 500
+
+  i  Totals: created 1, updated 0, recovered 0, skipped 1, failed 1, not sent 0; 1h booked.
+  >  Undo: run `ticktack undo` to revert this run.

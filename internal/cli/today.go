@@ -3,12 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
@@ -53,31 +56,58 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	}
 	blocks := derived.Blocks
 	label := start.Format(dayLayout)
+	r := deps.Render
 	if len(blocks) == 0 {
-		_, err = fmt.Fprintf(deps.Out, msgNoBlocks+"\n", label)
+		_, err = fmt.Fprintln(deps.Out, r.Gutter(render.StatusInfo, fmt.Sprintf(msgNoBlocks, label)))
 		return err
 	}
 
-	out := deps.Out
-	_, _ = fmt.Fprintf(out, "Blocks for %s:\n", label)
+	lines := []string{r.Heading(msgTodayHeading(label)), ""}
+	blockRows := make([][]string, 0, len(blocks))
 	for i, b := range blocks {
-		_, _ = fmt.Fprintf(out, "  %2d. %s-%s  %-12s %-9s %s\n", i+1,
-			b.Start.In(loc).Format("15:04"), b.End.In(loc).Format("15:04"),
-			SanitizeForTerminal(ticketLabel(b.Ticket)), b.Tier, SanitizeForTerminal(b.Reason))
+		blockRows = append(blockRows, []string{
+			strconv.Itoa(i + 1),
+			b.Start.In(loc).Format("15:04") + "-" + b.End.In(loc).Format("15:04"),
+			SanitizeForTerminal(ticketLabel(b.Ticket)),
+			colorTier(r, b.Tier),
+			SanitizeForTerminal(b.Reason),
+		})
 	}
+	lines = append(lines, r.Table([]render.Column{
+		{Header: msgColBlock, Right: true},
+		{Header: msgColTime},
+		{Header: msgColTicket},
+		{Header: msgColTier},
+		{Header: msgColReason, Flex: true},
+	}, blockRows)...)
 
-	_, _ = fmt.Fprintln(out, "Totals:")
 	total := 0
 	overCap := false
+	var totalRows [][]string
 	for _, item := range sessionizer.Aggregate(blocks, sessionizer.RoundingConfigFrom(cfg), loc) {
 		if item.Date.String() != label {
 			continue
 		}
 		total += item.Minutes
 		overCap = overCap || item.OverCap
-		_, _ = fmt.Fprintf(out, "  %-12s %6s  (raw %s)\n", SanitizeForTerminal(ticketLabel(item.Ticket)), formatMinutes(item.Minutes), formatMinutes(item.RawMinutes))
+		totalRows = append(totalRows, []string{
+			SanitizeForTerminal(ticketLabel(item.Ticket)),
+			formatMinutes(item.Minutes),
+			formatMinutes(item.RawMinutes),
+		})
 	}
-	_, err = fmt.Fprintf(out, "  %-12s %6s%s\n", "Total", formatMinutes(total), overCapNote(overCap, cfg.DailyCap))
+	lines = append(lines, "", r.Heading(msgTotalsHeading))
+	lines = append(lines, r.Table([]render.Column{
+		{Header: msgColTicket},
+		{Header: msgColTime, Right: true},
+		{Header: msgColRaw, Right: true},
+	}, totalRows)...)
+	lines = append(lines, "")
+	lines = append(lines, r.Labels([]render.LabelRow{{Label: msgLabelTotal, Value: formatMinutes(total)}}, 2)...)
+	if overCap {
+		lines = append(lines, r.Gutter(render.StatusWarn, msgOverDailyCap(cfg.DailyCap)))
+	}
+	_, err = fmt.Fprintln(deps.Out, strings.Join(lines, "\n"))
 	return err
 }
 
@@ -99,13 +129,6 @@ func ticketLabel(ticket string) string {
 		return msgUnassigned
 	}
 	return ticket
-}
-
-func overCapNote(overCap bool, dailyCap time.Duration) string {
-	if !overCap {
-		return ""
-	}
-	return fmt.Sprintf("  OVER DAILY CAP (%s)", dailyCap)
 }
 
 // derivedDay is the input and result of deriving one local day.

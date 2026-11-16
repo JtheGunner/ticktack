@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -54,7 +56,7 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 	}
 	current, ok := sessionizer.LatestContext(events, rules)
 	if !ok {
-		_, err = fmt.Fprintln(deps.Out, msgNothingRecorded)
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgNothingRecorded))
 		return err
 	}
 
@@ -70,18 +72,23 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 	if branch == "" {
 		branch = msgNoRepo
 	}
-	out := deps.Out
-	_, _ = fmt.Fprintf(out, "Repo:      %s\n", SanitizeForTerminal(repo))
-	_, _ = fmt.Fprintf(out, "Branch:    %s\n", SanitizeForTerminal(branch))
-	_, _ = fmt.Fprintf(out, "Ticket:    %s\n", SanitizeForTerminal(ticket))
-	_, _ = fmt.Fprintf(out, "Tier:      %s\n", current.Attribution.Tier)
-	_, _ = fmt.Fprintf(out, "Reason:    %s\n", SanitizeForTerminal(current.Attribution.Reason))
+	r := deps.Render
+	captureStatus, captureText := render.StatusOK, msgCaptureActive
 	if paused {
-		_, _ = fmt.Fprintln(out, msgCapturePaused)
-	} else {
-		_, _ = fmt.Fprintln(out, msgCaptureActive)
+		captureStatus, captureText = render.StatusWarn, msgCapturePaused
 	}
-	_, err = fmt.Fprintln(out, presenceLine(events, now, cfg.Location))
+	lines := []string{r.Heading(msgStatusHeading), ""}
+	lines = append(lines, r.Labels([]render.LabelRow{
+		{Label: msgLabelRepo, Value: SanitizeForTerminal(repo)},
+		{Label: msgLabelBranch, Value: SanitizeForTerminal(branch)},
+		{Label: msgLabelTicket, Value: SanitizeForTerminal(ticket)},
+		{Label: msgLabelTier, Value: colorTier(r, current.Attribution.Tier)},
+		{Label: msgLabelReason, Value: SanitizeForTerminal(current.Attribution.Reason)},
+	}, 2)...)
+	lines = append(lines, "",
+		r.Gutter(captureStatus, captureText),
+		r.Gutter(render.StatusInfo, presenceLine(events, now, cfg.Location)))
+	_, err = fmt.Fprintln(deps.Out, strings.Join(lines, "\n"))
 	return err
 }
 

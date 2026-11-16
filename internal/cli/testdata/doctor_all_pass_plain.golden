@@ -1,0 +1,7 @@
+  +  config: valid: /home/u/.config/ticktack/config.toml
+  +  token: valid (user jane)
+  +  database: writable: /home/u/.local/share/ticktack/ticktack.db
+
++--------------------------------- Summary ----------------------------------+
+| All 3 checks passed.                                                       |
++----------------------------------------------------------------------------+

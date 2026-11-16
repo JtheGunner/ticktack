@@ -1,0 +1,9 @@
+  Block 1 on 2026-03-02: 08:00-08:30 (30m)
+
+  Ticket       ABC-7
+  Tier         explicit
+  Signal       context event from shell at 08:00:00 (repo /work/api, branch ABC-7-fix, ticket (none))
+  Rule         ticket ABC-7 found in the branch name
+  Not applied  no explicit ticket on the event
+  Presence     31 sample(s) between 08:00:00 and 08:30:00
+  i  next present sample: 09:00:00 (29m30s after the block)

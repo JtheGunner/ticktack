@@ -1,0 +1,6 @@
+  [1mScan[0m
+
+  [32m✓[0m  ~/alpha: 2 events found
+  [31m✗[0m  ~/broken: skipped, scan failed: bad[2Jtext FAKE LINE end
+
+  [33m⚠[0m  Scanned 1 of 2 repositories since 2026-02-23: 2 new events (2 found, already known events were skipped).

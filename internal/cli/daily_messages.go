@@ -9,9 +9,9 @@ import (
 // be added later.
 const (
 	msgNothingRecorded = "Nothing recorded yet. Open a shell prompt in a git repository to start."
-	msgCapturePaused   = "Capture:   paused (run `ticktack resume` to continue)"
-	msgCaptureActive   = "Capture:   active"
-	msgNoPresence      = "Presence:  never seen"
+	msgCapturePaused   = "Capture paused (run `ticktack resume` to continue)"
+	msgCaptureActive   = "Capture active"
+	msgNoPresence      = "Presence never seen"
 	msgPaused          = "Capture paused."
 	msgResumed         = "Capture resumed."
 	msgSwitchCleared   = "Back to automatic ticket detection."
@@ -22,6 +22,20 @@ const (
 	msgNotInteractive  = "cannot ask for confirmation: stdin is not interactive; pass --yes to purge"
 	msgUnassigned      = "(unassigned)"
 	msgNoRepo          = "(none)"
+	msgStatusHeading   = "Status"
+	msgLabelRepo       = "Repo"
+	msgLabelBranch     = "Branch"
+	msgLabelTicket     = "Ticket"
+	msgLabelTier       = "Tier"
+	msgLabelReason     = "Reason"
+	msgTotalsHeading   = "Totals"
+	msgColBlock        = "#"
+	msgColTime         = "Time"
+	msgColTicket       = "Ticket"
+	msgColTier         = "Tier"
+	msgColReason       = "Reason"
+	msgColRaw          = "Raw"
+	msgLabelTotal      = "Total"
 )
 
 func msgSwitched(ticket string) string { return "Switched to " + ticket + "." }
@@ -35,7 +49,7 @@ func msgPresenceSeen(at, now time.Time, loc *time.Location) string {
 	if ago < 0 {
 		ago = 0
 	}
-	return fmt.Sprintf("Presence:  last seen %s (%s ago)", at.In(loc).Format("2006-01-02 15:04:05"), ago)
+	return fmt.Sprintf("Presence last seen %s (%s ago)", at.In(loc).Format("2006-01-02 15:04:05"), ago)
 }
 
 func formatMinutes(minutes int) string {
@@ -48,4 +62,10 @@ func formatMinutes(minutes int) string {
 	default:
 		return fmt.Sprintf("%dh%02dm", h, m)
 	}
+}
+
+func msgTodayHeading(day string) string { return "Blocks for " + day }
+
+func msgOverDailyCap(dailyCap time.Duration) string {
+	return fmt.Sprintf("OVER DAILY CAP (%s)", dailyCap)
 }
