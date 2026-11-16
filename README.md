@@ -260,11 +260,13 @@ For the maintainer. Releases are built by [GoReleaser](https://goreleaser.com) f
 1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading with the date and commit.
 2. Tag the commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
-Pushing the tag starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which runs `goreleaser release --clean`. It needs the repository secret `HOMEBREW_TAP_GITHUB_TOKEN`: a token with write access to `JtheGunner/homebrew-tap`. The workflow's own `GITHUB_TOKEN` publishes the GitHub release.
+Pushing a tag that matches `v*` starts [`.github/workflows/release.yml`](.github/workflows/release.yml). The workflow runs only in the `JtheGunner/ticktack` repository. It checks out the full history, sets up the Go version from `go.mod` without a build cache and runs `goreleaser release --clean`. Only the release job holds the `contents: write` permission; the workflow is read-only otherwise.
 
-To release from your machine instead, export a GitHub token as `GITHUB_TOKEN` and the tap token as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`.
+GoReleaser first runs `go mod tidy` and `go test ./...` (the `before` hooks), so a failing test stops the release. It then builds the binaries, publishes the GitHub release and pushes the Homebrew formula. The workflow needs one repository secret, `HOMEBREW_TAP_GITHUB_TOKEN`: a token with write access to `JtheGunner/homebrew-tap`. The workflow's own `GITHUB_TOKEN` publishes the GitHub release.
 
-The release publishes darwin arm64 and amd64 archives with checksums and updates the Homebrew formula.
+The release contains darwin arm64 and amd64 archives (`tar.gz` with `LICENSE`, `README.md`, `CHANGELOG.md` and `examples/config.toml`) and `checksums.txt`. GoReleaser does not generate release notes; they are maintained by hand in `CHANGELOG.md`.
+
+To release from your machine instead, check out the tagged commit with a clean working tree, export a GitHub token as `GITHUB_TOKEN` and the tap token as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`. `goreleaser release --snapshot --clean` is a dry run that publishes nothing.
 
 ---
 
