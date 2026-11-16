@@ -32,6 +32,18 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # no recursive search. Only repo, branch, ticket hint and timestamp are stored.
 # repo_paths = ["~/Projects/my-repo"]
 
+# Folders whose direct subfolders are repositories (a subfolder with .git).
+# Scanned like repo_paths; also used to match a repository folder to the
+# YouTrack project of the same name (see "Standard tasks" in the README).
+# repo_roots = ["~/Projects", "~/StudioProjects"]
+
+# Standard task for time without a ticket: one catch-all issue in this project,
+# and per matching project when repo_roots is set. Created by `ticktack sync`
+# after one confirmation.
+# [default_issue]
+# project = "GENERAL"
+# summary = "Meetings / Admin"
+
 # Optional periodic git scan by the agent (off by default). "0" turns it off;
 # otherwise the minimum is 5m. When set, the agent also scans once at start.
 # [scan]

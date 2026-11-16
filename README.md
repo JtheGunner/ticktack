@@ -147,7 +147,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
 | `[scan]`             | `interval = "0"`       | Periodic git scan by the agent. `"0"` is off; otherwise at least `"5m"`. |
-| `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (default `"Meetings / Admin"`). Turns on standard tasks (see below). |
+| `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (required, for example `"Meetings / Admin"`). Turns on standard tasks (see below). |
 | `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is never part of the config.
@@ -158,17 +158,17 @@ Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is neve
 
 ## 🗂️ Standard tasks
 
-YouTrack work items always belong to an issue. Time without a ticket therefore goes to a **standard task**: one catch-all issue per project plus one global fallback. Set `repo_roots` and `[default_issue]` to turn this on.
+YouTrack work items always belong to an issue. Time without a ticket therefore goes to a **standard task**: one catch-all issue per project plus one global fallback. Set `[default_issue]` to turn this on; add `repo_roots` to also get one task per project.
 
 Resolution order for a block:
 
 1. an explicit switch or an override
-2. a `[[rules]]` entry or a learned rule
-3. a ticket id in the branch name
+2. a ticket id carried by the event, then one in the branch name
+3. a `[[rules]]` entry, then a learned rule
 4. the standard task of the project that matches the repository's folder name
 5. the global standard task from `[default_issue]`
 
-- **Folder to project.** The folder under a `repo_roots` entry is compared with the YouTrack project **names**. Case, `-`, `_` and spaces are ignored. The project is used only when exactly one matches; otherwise the global task applies. Matching runs locally against a cached project list, so no folder name leaves the machine. `ticktack review` and `ticktack sync` refresh the list.
+- **Folder to project.** The folder under a `repo_roots` entry is compared with the YouTrack project **names**. Case, `-`, `_` and spaces are ignored. The project is used only when exactly one matches; otherwise the global task applies. Matching runs locally against a cached project list, so no folder name leaves the machine. `ticktack review` refreshes the list; `ticktack doctor` shows its age. Run `ticktack review` after creating or renaming a YouTrack project.
 - **Creating the task.** A standard task is found by the marker `[ticktack:default-issue]` in its description, and only when you reported it. If it is missing, `ticktack sync` asks once for all projects at once: `Create standard task in: A, B, C — continue? [y/N]`. Until the task exists, review shows it as `<PROJECT>:default` and nothing is booked on it.
 - **Auto mode.** `ticktack auto` creates a missing task only for a project you confirmed before. Other time stays unbooked and the digest says why.
 - **Booking.** Standard task time follows the usual rules: reviewed first, booked once per issue, day and type.
