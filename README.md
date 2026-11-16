@@ -150,6 +150,8 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is never part of the config.
 
+**Rule matching.** Rules (`[[rules]]` and learned rules) are deliberately simple. A repository matches that path and everything below it, on a path boundary (`/work/app` covers `/work/app/sub`, not `/work/application`). A learned rule's branch must equal the branch name exactly: there are no wildcards or globs, so `feature/*` only matches a branch literally named that. Add one rule per branch, or leave the branch out to cover the whole repository. `ticktack map` lists and edits learned rules.
+
 ---
 
 ## 🛠️ Commands

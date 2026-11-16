@@ -20,7 +20,10 @@ func newMapCommand() *cobra.Command {
 		Use:   "map",
 		Short: "List and edit ticket assignment rules",
 		Long: "List the configured (read-only) and learned rules. Learned rules can be added, edited and removed;\n" +
-			"configured rules live in the config file.",
+			"configured rules live in the config file.\n\n" +
+			"Matching is deliberately simple: a rule's branch must equal the branch name exactly (no wildcards or\n" +
+			"globs), and its repository matches that path and everything below it. Add one rule per branch, or\n" +
+			"omit --branch to cover every branch of a repository.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMapList(cmd.Context(), defaultDailyDeps(cmd))
