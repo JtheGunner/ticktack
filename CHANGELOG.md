@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The layout of the interactive commands' output: `init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `pause`, `resume` and `switch`. Scripts that parse this text must be updated; `agent`, `hook` and `version` are unchanged.
+- `ticktack digest` prints the stored digest text, which is plain ASCII without colour by design so the stored text is stable.
 
 ## [0.1.1] - 2026-11-16
 

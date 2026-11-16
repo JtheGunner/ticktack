@@ -175,7 +175,7 @@ Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is neve
 | 📒 | `ticktack sync`                 | Book the confirmed time of a day in YouTrack (`--day`, `--dry-run`).                 |
 | ↩️ | `ticktack undo`                 | Revert the last sync.                                                                |
 | 🤖 | `ticktack auto`                 | Book the safe blocks of a day without review once trust is earned (`--day`, `--dry-run`). |
-| 📰 | `ticktack digest`               | Show the digest of the last auto run.                                                |
+| 📰 | `ticktack digest`               | Show the digest of the last auto run (stored as plain ASCII text without colour, so it stays stable). |
 | 🔭 | `ticktack scan`                 | Read the git reflog of the repositories in `repo_paths` and store repo and branch context (`--since YYYY-MM-DD`, default: the start of the day 7 days ago). |
 | 🔌 | `ticktack import activitywatch` | Import window and AFK events from a local ActivityWatch server (`--since YYYY-MM-DD`). |
 
@@ -209,9 +209,9 @@ The interactive commands (`init`, `doctor`, `status`, `today`, `review`, `explai
 |---------------------------------------------|--------------------------------------------------------------------|
 | 🖥️ Output is a terminal                     | Colours are on.                                                    |
 | 🔀 Output is piped or redirected            | No colour and no ANSI escape codes; the text is stable for scripts. |
-| 🚫 `--no-color`, `NO_COLOR` set, `TERM=dumb` | Colours are off.                                                   |
-| 🔤 Locale is not UTF-8, or `TERM=dumb`      | ASCII glyphs and frames (`+`, `!`, `x`, `i`) instead of Unicode symbols. |
-| 📏 Width                                    | Follows the terminal, capped at 100 columns; 78 when the output is not a terminal. Long reasons are shortened with an ellipsis instead of wrapping. |
+| 🚫 `--no-color`, `NO_COLOR` non-empty, `TERM=dumb` | Colours are off.                                                   |
+| 🔤 Locale is not UTF-8 or unset, or `TERM=dumb` | ASCII glyphs and frames (`+`, `!`, `x`, `i`) instead of Unicode symbols. |
+| 📏 Width                                    | Follows the terminal, capped at 100 columns; 78 when the output is not a terminal. Long reasons in `review` and `digest` are never cut: they wrap onto indented lines under their row. |
 
 `ticktack agent`, `ticktack hook` and `ticktack version` keep their plain output: the agent writes a log and the hook runs at every shell prompt.
 
