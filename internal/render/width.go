@@ -108,3 +108,63 @@ func fit(s string, width int, ell string) string {
 	}
 	return b.String()
 }
+
+// wrapVisible breaks s at spaces into lines of at most width visible runes.
+// A word longer than width is split without loss. ANSI sequences do not count;
+// a line that was cut inside a coloured word ends in a reset. A width of 0 or
+// less is treated as 1.
+func wrapVisible(s string, width int) []string {
+	width = max(width, 1)
+	var lines []string
+	line, lineWidth := "", 0
+	flush := func() {
+		if lineWidth > 0 {
+			lines = append(lines, line)
+		}
+		line, lineWidth = "", 0
+	}
+	for _, word := range strings.Fields(s) {
+		for visibleWidth(word) > width {
+			flush()
+			head, rest := splitVisible(word, width)
+			lines = append(lines, head)
+			word = rest
+		}
+		w := visibleWidth(word)
+		if lineWidth > 0 && lineWidth+1+w > width {
+			flush()
+		}
+		if lineWidth > 0 {
+			line += " "
+			lineWidth++
+		}
+		line += word
+		lineWidth += w
+	}
+	flush()
+	return lines
+}
+
+// splitVisible splits s after n visible runes. When the cut falls inside
+// ANSI-styled text the head ends in a reset.
+func splitVisible(s string, n int) (head, rest string) {
+	shown, sawEscape := 0, false
+	for i := 0; i < len(s); {
+		if l := ansiLen(s[i:]); l > 0 {
+			sawEscape = true
+			i += l
+			continue
+		}
+		if shown == n {
+			head = s[:i]
+			if sawEscape {
+				head += ansiReset
+			}
+			return head, s[i:]
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		shown++
+	}
+	return s, ""
+}

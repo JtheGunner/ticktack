@@ -127,3 +127,159 @@ func TestTableColouredCellsAlignByVisibleWidth(t *testing.T) {
 		t.Errorf("rows have different visible widths %d vs %d", a, b)
 	}
 }
+
+var wrapCols = []Column{
+	{Header: "#", Right: true},
+	{Header: "Ticket"},
+	{Header: "Reason", Flex: true, Wrap: true},
+	{Header: "State"},
+}
+
+func wrapRows(r Renderer) [][]string {
+	return [][]string{
+		{"1", "TICKT-47", "branch name", r.Colors.OK("ok")},
+		{"2", "-", "learned from earlier days of the same repository and branch", ""},
+		{"3", "TICKT-9", "", r.Colors.Warn("needs ticket")},
+		{"4", "TICKT-1", "https://example.invalid/" + strings.Repeat("x", 90), ""},
+		{"5", "TICKT-2", "Ünïcödé reasön wïth ümlauts that is rather long and has to wrap somewhere", ""},
+	}
+}
+
+func TestTableWrapGolden(t *testing.T) {
+	for _, v := range variants() {
+		t.Run(v.name, func(t *testing.T) {
+			lines := v.r.Table(wrapCols, wrapRows(v.r))
+			assertGolden(t, "table_wrap_"+v.name, strings.Join(lines, "\n")+"\n")
+		})
+	}
+}
+
+func TestTableWrapNarrowWidths(t *testing.T) {
+	for _, v := range variants() {
+		for _, width := range []int{40, 50, 60, 78, 100} {
+			r := v.r
+			r.Width = width
+			for _, line := range r.Table(wrapCols, wrapRows(r)) {
+				if n := visibleWidth(line); n > width {
+					t.Fatalf("%s width %d: line %q has %d visible runes", v.name, width, line, n)
+				}
+			}
+		}
+	}
+}
+
+func TestTableWrapKeepsEveryReasonWhole(t *testing.T) {
+	reasons := []string{
+		"learned from earlier days of the same repository and branch",
+		"https://example.invalid/" + strings.Repeat("x", 90),
+		"a b c d e f g h i j k l m n o p q r s t u v w x y z",
+	}
+	for _, width := range []int{40, 60, 78} {
+		r := Renderer{Glyphs: asciiGlyphs, Width: width}
+		rows := make([][]string, 0, len(reasons))
+		for i, reason := range reasons {
+			rows = append(rows, []string{"1", "TICKT-" + string(rune('1'+i)), reason, ""})
+		}
+		out := strings.Join(r.Table(wrapCols, rows), "\n")
+		squashed := strings.Join(strings.Fields(out), "")
+		for _, reason := range reasons {
+			if !strings.Contains(squashed, strings.Join(strings.Fields(reason), "")) {
+				t.Errorf("width %d: reason %q lost text in\n%s", width, reason, out)
+			}
+		}
+		if strings.Contains(out, "...") {
+			t.Errorf("width %d: wrapped column was cut with an ellipsis:\n%s", width, out)
+		}
+	}
+}
+
+func TestTableWrapFittingReasonStaysInline(t *testing.T) {
+	r := Renderer{Glyphs: asciiGlyphs, Width: 78}
+	lines := r.Table(wrapCols, [][]string{{"1", "TICKT-1", "branch name", "ok"}})
+	if len(lines) != 2 || !strings.Contains(lines[1], "branch name") {
+		t.Errorf("got %q, want header and one inline row", lines)
+	}
+}
+
+func TestTableWrapDecidesByMeasuringNotSearching(t *testing.T) {
+	// The short reason "ok" also appears in another cell; a cut must still be
+	// detected for the long one and never confused with the short one.
+	r := Renderer{Glyphs: asciiGlyphs, Width: 40}
+	cols := []Column{{Header: "A"}, {Header: "Reason", Flex: true, Wrap: true}}
+	rows := [][]string{{"ok", "ok"}, {"x", strings.Repeat("word ", 12)}}
+	lines := r.Table(cols, rows)
+	if lines[1] != "  ok  ok" {
+		t.Errorf("short reason must stay inline, got %q", lines[1])
+	}
+	if lines[2] != "  x" {
+		t.Errorf("long reason's cell must be emptied, got %q", lines[2])
+	}
+}
+
+func TestTableWrapContinuationLinesAreDimAndIndented(t *testing.T) {
+	r := Renderer{Colors: Colors{Enabled: true}, Glyphs: asciiGlyphs, Width: 40}
+	cols := []Column{{Header: "A"}, {Header: "Reason", Flex: true, Wrap: true}}
+	lines := r.Table(cols, [][]string{{"x", strings.Repeat("word ", 12)}})
+	for _, l := range lines[2:] {
+		if want := "    " + r.Colors.Dim(strings.TrimSpace(stripANSI(l))); l != want {
+			t.Errorf("continuation %q, want dim text indented by 4: %q", l, want)
+		}
+	}
+}
+
+func TestTableWrapWithoutFlexOrWrapIsUnchanged(t *testing.T) {
+	r := Renderer{Glyphs: asciiGlyphs, Width: 40}
+	long := strings.Repeat("word ", 12)
+	if got := r.Table([]Column{{Header: "A"}, {Header: "R", Wrap: true}}, [][]string{{"x", long}}); len(got) != 2 {
+		t.Errorf("Wrap without Flex must not wrap, got %q", got)
+	}
+}
+
+func TestWrapVisible(t *testing.T) {
+	tests := []struct {
+		name  string
+		in    string
+		width int
+		want  []string
+	}{
+		{"empty", "", 10, nil},
+		{"fits", "a b c", 10, []string{"a b c"}},
+		{"breaks at spaces", "aaa bbb ccc", 7, []string{"aaa bbb", "ccc"}},
+		{"long word split without loss", "abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
+		{"long word after short", "a bcdefgh", 4, []string{"a", "bcde", "fgh"}},
+		{"runes not bytes", "äöüäöü", 4, []string{"äöüä", "öü"}},
+		{"zero width treated as one", "ab", 0, []string{"a", "b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapVisible(tt.in, tt.width)
+			if strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("wrapVisible(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWrapVisibleAnsiDoesNotCount(t *testing.T) {
+	c := Colors{Enabled: true}
+	got := wrapVisible(c.OK("abcdef"), 4)
+	if len(got) != 2 || visibleWidth(got[0]) != 4 || visibleWidth(got[1]) != 2 {
+		t.Fatalf("got %q", got)
+	}
+	if !strings.HasSuffix(got[0], ansiReset) {
+		t.Errorf("cut coloured line must end in a reset: %q", got[0])
+	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if l := ansiLen(s[i:]); l > 0 {
+			i += l
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
