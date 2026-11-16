@@ -236,6 +236,13 @@ Tests are table-driven and the YouTrack client is tested against an `httptest` s
 
 Register these five job names as required status checks when protecting `main`.
 
+[`.github/workflows/docs-drift.yml`](.github/workflows/docs-drift.yml) also runs on every pull request. It uses [doc-drift-checker](https://github.com/JtheGunner/doc-drift-checker) to flag README sections whose code changed while the section did not, and reports them as annotations. It never fails the build, so its `docs-drift` job is advisory and not a required check. Configuration lives in [`.docdrift.yaml`](.docdrift.yaml). To run it locally against `main`:
+
+```sh
+go install github.com/JtheGunner/doc-drift-checker/cmd/doc-drift-checker@v0.2.3
+doc-drift-checker check --base origin/main
+```
+
 ### Releasing
 
 For the maintainer. Releases are built by [GoReleaser](https://goreleaser.com) from [`.goreleaser.yaml`](.goreleaser.yaml).
