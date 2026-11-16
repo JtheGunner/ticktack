@@ -2,7 +2,8 @@
 
   [2mStatus[0m   [2mTicket[0m  [2mDate[0m          [2mTime[0m  [2mTier[0m      [2mReason[0m
   [32mcreated[0m  ABC-1   2026-01-05  60 min  [32mexplicit[0m
-  [2mskipped[0m  ABC-2   2026-01-05  90 min  [36mlearned[0m   tier learned is belo…
+  [2mskipped[0m  ABC-2   2026-01-05  90 min  [36mlearned[0m
+    [2mtier learned is below rule: needs review[0m
   [31mfailed[0m   ABC-3   2026-01-05  30 min  [32mrule[0m      HTTP 500
 
   [36mℹ[0m  Totals: created 1, updated 0, recovered 0, skipped 1, failed 1, not sent 0; 1h booked.

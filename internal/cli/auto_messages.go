@@ -79,30 +79,8 @@ func msgDigestTotals(d auto.Digest) string {
 func renderDigest(d auto.Digest, r render.Renderer) string {
 	lines := []string{r.Heading(msgDigestTitle(d))}
 	if len(d.Entries) > 0 {
-		rows := make([][]string, 0, len(d.Entries))
-		for _, e := range d.Entries {
-			tier := "-"
-			if e.Tier != "" {
-				tier = colorTier(r, e.Tier)
-			}
-			rows = append(rows, []string{
-				colorAction(r, e.Status),
-				SanitizeForTerminal(e.Ticket),
-				e.Date.String(),
-				fmt.Sprintf("%d min", e.Minutes),
-				tier,
-				SanitizeForTerminal(e.Reason),
-			})
-		}
 		lines = append(lines, "")
-		lines = append(lines, r.Table([]render.Column{
-			{Header: msgDigestColStatus},
-			{Header: msgDigestColTicket},
-			{Header: msgDigestColDate},
-			{Header: msgDigestColTime, Right: true},
-			{Header: msgDigestColTier},
-			{Header: msgDigestColReason, Flex: true},
-		}, rows)...)
+		lines = append(lines, digestTable(r, d.Entries)...)
 		lines = append(lines, "")
 	}
 	if d.CapExceeded {
@@ -113,4 +91,100 @@ func renderDigest(d auto.Digest, r render.Renderer) string {
 		lines = append(lines, r.Gutter(render.StatusGo, msgDigestUndoHint))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// digestTable lays out the entries as a table. A reason that does not fit the
+// flexible column is never cut: its cell is left empty and the whole reason is
+// wrapped onto indented lines under the row.
+func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
+	reasons := make([]string, len(entries))
+	for i, e := range entries {
+		reasons[i] = SanitizeForTerminal(e.Reason)
+	}
+	build := func(skip map[int]bool) []string {
+		rows := make([][]string, 0, len(entries))
+		for i, e := range entries {
+			tier := "-"
+			if e.Tier != "" {
+				tier = colorTier(r, e.Tier)
+			}
+			reason := reasons[i]
+			if skip[i] {
+				reason = ""
+			}
+			rows = append(rows, []string{
+				colorAction(r, e.Status),
+				SanitizeForTerminal(e.Ticket),
+				e.Date.String(),
+				fmt.Sprintf("%d min", e.Minutes),
+				tier,
+				reason,
+			})
+		}
+		return r.Table([]render.Column{
+			{Header: msgDigestColStatus},
+			{Header: msgDigestColTicket},
+			{Header: msgDigestColDate},
+			{Header: msgDigestColTime, Right: true},
+			{Header: msgDigestColTier},
+			{Header: msgDigestColReason, Flex: true},
+		}, rows)
+	}
+
+	// Reasons whose row line lost text to the ellipsis move below their row.
+	// The remaining reasons are no wider than the shrunk column, so one extra
+	// pass fits them.
+	moved := map[int]bool{}
+	for i, line := range build(nil)[1:] {
+		if reasons[i] != "" && !strings.Contains(line, reasons[i]) {
+			moved[i] = true
+		}
+	}
+	table := build(moved)
+	if len(moved) == 0 {
+		return table
+	}
+	out := []string{table[0]}
+	for i, line := range table[1:] {
+		out = append(out, line)
+		if moved[i] {
+			for _, part := range wrapWords(reasons[i], max(r.LayoutWidth()-digestReasonIndent, 1)) {
+				out = append(out, strings.Repeat(" ", digestReasonIndent)+r.Colors.Dim(part))
+			}
+		}
+	}
+	return out
+}
+
+// digestReasonIndent is the indent of a reason wrapped below its row.
+const digestReasonIndent = 4
+
+// wrapWords breaks text at spaces into lines of at most width runes. A word
+// longer than width is split.
+func wrapWords(text string, width int) []string {
+	var lines []string
+	var line []rune
+	flush := func() {
+		if len(line) > 0 {
+			lines = append(lines, string(line))
+			line = nil
+		}
+	}
+	for _, word := range strings.Fields(text) {
+		w := []rune(word)
+		for len(w) > width {
+			flush()
+			lines = append(lines, string(w[:width]))
+			w = w[width:]
+		}
+		if len(line) > 0 && len(line)+1+len(w) > width {
+			flush()
+		}
+		if len(line) > 0 {
+			line = append(line, ' ')
+		}
+		line = append(line, w...)
+	}
+	flush()
+	return lines
 }

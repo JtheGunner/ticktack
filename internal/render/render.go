@@ -79,6 +79,10 @@ func (r Renderer) glyphs() Glyphs {
 	return r.Glyphs
 }
 
+// LayoutWidth returns the width rules, boxes and tables are laid out in: the
+// renderer's Width, or the default for the zero value.
+func (r Renderer) LayoutWidth() int { return r.layoutWidth() }
+
 // layoutWidth returns the renderer's layout width, the default for the zero
 // value.
 func (r Renderer) layoutWidth() int {

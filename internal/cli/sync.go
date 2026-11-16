@@ -60,9 +60,10 @@ func defaultSyncDeps() syncDeps {
 	}
 }
 
-// forCommand returns deps with Render resolved for cmd's output stream.
+// forCommand returns deps with Render resolved for cmd's output stream. A
+// Render that was set explicitly (not the zero value) is never overridden.
 func (d syncDeps) forCommand(cmd *cobra.Command) syncDeps {
-	if d.RenderFor != nil {
+	if d.RenderFor != nil && d.Render == (render.Renderer{}) {
 		d.Render = d.RenderFor(cmd, cmd.OutOrStdout())
 	}
 	return d

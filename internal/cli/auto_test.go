@@ -54,8 +54,6 @@ func seedCleanDays(t *testing.T, deps syncDeps, n int) {
 
 func runAutoFor(t *testing.T, deps syncDeps, args ...string) (string, error) {
 	t.Helper()
-	// Wide enough that the digest table does not shorten the Reason column.
-	deps.Render = narrowPlain(120)
 	var out bytes.Buffer
 	err := runAuto(context.Background(), &out, deps, "2026-01-05", containsArg(args, "--dry-run"))
 	return out.String(), err
@@ -255,10 +253,16 @@ func TestAutoModeSkipsLowTierBlocks(t *testing.T) {
 	if _, ok := rec.items["ABC-2/1"]; !ok || len(rec.items) != 1 {
 		t.Fatalf("booked items = %v\n%s", rec.items, out)
 	}
+	// The reason of a skipped item may sit on the indented line below its row
+	// when it does not fit the table, so check the row together with that line.
 	var skipLine string
-	for _, line := range strings.Split(out, "\n") {
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
 		if strings.Contains(line, "skipped") && strings.Contains(line, "ABC-1") {
 			skipLine = line
+			if i+1 < len(lines) && strings.HasPrefix(lines[i+1], "    ") {
+				skipLine += " " + strings.TrimSpace(lines[i+1])
+			}
 		}
 	}
 	if skipLine == "" || !strings.Contains(skipLine, "learned") || !strings.Contains(skipLine, "needs review") {
@@ -312,7 +316,9 @@ func TestDigestListsEveryBookedItem(t *testing.T) {
 	if err := runDigest(context.Background(), &again, deps); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(again.String()) != strings.TrimSpace(out) {
+	// The screen output may wrap a long reason below its row, the stored text
+	// keeps it on the row: both must carry exactly the same words.
+	if strings.Join(strings.Fields(again.String()), " ") != strings.Join(strings.Fields(out), " ") {
 		t.Errorf("stored digest differs:\n%s\nvs\n%s", again.String(), out)
 	}
 }

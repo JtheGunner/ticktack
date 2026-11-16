@@ -209,13 +209,79 @@ func TestDigestGolden(t *testing.T) {
 func TestDigestTableFitsNarrowWidth(t *testing.T) {
 	got := renderDigest(sampleDigest(digestEntries()...), narrowPlain(60))
 	assertGolden(t, "digest_narrow_plain", got+"\n")
-	for _, line := range strings.Split(got, "\n") {
-		if n := utf8.RuneCountInString(stripANSI(line)); n > 60 && !strings.Contains(line, "Totals") && !strings.Contains(line, "Undo") {
-			t.Errorf("table line is %d columns, limit 60: %q", n, line)
-		}
+}
+
+// TestDigestKeepsLongReasonsWhole fails when a reason is cut: the reason must
+// appear in full in the screen output, on its own indented lines when it does
+// not fit the table, and no line of the table part may exceed the width.
+func TestDigestKeepsLongReasonsWhole(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: 1, Day: 5}
+	reasons := []string{
+		"tier learned is below rule: needs review before this item can be booked automatically",
+		"HTTP 500 from the server while updating the work item, will be retried on the next run",
+		"short",
 	}
-	if !strings.Contains(got, "needs review") && !strings.Contains(got, "...") {
-		t.Errorf("the flex column must shorten with an ellipsis:\n%s", got)
+	var entries []auto.DigestEntry
+	for i, reason := range reasons {
+		entries = append(entries, auto.DigestEntry{
+			Ticket: "ABC-" + string(rune('1'+i)), Date: day, Minutes: 15, Tier: resolver.TierLearned,
+			Status: "skipped", Reason: reason,
+		})
+	}
+	colour := func(width int) render.Renderer {
+		r := unicodeColorRenderer()
+		r.Width = width
+		return r
+	}
+	for name, r := range map[string]render.Renderer{
+		"plain 78 (default)": render.Plain(),
+		"plain 60":           narrowPlain(60),
+		"colour 78":          colour(78),
+		"colour 60":          colour(60),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := renderDigest(sampleDigest(entries...), r)
+			// Words may be wrapped onto several lines, so compare the text
+			// with all whitespace runs collapsed.
+			flat := strings.Join(strings.Fields(stripANSI(got)), " ")
+			for _, reason := range reasons {
+				if !strings.Contains(flat, reason) {
+					t.Errorf("reason %q was cut:\n%s", reason, got)
+				}
+			}
+			if strings.Contains(got, "...") || strings.Contains(got, "\u2026") {
+				t.Errorf("output contains an ellipsis:\n%s", got)
+			}
+			for _, line := range strings.Split(got, "\n") {
+				if strings.Contains(line, "Totals") || strings.Contains(line, "Undo") {
+					continue
+				}
+				if n := utf8.RuneCountInString(stripANSI(line)); n > r.LayoutWidth() {
+					t.Errorf("line is %d columns, limit %d: %q", n, r.LayoutWidth(), line)
+				}
+			}
+		})
+	}
+}
+
+func TestWrapWords(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		want  []string
+	}{
+		{"fits", "one two", 20, []string{"one two"}},
+		{"wraps at spaces", "one two three", 7, []string{"one two", "three"}},
+		{"splits a long word", "abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
+		{"empty", "", 10, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wrapWords(tt.text, tt.width); strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("wrapWords(%q, %d) = %q, want %q", tt.text, tt.width, got, tt.want)
+			}
+		})
 	}
 }
 
