@@ -17,11 +17,15 @@ const (
 	msgInitTokenFailed   = "token not stored: %v"
 	msgInitTokenValidate = "Validate the token against YouTrack now?"
 
-	msgInitHookIntro       = "Step 3/4 - shell hook: add a managed block to %s"
-	msgInitHookUnsupported = "shell %q is not supported (use --shell zsh|bash|fish); skipped"
-	msgInitHookUnchanged   = "shell hook already up to date: %s"
-	msgInitHookWritten     = "shell hook written: %s (open a new shell to activate it)"
-	msgInitHookFailed      = "shell hook failed: %v"
+	// msgInitConfigIntroNoPath and msgInitHookIntroNoPath head a step whose
+	// target file could not be determined.
+	msgInitConfigIntroNoPath = "Step 1/4 - config: create the config file with commented defaults"
+	msgInitHookIntroNoPath   = "Step 3/4 - shell hook: add a managed block to your shell startup file"
+	msgInitHookIntro         = "Step 3/4 - shell hook: add a managed block to %s"
+	msgInitHookUnsupported   = "shell %q is not supported (use --shell zsh|bash|fish); skipped"
+	msgInitHookUnchanged     = "shell hook already up to date: %s"
+	msgInitHookWritten       = "shell hook written: %s (open a new shell to activate it)"
+	msgInitHookFailed        = "shell hook failed: %v"
 
 	msgInitAgentIntro   = "Step 4/4 - agent: install and load the launchd agent at %s"
 	msgInitAgentNotMac  = "launchd agent is macOS-only; skipped"

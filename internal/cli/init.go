@@ -192,6 +192,7 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 func (r *initRun) configStep() {
 	path, err := r.deps.Doctor.ConfigPath()
 	if err != nil {
+		r.step("%s", msgInitConfigIntroNoPath)
 		r.say(render.StatusFail, msgInitConfigFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
@@ -285,6 +286,7 @@ func (r *initRun) hookStep() {
 	}
 	script, err := shellhook.Script(shell)
 	if err != nil {
+		r.step("%s", msgInitHookIntroNoPath)
 		r.say(render.StatusFail, msgInitHookUnsupported, SanitizeForTerminal(shell))
 		return
 	}

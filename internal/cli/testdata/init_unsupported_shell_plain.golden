@@ -1,0 +1,14 @@
+  Step 1/4 - config: create the config file with commented defaults at <HOME>/xdg-config/ticktack/config.toml
+  +  config written: <HOME>/xdg-config/ticktack/config.toml
+
+  Step 2/4 - token: store the YouTrack permanent token in the OS keychain
+  -  skipped
+
+  Step 3/4 - shell hook: add a managed block to your shell startup file
+  x  shell "tcsh" is not supported (use --shell zsh|bash|fish); skipped
+
+  Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
+  +  plist written: <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
+  +  agent loaded
+
+  !  Finished with errors. Run `ticktack doctor` to see what still needs fixing.

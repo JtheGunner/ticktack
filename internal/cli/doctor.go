@@ -210,8 +210,13 @@ func printResult(out io.Writer, r render.Renderer, res checkResult) {
 	case statusSkip:
 		status = render.StatusSkip
 	}
-	detail := SanitizeForTerminal(res.Detail)
-	_, _ = fmt.Fprintln(out, r.Gutter(status, r.Colors.Bold(res.Name)+r.Colors.Dim(": "+detail)))
+	detail := ": " + SanitizeForTerminal(res.Detail)
+	if res.Status != statusFail {
+		// A failure's diagnostic is what the user must read; it stays at
+		// normal intensity.
+		detail = r.Colors.Dim(detail)
+	}
+	_, _ = fmt.Fprintln(out, r.Gutter(status, r.Colors.Bold(res.Name)+detail))
 	if res.Status == statusFail && res.Hint != "" {
 		_, _ = fmt.Fprintln(out, hintIndent+r.Gutter(render.StatusGo, msgFixPrefix+SanitizeForTerminal(res.Hint)))
 	}

@@ -45,6 +45,19 @@ func TestInitGolden(t *testing.T) {
 			},
 		},
 		{
+			name:   "init_unsupported_shell_plain",
+			render: render.Plain(),
+			opts:   initOptions{Yes: true, URL: "https://yt.example.com", Shell: "tcsh", SkipToken: true},
+		},
+		{
+			name:   "init_config_path_error_plain",
+			render: render.Plain(),
+			opts:   initOptions{Yes: true, SkipToken: true},
+			setup: func(env *testEnv) {
+				env.deps.Doctor.ConfigPath = func() (string, error) { return "", errors.New("no config dir") }
+			},
+		},
+		{
 			name:    "init_skipped_plain",
 			answers: "n\nn\nn\nn\n",
 			render:  render.Plain(),
