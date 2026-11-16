@@ -21,5 +21,6 @@ First public release.
 - Optional integrations, all off by default: window-title hints, ActivityWatch import (`ticktack import activitywatch`, loopback only) and auto mode with a trust gate (`ticktack auto`, `ticktack digest`).
 - Example configuration in `examples/config.toml`.
 - Release packaging with GoReleaser and installation through a Homebrew tap or `go install`.
+- GitHub Actions: a CI workflow (lint, tests on macOS and Linux, build, `go mod tidy` check) and a tag-triggered release workflow that runs GoReleaser.
 
 [Unreleased]: https://github.com/JtheGunner/ticktack/commits/main

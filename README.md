@@ -217,13 +217,30 @@ make lint     # golangci-lint run ./...
 
 Tests are table-driven and the YouTrack client is tested against an `httptest` server; no test talks to a real YouTrack instance.
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. It needs no secrets and never talks to YouTrack; the `e2e` build-tag test is not run.
+
+| Job name              | Check                                                  |
+|-----------------------|--------------------------------------------------------|
+| `lint`                | `golangci-lint` (version pinned in the workflow)       |
+| `test (macos-latest)` | `make test` (`CGO_ENABLED=0 go test ./...`) on macOS   |
+| `test (ubuntu-latest)`| the same tests on Linux, to catch portability issues   |
+| `build`               | `make build` on macOS                                  |
+| `tidy`                | `go mod tidy -diff` fails when `go.mod`/`go.sum` drift |
+
+Register these five job names as required status checks when protecting `main`.
+
 ### Releasing
 
 For the maintainer. Releases are built by [GoReleaser](https://goreleaser.com) from [`.goreleaser.yaml`](.goreleaser.yaml).
 
 1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading with the date and commit.
 2. Tag the commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. Export a GitHub token as `GITHUB_TOKEN` and a token with write access to `JtheGunner/homebrew-tap` as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`.
+
+Pushing the tag starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which runs `goreleaser release --clean`. It needs the repository secret `HOMEBREW_TAP_GITHUB_TOKEN`: a token with write access to `JtheGunner/homebrew-tap`. The workflow's own `GITHUB_TOKEN` publishes the GitHub release.
+
+To release from your machine instead, export a GitHub token as `GITHUB_TOKEN` and the tap token as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`.
 
 The release publishes darwin arm64 and amd64 archives with checksums and updates the Homebrew formula.
 
@@ -235,7 +252,7 @@ Contributions are welcome.
 
 - **Report an issue:** open one on [GitHub](https://github.com/JtheGunner/ticktack/issues) with the output of `ticktack version` and `ticktack doctor`. Remove anything private first.
 - **Propose a change:** open an issue to discuss it, then a pull request from a branch.
-- **Run locally:** `git clone https://github.com/JtheGunner/ticktack.git`, then `make test` and `make lint`. Run `gofmt`, `go vet`, `golangci-lint run` and `go test ./...` before opening a pull request.
+- **Run locally:** `git clone https://github.com/JtheGunner/ticktack.git`, then `make test` and `make lint`. Run `gofmt`, `go vet`, `golangci-lint run` and `go test ./...` before opening a pull request; CI runs the same checks (see [Continuous integration](#continuous-integration)).
 - **Conventions:** code, comments and commit messages in English; commits follow Conventional Commits (`feat:`, `fix:`, `docs:`, ...). Changes must keep the privacy guarantees above.
 
 ---
