@@ -211,7 +211,7 @@ The interactive commands (`init`, `doctor`, `status`, `today`, `review`, `explai
 | 🔀 Output is piped or redirected            | No colour and no ANSI escape codes; the text is stable for scripts. |
 | 🚫 `--no-color`, `NO_COLOR` non-empty, `TERM=dumb` | Colours are off.                                                   |
 | 🔤 Locale is not UTF-8 or unset, or `TERM=dumb` | ASCII glyphs and frames (`+`, `!`, `x`, `i`) instead of Unicode symbols. |
-| 📏 Width                                    | Follows the terminal, capped at 100 columns; 78 when the output is not a terminal. Long reasons in `review` and `digest` are never cut: they wrap onto indented lines under their row. |
+| 📏 Width                                    | Follows the terminal, capped at 100 columns; 78 when the output is not a terminal. Long reasons in `review` and `digest` are never cut: they wrap onto indented lines under their row. On a narrow terminal `review` also moves tier and state below the row. Text is measured in terminal cells, so wide characters stay aligned. |
 
 `ticktack agent`, `ticktack hook` and `ticktack version` keep their plain output: the agent writes a log and the hook runs at every shell prompt.
 
