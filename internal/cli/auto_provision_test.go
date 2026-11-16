@@ -87,6 +87,30 @@ func TestAutoUsesAnExistingStandardTaskWithoutConsent(t *testing.T) {
 	}
 }
 
+func TestAutoNeverRecreatesATaskItAlreadyKnew(t *testing.T) {
+	deps, prov := autoStandardTaskDeps(t)
+	consentTo(t, deps, "GEN")
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetDefaultTask(context.Background(), "GEN", "GEN-5"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	out, err := runAutoFor(t, deps)
+	if err != nil {
+		t.Fatalf("auto: %v\n%s", err, out)
+	}
+	if len(prov.created) != 0 {
+		t.Errorf("auto created a replacement for a known task unseen: %v", prov.created)
+	}
+	if !strings.Contains(out, "ticktack sync") {
+		t.Errorf("digest does not point at sync:\n%s", out)
+	}
+}
+
 func TestAutoDryRunCreatesNothingEvenWithConsent(t *testing.T) {
 	deps, prov := autoStandardTaskDeps(t)
 	consentTo(t, deps, "GEN")

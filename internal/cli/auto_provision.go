@@ -35,10 +35,16 @@ func provisionForAuto(ctx context.Context, st *store.Store, cfg config.Config, t
 	if err != nil {
 		return sel, err
 	}
+	known, err := st.DefaultTasks(ctx)
+	if err != nil {
+		return sel, err
+	}
+	// A task the tool already knew that cannot be found now may have been
+	// moved or edited, not deleted: only a person decides to replace it.
 	approveConsented := func(projects []string) ([]string, error) {
 		var approved []string
 		for _, p := range projects {
-			if consented[p] {
+			if _, hadTask := known[p]; consented[p] && !hadTask {
 				approved = append(approved, p)
 			}
 		}
