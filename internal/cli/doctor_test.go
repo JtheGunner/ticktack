@@ -364,6 +364,9 @@ func TestParseAgentInterval(t *testing.T) {
 		{"invalid value uses the default", plist("/bin/ticktack", "agent", "--interval", "soon"), presence.DefaultInterval},
 		{"non-positive value uses the default", plist("/bin/ticktack", "agent", "--interval", "0s"), presence.DefaultInterval},
 		{"missing value uses the default", plist("/bin/ticktack", "agent", "--interval"), presence.DefaultInterval},
+		{"overflowing value uses the default", plist("/bin/ticktack", "agent", "--interval", "2000000h"), presence.DefaultInterval},
+		{"value above the cap uses the default", plist("/bin/ticktack", "agent", "--interval", "25h"), presence.DefaultInterval},
+		{"value at the cap is accepted", plist("/bin/ticktack", "agent", "--interval", "24h"), 24 * time.Hour},
 		{"garbage uses the default", "plist", presence.DefaultInterval},
 	}
 	for _, tt := range tests {

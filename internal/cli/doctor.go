@@ -302,11 +302,16 @@ func installedAgentInterval(plistPath string) time.Duration {
 	return parseAgentInterval(data)
 }
 
+// maxAgentInterval bounds an accepted interval so that doubling it for the
+// freshness window can never overflow; anything longer is not a sane sampling
+// interval and falls back to the default.
+const maxAgentInterval = 24 * time.Hour
+
 var plistStringRe = regexp.MustCompile("<string>([^<]*)</string>")
 
 // parseAgentInterval reads "--interval 2m" or "--interval=2m" from the
 // program arguments of a launchd plist. A missing, unparsable or non-positive
-// value yields the default, as the agent itself would refuse it.
+// value (or one above maxAgentInterval) yields the default.
 func parseAgentInterval(plist []byte) time.Duration {
 	var args []string
 	for _, m := range plistStringRe.FindAllSubmatch(plist, -1) {
@@ -320,7 +325,7 @@ func parseAgentInterval(plist []byte) time.Duration {
 			}
 			value = args[i+1]
 		}
-		if d, err := time.ParseDuration(value); err == nil && d > 0 {
+		if d, err := time.ParseDuration(value); err == nil && d > 0 && d <= maxAgentInterval {
 			return d
 		}
 	}
