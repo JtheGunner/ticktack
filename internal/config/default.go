@@ -35,6 +35,10 @@ func DefaultTOML(youTrackURL string) string {
 	b.WriteString("# permission; titles are read in memory and never stored. Maps an IDE project\n")
 	b.WriteString("# name to the absolute path of its repository.\n")
 	b.WriteString("# [titlehint]\n# enabled = true\n#\n# [titlehint.projects]\n# \"my-ide-project\" = \"/abs/path/to/repo\"\n\n")
-	b.WriteString("# Fixed repository to ticket mappings.\n# [[rules]]\n# repo = \"/path/to/repo\"\n# ticket = \"ABC-1\"\n")
+	b.WriteString("# Fixed repository to ticket mappings.\n# [[rules]]\n# repo = \"/path/to/repo\"\n# ticket = \"ABC-1\"\n\n")
+	b.WriteString("# Optional import from a local ActivityWatch server (loopback only, off by default).\n")
+	b.WriteString("# [activitywatch]\n# enabled = false\n")
+	fmt.Fprintf(&b, "# url = %s\n", strconv.Quote(DefaultActivityWatchURL))
+	b.WriteString("# hostname = \"my-mac\"\n")
 	return b.String()
 }

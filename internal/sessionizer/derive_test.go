@@ -77,6 +77,15 @@ func TestDeriveCarriesContextForward(t *testing.T) {
 	}
 }
 
+func TestDeriveIgnoresAppOnlyContextHints(t *testing.T) {
+	hint := event.Event{At: at(10), Kind: event.KindContext, Source: "activitywatch", App: "Safari"}
+	events := join(presence(0, 30, 1), []event.Event{ctx(0, "/r/a", "ABC-1-work"), hint})
+	blocks := Derive(events, nil, testConfig(), resolver.Rules{})
+	if len(blocks) != 1 || blocks[0].Ticket != "ABC-1" || blocks[0].Duration() != 31*time.Minute {
+		t.Fatalf("app-only hint disturbed the context: %+v", blocks)
+	}
+}
+
 func TestDeriveSplitsOnTicketSwitch(t *testing.T) {
 	events := join(presence(0, 29, 1), []event.Event{ctx(0, "/r/a", "ABC-1-work"), ctx(15, "/r/a", "ABC-2-other")})
 	blocks := Derive(events, nil, testConfig(), resolver.Rules{})

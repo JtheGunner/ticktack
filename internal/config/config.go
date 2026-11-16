@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/JtheGunner/ticktack/internal/loopback"
 )
 
 // Defaults applied when a key is absent from the configuration file.
@@ -24,7 +26,19 @@ const (
 	DefaultRounding         = 15 * time.Minute
 	DefaultDailyCap         = 10 * time.Hour
 	DefaultTicketPattern    = `[A-Z][A-Z0-9]+-\d+`
+	// DefaultActivityWatchURL is where a local ActivityWatch server listens.
+	DefaultActivityWatchURL = "http://localhost:5600"
 )
+
+// ActivityWatch configures the optional ActivityWatch importer. It is off by
+// default and may only point at a loopback server.
+type ActivityWatch struct {
+	Enabled bool
+	URL     string
+	// Hostname restricts the import to buckets of this host; empty accepts
+	// every host.
+	Hostname string
+}
 
 // Rule maps a repository to a fixed YouTrack ticket.
 type Rule struct {
@@ -43,6 +57,7 @@ type Config struct {
 	TicketPattern    *regexp.Regexp
 	RepoPaths        []string
 	Location         *time.Location
+	ActivityWatch    ActivityWatch
 	TitleHint        TitleHint
 }
 
@@ -70,6 +85,12 @@ type fileConfig struct {
 	TicketPattern    string   `toml:"ticket_pattern"`
 	RepoPaths        []string `toml:"repo_paths"`
 	TimeZone         string   `toml:"time_zone"`
+
+	ActivityWatch struct {
+		Enabled  bool   `toml:"enabled"`
+		URL      string `toml:"url"`
+		Hostname string `toml:"hostname"`
+	} `toml:"activitywatch"`
 
 	TitleHint titleHintFile `toml:"titlehint"`
 }
@@ -188,12 +209,35 @@ func build(raw fileConfig) (Config, error) {
 			return Config{}, fmt.Errorf("rules[%d]: repo and ticket are both required", i)
 		}
 	}
+	aw, err := buildActivityWatch(raw)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ActivityWatch = aw
 	hint, err := buildTitleHint(raw.TitleHint)
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.TitleHint = hint
 	return cfg, nil
+}
+
+// buildActivityWatch validates the [activitywatch] table. The URL is checked
+// even while the importer is disabled so a bad value never lies in wait. The
+// error never echoes the URL because it could carry credentials.
+func buildActivityWatch(raw fileConfig) (ActivityWatch, error) {
+	aw := ActivityWatch{
+		Enabled:  raw.ActivityWatch.Enabled,
+		URL:      raw.ActivityWatch.URL,
+		Hostname: strings.TrimSpace(raw.ActivityWatch.Hostname),
+	}
+	if aw.URL == "" {
+		aw.URL = DefaultActivityWatchURL
+	}
+	if _, err := loopback.CheckURL(aw.URL); err != nil {
+		return ActivityWatch{}, fmt.Errorf("activitywatch.url %w", err)
+	}
+	return aw, nil
 }
 
 // buildTitleHint validates the project mapping. Errors name the project key

@@ -24,6 +24,8 @@
 //     it until the next manual event. A manual event with an empty ticket
 //     clears the pin and restores the latest automatic context. Pinned time
 //     is attributed with tier explicit and reason "manual switch to <ID>".
+//   - A non-manual context event without repo, branch and ticket (an app-only
+//     hint) carries no attribution signal and is ignored.
 //   - Blocks are split whenever the attributed ticket or the context changes;
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
@@ -242,6 +244,11 @@ func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSigna
 		if e.Source == ManualSource {
 			manualTicket = strings.ToUpper(strings.TrimSpace(e.Ticket))
 			steps = append(steps, contextStep{at: e.At, signal: latestAuto, manualTicket: manualTicket})
+			continue
+		}
+		if e.Repo == "" && e.Branch == "" && e.Ticket == "" {
+			// An app-only hint (for example from ActivityWatch) carries no
+			// attribution signal and must not wipe the current context.
 			continue
 		}
 		latestAuto = resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}
