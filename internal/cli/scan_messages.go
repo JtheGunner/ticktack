@@ -3,7 +3,7 @@ package cli
 // User-facing strings of the scan command and the git repositories doctor
 // check, kept together so a German variant can be added later.
 const (
-	msgScanNoRepoPaths = "no repositories configured: set repo_paths in %s, for example repo_paths = [\"~/Projects/my-repo\"]"
+	msgScanNoRepoPaths = "no repositories configured: set repo_paths or repo_roots in %s, for example repo_roots = [\"~/Projects\"]"
 	msgScanPaused      = "Capture is paused, nothing scanned. Run `ticktack resume` first."
 	msgScanBadSince    = "--since %q: expected format YYYY-MM-DD"
 	msgScanDone        = "Scanned %d of %d repositories since %s: %d new events (%d found, already known events were skipped)."

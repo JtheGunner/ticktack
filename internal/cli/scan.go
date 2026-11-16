@@ -17,6 +17,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/reporoots"
 )
 
 const (
@@ -188,6 +189,26 @@ func newScanCommand() *cobra.Command {
 	return cmd
 }
 
+// trackedRepos returns the repositories to scan: the repo_paths entries as
+// written, then the repositories discovered below repo_roots, without
+// duplicates. Discovered repositories that equal an expanded repo_paths entry
+// are dropped.
+func trackedRepos(cfg config.Config, home string) []string {
+	repos := append([]string(nil), cfg.RepoPaths...)
+	seen := make(map[string]bool, len(repos))
+	for _, raw := range repos {
+		if expanded, err := config.ExpandRepoPath(raw, home); err == nil {
+			seen[expanded] = true
+		}
+	}
+	for _, found := range reporoots.Discover(cfg.RepoRoots, home) {
+		if !seen[found] {
+			repos = append(repos, found)
+		}
+	}
+	return repos
+}
+
 // runScan runs the explicit, one-shot scan of the configured repositories. It
 // honours the pause flag and is idempotent. since is empty for the default
 // lookback.
@@ -196,7 +217,8 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	if err != nil {
 		return err
 	}
-	if len(cfg.RepoPaths) == 0 {
+	repos := trackedRepos(cfg, home)
+	if len(repos) == 0 {
 		path, pathErr := config.DefaultPath()
 		if deps.ConfigPath != nil {
 			path, pathErr = deps.ConfigPath()
@@ -235,7 +257,7 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	if err != nil {
 		return err
 	}
-	report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, to, cfg.TicketPattern, scan, st)
+	report, err := scanRepositories(ctx, repos, home, from, to, cfg.TicketPattern, scan, st)
 	if err != nil {
 		return err
 	}

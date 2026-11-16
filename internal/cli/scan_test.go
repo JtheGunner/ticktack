@@ -294,6 +294,41 @@ func TestScanStoresNoCommitMessages(t *testing.T) {
 	}
 }
 
+func TestScanDiscoversReposBelowRepoRoots(t *testing.T) {
+	parent := t.TempDir()
+	repo := newScanRepo(t, parent, "proj")
+	env := newScanEnv(t)
+	load := env.deps.LoadConfig
+	env.deps.LoadConfig = func() (config.Config, error) {
+		cfg, err := load()
+		cfg.RepoRoots = []string{parent}
+		return cfg, err
+	}
+	if err := env.scan(""); err != nil {
+		t.Fatal(err)
+	}
+	events := env.events(t)
+	if len(events) != 2 || events[0].Repo != repo {
+		t.Fatalf("events = %+v, want the two events of %s", events, repo)
+	}
+}
+
+func TestTrackedReposUnionsPathsAndRootsWithoutDuplicates(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newScanRepo(t, parent, "a")
+	b := newScanRepo(t, parent, "b")
+	cfg := config.Config{RepoPaths: []string{a, "/elsewhere/c"}, RepoRoots: []string{parent}}
+
+	got := trackedRepos(cfg, t.TempDir())
+	want := []string{a, "/elsewhere/c", b}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("trackedRepos = %v, want %v", got, want)
+	}
+}
+
 func TestScanCommandIsRegistered(t *testing.T) {
 	cmd, _, err := NewRootCommand().Find([]string{"scan"})
 	if err != nil || cmd.Name() != "scan" || cmd.Flags().Lookup("since") == nil {
