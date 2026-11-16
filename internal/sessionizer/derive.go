@@ -247,10 +247,9 @@ const TitleSource = "title"
 // autoContext is the automatic (non-manual) context: the latest git or shell
 // signal, and the latest window-title hint together with the frontmost app.
 type autoContext struct {
-	git     contextSource
-	hint    contextSource
-	front   string // bundle ID of the frontmost app, from presence samples
-	hasHint bool
+	git   contextSource
+	hint  contextSource
+	front string // bundle ID of the frontmost app, from presence samples
 }
 
 type contextSource struct {
