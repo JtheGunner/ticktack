@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Advisory docs-drift check on pull requests: annotations for README sections whose code changed (`.github/workflows/docs-drift.yml`, `.docdrift.yaml`). It never fails the build.
+- `ticktack doctor` reports a read-only database file with a fix hint.
+
+### Changed
+
+- Ticket keys are matched by `ticket_pattern` exactly as written, case-sensitively, in `ticktack scan`, the shell hook, review and the resolver. With the default pattern `fix/utf-8-handling` or `feat/abc-12` no longer yield a ticket. Already stored events are not rewritten.
+- The shell hook honours `ticket_pattern` (it read only the default before); the pattern is loaded from the config file at each prompt, which costs microseconds.
+- Context precedence is now pin, then window-title hint, then git/shell context. A hint applies only while its app is the frontmost app; the title collector records the app's bundle ID on its events for this.
+- A day counts towards the auto-mode trust gate only if its review session took place on that calendar day or the next one (configured time zone). Catch-up reviews with `ticktack review --day` stay valid for booking but do not count.
+- `ticktack map` help and the README now state that learned rules match the branch exactly and the repository by path prefix; there are no globs.
+- README "Releasing" section updated to match the release workflow.
+
+### Fixed
+
+- A review action and its review log entry are now stored in one transaction, so an interrupted session can no longer lose the correction record.
+- Splitting unassigned time without a ticket is rejected with a clear message instead of creating a still-unassigned entry that counted as a correction.
+- `ticktack doctor` judges agent freshness by the interval the installed launchd agent runs with, not the 30 s default.
 
 ## [0.1.0] - 2026-11-16
 
