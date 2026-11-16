@@ -12,6 +12,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
 
@@ -80,9 +81,80 @@ func TestStatusShowsRepoTicketAndTier(t *testing.T) {
 	if err := runStatus(context.Background(), deps); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"/work/api", "ABC-7-fix", "ABC-7", "explicit", "Capture:   active", "last seen", "2m0s ago"} {
+	for _, want := range []string{"/work/api", "ABC-7-fix", "ABC-7", "explicit", "Capture active", "last seen", "2m0s ago"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestStatusGolden(t *testing.T) {
+	unicodeEnv := func(k string) string {
+		if k == "LANG" {
+			return "en_US.UTF-8"
+		}
+		return ""
+	}
+	tests := []struct {
+		name   string
+		paused bool
+		render render.Renderer
+	}{
+		{"status_plain", false, render.Plain()},
+		{"status_paused_plain", true, render.Plain()},
+		{"status_unicode_color", false, render.Renderer{
+			Colors: render.Colors{Enabled: true},
+			Glyphs: render.GlyphsFromEnv(unicodeEnv),
+			Width:  60,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			deps, st, out := newDailyEnv(t, "")
+			deps.Render = tc.render
+			mustAppend(t, st,
+				shellContext(dailyNow.Add(-5*time.Minute), "/work/api", "ABC-7-fix"),
+				event.Event{At: dailyNow.Add(-2 * time.Minute), Source: "presence", Kind: event.KindPresence},
+			)
+			if tc.paused {
+				if err := runPause(deps); err != nil {
+					t.Fatal(err)
+				}
+				out.Reset()
+			}
+			if err := runStatus(context.Background(), deps); err != nil {
+				t.Fatal(err)
+			}
+			assertGolden(t, tc.name, out.String())
+			if !tc.render.Colors.Enabled && strings.Contains(out.String(), "\x1b") {
+				t.Error("plain status output contains ESC")
+			}
+		})
+	}
+}
+
+func TestStatusSanitizesExternalText(t *testing.T) {
+	deps, st, out := newDailyEnv(t, "")
+	deps.Render = render.Renderer{Colors: render.Colors{Enabled: true}}
+	mustAppend(t, st, shellContext(dailyNow.Add(-time.Minute), "/work/api", "evil\x1b[31m\nINJECTED"))
+	if err := runStatus(context.Background(), deps); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.Contains(got, "evil\x1b[31m") {
+		t.Errorf("branch name reached the output as a control sequence:\n%q", got)
+	}
+	// Every ESC in the output must come from the renderer's own styling.
+	for _, seq := range strings.Split(got, "\x1b")[1:] {
+		if !strings.HasPrefix(seq, "[0m") && !strings.HasPrefix(seq, "[1m") &&
+			!strings.HasPrefix(seq, "[2m") && !strings.HasPrefix(seq, "[32m") &&
+			!strings.HasPrefix(seq, "[33m") && !strings.HasPrefix(seq, "[36m") {
+			t.Errorf("unexpected escape sequence %q in output", seq)
+		}
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "INJECTED") {
+			t.Errorf("newline in branch name started a new output line: %q", line)
 		}
 	}
 }
