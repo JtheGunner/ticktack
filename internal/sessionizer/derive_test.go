@@ -222,3 +222,20 @@ func TestDeriveDemotesShortBlockWithoutMatchingNeighbour(t *testing.T) {
 		t.Fatalf("short block not demoted: %+v", blocks)
 	}
 }
+
+func TestDeriveMergesTouchingDemotedBlocksOfDifferentContexts(t *testing.T) {
+	cfg := testConfig()
+	cfg.MinBlock = 5 * time.Minute
+	events := join(presence(0, 8, 1), []event.Event{
+		ctx(0, "/r/a", "AAA-1-x"), ctx(1, "/r/b", "BBB-2-y"), ctx(2, "/r/c", "CCC-3-z"),
+		ctx(3, "/r/a", "AAA-1-x"), ctx(4, "/r/b", "BBB-2-y"), ctx(5, "/r/c", "CCC-3-z"),
+	})
+	blocks := Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 1 {
+		t.Fatalf("want one merged block, got %+v", blocks)
+	}
+	b := blocks[0]
+	if b.Ticket != "" || b.Tier != resolver.TierUnknown || b.Repo != "" || b.Branch != "" || b.Duration() != 9*time.Minute {
+		t.Fatalf("merged block wrong: %+v", b)
+	}
+}

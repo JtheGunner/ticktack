@@ -82,6 +82,9 @@ type Config struct {
 	MinBlockDuration time.Duration
 	Rounding         time.Duration
 	DailyCap         time.Duration
+	// DailyCapDisabled turns the daily cap off: no warning, no acknowledgement,
+	// and no block on sync or auto.
+	DailyCapDisabled bool
 	Rules            []Rule
 	TicketPattern    *regexp.Regexp
 	RepoPaths        []string
@@ -117,6 +120,7 @@ type fileConfig struct {
 	MinBlockDuration string   `toml:"min_block_duration"`
 	Rounding         string   `toml:"rounding"`
 	DailyCap         string   `toml:"daily_cap"`
+	DailyCapEnabled  *bool    `toml:"daily_cap_enabled"`
 	Rules            []Rule   `toml:"rules"`
 	TicketPattern    string   `toml:"ticket_pattern"`
 	RepoPaths        []string `toml:"repo_paths"`
@@ -232,6 +236,8 @@ func build(raw fileConfig) (Config, error) {
 		}
 		*d.target = parsed
 	}
+
+	cfg.DailyCapDisabled = raw.DailyCapEnabled != nil && !*raw.DailyCapEnabled
 
 	pattern := raw.TicketPattern
 	if pattern == "" {

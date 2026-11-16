@@ -259,3 +259,26 @@ func TestTokenNeverWrittenToConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDailyCapEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		toml     string
+		disabled bool
+	}{
+		{"absent keeps the cap", ``, false},
+		{"true keeps the cap", `daily_cap_enabled = true`, false},
+		{"false disables the cap", `daily_cap_enabled = false`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, tc.toml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.DailyCapDisabled != tc.disabled {
+				t.Errorf("DailyCapDisabled = %v, want %v", cfg.DailyCapDisabled, tc.disabled)
+			}
+		})
+	}
+}

@@ -14,7 +14,7 @@ youtrack_url = "https://example.youtrack.cloud"
 # Presence gaps longer than this end a work block.
 gap_threshold = "5m0s"
 
-# Blocks shorter than this are dropped.
+# Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.
 min_block_duration = "10m0s"
 
 # Booked durations are rounded to a multiple of this.
@@ -23,6 +23,10 @@ rounding = "15m0s"
 # Maximum time booked per day. A day above the cap needs an explicit
 # acknowledgement in `ticktack review`.
 daily_cap = "10h0m0s"
+
+# Set to false to turn the daily cap off: no warning, and neither `ticktack sync`
+# nor `ticktack auto` is ever blocked by it.
+# daily_cap_enabled = true
 
 # Regular expression that extracts a ticket id from a branch name.
 ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
