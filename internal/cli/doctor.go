@@ -169,9 +169,9 @@ func printResult(out io.Writer, res checkResult) {
 	case statusSkip:
 		label = msgStatusSkip
 	}
-	_, _ = fmt.Fprintf(out, "%s %s: %s\n", label, res.Name, res.Detail)
+	_, _ = fmt.Fprintf(out, "%s %s: %s\n", label, res.Name, SanitizeForTerminal(res.Detail))
 	if res.Status == statusFail && res.Hint != "" {
-		_, _ = fmt.Fprintln(out, msgFixPrefix+res.Hint)
+		_, _ = fmt.Fprintln(out, msgFixPrefix+SanitizeForTerminal(res.Hint))
 	}
 }
 

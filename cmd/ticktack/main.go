@@ -21,7 +21,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root.SetErr(stderr)
 	err := root.Execute()
 	if err != nil && !cli.IsSilent(err) {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
+		_, _ = fmt.Fprintln(stderr, "error:", cli.SanitizeForTerminal(err.Error()))
 	}
 	return cli.ExitCode(err)
 }

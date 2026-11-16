@@ -93,6 +93,23 @@ func newYouTrackSink(cfg config.Config, configPath string) (sink.TimeSink, error
 	return youtrack.New(cfg.YouTrackURL, secret, opts...)
 }
 
+// newIssueSource builds the YouTrack client used for ticket suggestions in
+// review. Errors are expected (not configured, no token) and non-fatal.
+func newIssueSource(cfg config.Config) (review.IssueSource, error) {
+	if cfg.YouTrackURL == "" {
+		return nil, errors.New("youtrack_url is not set")
+	}
+	secret, err := token.Get()
+	if err != nil {
+		return nil, err
+	}
+	opts := []youtrack.Option{}
+	if cfg.Location != nil {
+		opts = append(opts, youtrack.WithLocation(cfg.Location))
+	}
+	return youtrack.New(cfg.YouTrackURL, secret, opts...)
+}
+
 func newSyncCommand() *cobra.Command {
 	return newSyncCommandWith(defaultSyncDeps())
 }
@@ -175,12 +192,12 @@ func printReport(out io.Writer, r ledger.Report, planOnly bool) {
 		return
 	}
 	for _, it := range r.Items {
-		line := fmt.Sprintf("%-28s %4d min  %s", it.Key, it.Minutes, it.Action)
+		line := fmt.Sprintf("%-28s %4d min  %s", SanitizeForTerminal(it.Key), it.Minutes, it.Action)
 		switch {
 		case it.Error != "":
-			line += ": " + it.Error
+			line += ": " + SanitizeForTerminal(it.Error)
 		case it.Reason != "":
-			line += " (" + it.Reason + ")"
+			line += " (" + SanitizeForTerminal(it.Reason) + ")"
 		}
 		_, _ = fmt.Fprintln(out, line)
 	}

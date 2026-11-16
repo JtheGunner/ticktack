@@ -22,18 +22,22 @@ import (
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/store"
+	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 // Reader is the read side of the store needed to derive a day.
 type Reader interface {
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
+	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
 }
 
 // Store is everything review needs from the persistence layer.
 type Store interface {
 	Reader
 	AddOverride(ctx context.Context, o event.Override) error
+	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
+	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
 	Confirm(ctx context.Context, c store.Confirmation) error
 	Confirmations(ctx context.Context, day string) ([]store.Confirmation, error)
 	AcknowledgeCap(ctx context.Context, a store.CapAcknowledgement) error
@@ -70,6 +74,23 @@ func RulesFrom(cfg config.Config) resolver.Rules {
 	return rules
 }
 
+// LoadRules returns the configured rules plus the learned rules stored in r.
+// It is the single loading point shared by today, status, review and sync, so
+// every command sees the same attribution.
+func LoadRules(ctx context.Context, r interface {
+	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
+}, cfg config.Config) (resolver.Rules, error) {
+	rules := RulesFrom(cfg)
+	learned, err := r.LearnedRules(ctx)
+	if err != nil {
+		return resolver.Rules{}, err
+	}
+	for _, l := range learned {
+		rules.Learned = append(rules.Learned, resolver.LearnedRule{Repo: l.Repo, Branch: l.BranchPattern, Ticket: l.Ticket})
+	}
+	return rules, nil
+}
+
 // Day is one derived local day.
 type Day struct {
 	Date       civil.Date
@@ -104,7 +125,11 @@ func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (
 	if err != nil {
 		return Day{}, err
 	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), RulesFrom(cfg))
+	rules, err := LoadRules(ctx, r, cfg)
+	if err != nil {
+		return Day{}, err
+	}
+	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
 	rc := sessionizer.RoundingConfigFrom(cfg)
 	d := Day{Date: day, Start: from, End: to, CapMinutes: int(rc.DailyCap / time.Minute)}
 	for _, b := range blocks {
@@ -208,6 +233,9 @@ type Entry struct {
 	Ticket     string
 	Tier       resolver.Tier
 	Reason     string
+	// Repo and Branch are the context the entry was derived from; empty for
+	// override entries and when no context existed.
+	Repo, Branch string
 	// Minutes is the length of the entry, rounded to whole minutes.
 	Minutes int
 	// Confirmed is set when the entry's item is confirmed at its current
@@ -238,12 +266,20 @@ type Session struct {
 	conf  map[itemKey]int
 	acked bool
 
+	issues     IssueSource
+	fetched    bool
+	candidates []youtrack.Issue
+	pending    *RememberOffer
+
 	discarded int
 }
 
 // NewSession derives the day and prepares its entries.
-func NewSession(ctx context.Context, st Store, cfg config.Config, day civil.Date, now func() time.Time) (*Session, error) {
+func NewSession(ctx context.Context, st Store, cfg config.Config, day civil.Date, now func() time.Time, opts ...Option) (*Session, error) {
 	s := &Session{st: st, cfg: cfg, day: day, now: now}
+	for _, opt := range opts {
+		opt(s)
+	}
 	if err := s.refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -274,7 +310,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		start, end := maxTime(b.Start, d.Start), minTime(b.End, d.End)
 		e := Entry{
 			Index: len(list) + 1, Kind: KindBlock, Start: start, End: end,
-			Ticket: b.Ticket, Tier: b.Tier, Reason: b.Reason,
+			Ticket: b.Ticket, Tier: b.Tier, Reason: b.Reason, Repo: b.Repo, Branch: b.Branch,
 			Minutes: int((end.Sub(start) + 30*time.Second) / time.Minute),
 		}
 		if b.Ticket == "" {
@@ -285,6 +321,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		list = append(list, e)
 	}
 	s.view, s.list, s.conf, s.acked = d, list, conf, acked
+	s.pending = nil
 	return nil
 }
 
@@ -371,8 +408,15 @@ func (s *Session) confirmItem(ctx context.Context, ticket string) error {
 // NormalizeTicket upper-cases ticket and validates it against the configured
 // ticket pattern (full match).
 func (s *Session) NormalizeTicket(ticket string) (string, error) {
+	return NormalizeTicket(s.cfg, ticket)
+}
+
+// NormalizeTicket upper-cases ticket and validates it against the configured
+// ticket pattern (full match). The map command uses it before storing a
+// learned rule.
+func NormalizeTicket(cfg config.Config, ticket string) (string, error) {
 	t := strings.ToUpper(strings.TrimSpace(ticket))
-	pattern := s.cfg.TicketPattern
+	pattern := cfg.TicketPattern
 	if pattern == nil {
 		pattern = regexp.MustCompile(config.DefaultTicketPattern)
 	}
@@ -397,7 +441,13 @@ func (s *Session) Reassign(ctx context.Context, n int, ticket string) error {
 	if err := s.st.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Ticket: t}); err != nil {
 		return err
 	}
-	return s.refresh(ctx)
+	if err := s.refresh(ctx); err != nil {
+		return err
+	}
+	if e.Repo != "" && (e.Tier == resolver.TierUnknown || e.Tier == resolver.TierLearned) {
+		s.pending = &RememberOffer{Repo: e.Repo, Branch: e.Branch, Ticket: t}
+	}
+	return nil
 }
 
 // Discard drops the entry's interval from the day by writing a discard
