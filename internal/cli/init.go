@@ -135,6 +135,8 @@ type initRun struct {
 	opts     initOptions
 	out      io.Writer
 	sections int
+	// failed is set once any step reported a failure.
+	failed bool
 }
 
 // step prints a step header as a heading, separated from the previous step by
@@ -149,6 +151,9 @@ func (r *initRun) step(format string, args ...any) {
 
 // say prints one result line behind the gutter symbol of status.
 func (r *initRun) say(status render.Status, format string, args ...any) {
+	if status == render.StatusFail {
+		r.failed = true
+	}
 	_, _ = fmt.Fprintln(r.out, r.deps.Render.Gutter(status, fmt.Sprintf(format, args...)))
 }
 
@@ -176,6 +181,10 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 	r.hookStep()
 	r.agentStep(ctx)
 	_, _ = fmt.Fprintln(out)
+	if r.failed {
+		r.say(render.StatusWarn, "%s", msgInitFinishedWithFailures)
+		return nil
+	}
 	r.say(render.StatusOK, "%s", msgInitFinished)
 	return nil
 }
@@ -263,7 +272,9 @@ func (r *initRun) tokenStep(ctx context.Context) {
 	}
 	r.say(render.StatusOK, "%s", msgInitTokenStored)
 	if r.confirm(msgInitTokenValidate) {
-		printResult(r.out, r.deps.Render, checkToken(ctx, r.deps.Doctor))
+		res := checkToken(ctx, r.deps.Doctor)
+		r.failed = r.failed || res.Status == statusFail
+		printResult(r.out, r.deps.Render, res)
 	}
 }
 

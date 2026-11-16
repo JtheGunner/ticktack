@@ -13,4 +13,4 @@ Token (input hidden, empty to skip):
   x  agent step failed: launchctl bootstrap: exit status 5: boom
   i  hint: run `launchctl bootstrap gui/501 <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist` manually, then `ticktack doctor`
 
-  +  Done. Run `ticktack doctor` to verify the setup.
+  !  Finished with errors. Run `ticktack doctor` to see what still needs fixing.

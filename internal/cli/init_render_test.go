@@ -108,3 +108,44 @@ func TestInitSanitisesBeforeStyling(t *testing.T) {
 		t.Errorf("unsafe or missing text: %q", out.String())
 	}
 }
+
+func TestInitFinalLineGlyphReflectsFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		answers string
+		opts    initOptions
+		setup   func(env *testEnv)
+		want    string
+	}{
+		{
+			name:    "nothing failed",
+			answers: "n\nn\nn\nn\n",
+			want:    "  +  " + msgInitFinished,
+		},
+		{
+			name: "a step failed",
+			opts: initOptions{Yes: true, URL: "https://yt.example.com"},
+			setup: func(env *testEnv) {
+				env.deps.SetToken = func(string) error { return errors.New("keychain locked") }
+			},
+			want: "  !  " + msgInitFinishedWithFailures,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t, testSecret, tc.answers)
+			env.deps.Render = render.Plain()
+			if tc.setup != nil {
+				tc.setup(env)
+			}
+			var out strings.Builder
+			if err := runInit(context.Background(), env.deps, tc.opts, &out); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+			if got := lines[len(lines)-1]; got != tc.want {
+				t.Errorf("final line %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

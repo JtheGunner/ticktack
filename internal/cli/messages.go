@@ -34,6 +34,8 @@ const (
 	msgInitSkipped  = "skipped"
 	msgInitConfirm  = "Proceed?"
 	msgInitFinished = "Done. Run `ticktack doctor` to verify the setup."
+	// msgInitFinishedWithFailures closes init when at least one step failed.
+	msgInitFinishedWithFailures = "Finished with errors. Run `ticktack doctor` to see what still needs fixing."
 
 	msgDoctorSummaryOK     = "All %d checks passed."
 	msgDoctorSummaryFailed = "%d of %d checks failed."
