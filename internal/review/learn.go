@@ -74,13 +74,13 @@ func (s *Session) Remember(ctx context.Context, wholeRepo bool) (store.LearnedRu
 			if err := s.st.UpdateLearnedRule(ctx, rule); err != nil {
 				return store.LearnedRule{}, err
 			}
-			return rule, s.refresh(ctx)
+			return rule, s.changed(ctx, true)
 		}
 	}
 	if rule, err = s.st.AddLearnedRule(ctx, rule); err != nil {
 		return store.LearnedRule{}, err
 	}
-	return rule, s.refresh(ctx)
+	return rule, s.changed(ctx, true)
 }
 
 // Suggestions returns ordered ticket candidates for an unassigned entry n,

@@ -28,7 +28,17 @@ const (
 	DefaultTicketPattern    = `[A-Z][A-Z0-9]+-\d+`
 	// DefaultActivityWatchURL is where a local ActivityWatch server listens.
 	DefaultActivityWatchURL = "http://localhost:5600"
+	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
+	// that unlocks auto mode.
+	DefaultAutoTrustedDays = 10
 )
+
+// Auto configures the optional auto mode. It is off by default and only
+// books once TrustedDays consecutive reviewed days passed without correction.
+type Auto struct {
+	Enabled     bool
+	TrustedDays int
+}
 
 // ActivityWatch configures the optional ActivityWatch importer. It is off by
 // default and may only point at a loopback server.
@@ -59,6 +69,7 @@ type Config struct {
 	Location         *time.Location
 	ActivityWatch    ActivityWatch
 	TitleHint        TitleHint
+	Auto             Auto
 }
 
 // TitleHint configures the optional window-title collector. It is off unless
@@ -93,6 +104,11 @@ type fileConfig struct {
 	} `toml:"activitywatch"`
 
 	TitleHint titleHintFile `toml:"titlehint"`
+
+	Auto struct {
+		Enabled     bool `toml:"enabled"`
+		TrustedDays *int `toml:"trusted_days"`
+	} `toml:"auto"`
 }
 
 // DefaultPath returns the default config file location:
@@ -219,6 +235,13 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.TitleHint = hint
+	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
+	if days := raw.Auto.TrustedDays; days != nil {
+		if *days < 1 {
+			return Config{}, errors.New("auto.trusted_days must be at least 1")
+		}
+		cfg.Auto.TrustedDays = *days
+	}
 	return cfg, nil
 }
 

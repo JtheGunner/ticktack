@@ -39,6 +39,11 @@ func DefaultTOML(youTrackURL string) string {
 	b.WriteString("# Optional import from a local ActivityWatch server (loopback only, off by default).\n")
 	b.WriteString("# [activitywatch]\n# enabled = false\n")
 	fmt.Fprintf(&b, "# url = %s\n", strconv.Quote(DefaultActivityWatchURL))
-	b.WriteString("# hostname = \"my-mac\"\n")
+	b.WriteString("# hostname = \"my-mac\"\n\n")
+	b.WriteString("# Optional auto mode (off by default). Run \"ticktack auto\" by hand or from your own\n")
+	b.WriteString("# scheduler; it books only explicit and rule blocks, and only after this many\n")
+	b.WriteString("# consecutive reviewed days without a correction.\n")
+	b.WriteString("# [auto]\n# enabled = false\n")
+	fmt.Fprintf(&b, "# trusted_days = %d\n", DefaultAutoTrustedDays)
 	return b.String()
 }
