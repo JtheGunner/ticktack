@@ -210,3 +210,20 @@ func (s *Store) Purge(ctx context.Context) error {
 	}
 	return nil
 }
+
+// CheckWritable verifies that the database accepts writes by taking and
+// releasing a write lock. It stores nothing.
+func (s *Store) CheckWritable(ctx context.Context) error {
+	conn, err := s.root.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("check writable: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("check writable: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		return fmt.Errorf("check writable: %w", err)
+	}
+	return nil
+}

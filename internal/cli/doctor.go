@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -279,7 +280,7 @@ func checkAgent(ctx context.Context, deps doctorDeps) checkResult {
 	if !fileExists(plist) {
 		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentNoPlist, plist), msgAgentNoPlistFix)
 	}
-	window := 2 * presence.DefaultInterval
+	window := 2 * installedAgentInterval(plist)
 	at, found, err := newestEvent(ctx, deps, "presence", window)
 	if err != nil {
 		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentStoreErr, err), msgHookStoreFix)
@@ -289,6 +290,41 @@ func checkAgent(ctx context.Context, deps doctorDeps) checkResult {
 			fmt.Sprintf(msgAgentNoSampleFix, deps.UID, plist))
 	}
 	return okResult(msgCheckAgent, fmt.Sprintf(msgAgentOK, deps.Now().Sub(at).Round(time.Second)))
+}
+
+// installedAgentInterval returns the sampling interval the installed launchd
+// agent runs with: the --interval argument of its plist, or the default.
+func installedAgentInterval(plistPath string) time.Duration {
+	data, err := os.ReadFile(plistPath)
+	if err != nil {
+		return presence.DefaultInterval
+	}
+	return parseAgentInterval(data)
+}
+
+var plistStringRe = regexp.MustCompile("<string>([^<]*)</string>")
+
+// parseAgentInterval reads "--interval 2m" or "--interval=2m" from the
+// program arguments of a launchd plist. A missing, unparsable or non-positive
+// value yields the default, as the agent itself would refuse it.
+func parseAgentInterval(plist []byte) time.Duration {
+	var args []string
+	for _, m := range plistStringRe.FindAllSubmatch(plist, -1) {
+		args = append(args, string(m[1]))
+	}
+	for i, a := range args {
+		value, ok := strings.CutPrefix(a, "--interval=")
+		if !ok {
+			if a != "--interval" || i+1 >= len(args) {
+				continue
+			}
+			value = args[i+1]
+		}
+		if d, err := time.ParseDuration(value); err == nil && d > 0 {
+			return d
+		}
+	}
+	return presence.DefaultInterval
 }
 
 func checkToken(ctx context.Context, deps doctorDeps) checkResult {
@@ -337,15 +373,25 @@ func checkReachable(ctx context.Context, deps doctorDeps) checkResult {
 }
 
 // checkDB opens the store, which creates it and applies pending migrations.
-// That is a real write, but it adds no event.
-func checkDB(_ context.Context, deps doctorDeps) checkResult {
+// That is a real write, but it adds no event. A database file without write
+// permission, or one SQLite cannot write to, fails with a fix hint.
+func checkDB(ctx context.Context, deps doctorDeps) checkResult {
 	path, err := deps.DBPath()
 	if err != nil {
 		return failResult(msgCheckDB, fmt.Sprintf(msgDBFail, "database path", err), msgDBFix)
 	}
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o200 == 0 {
+		return failResult(msgCheckDB, fmt.Sprintf(msgDBReadOnly, path), fmt.Sprintf(msgDBReadOnlyFix, path))
+	}
 	st, err := deps.OpenStore(path)
 	if err != nil {
 		return failResult(msgCheckDB, fmt.Sprintf(msgDBFail, path, err), msgDBFix)
+	}
+	if w, ok := st.(interface{ CheckWritable(context.Context) error }); ok {
+		if err := w.CheckWritable(ctx); err != nil {
+			_ = st.Close()
+			return failResult(msgCheckDB, fmt.Sprintf(msgDBReadOnlyProbe, path, err), fmt.Sprintf(msgDBReadOnlyFix, path))
+		}
 	}
 	if err := st.Close(); err != nil {
 		return failResult(msgCheckDB, fmt.Sprintf(msgDBFail, path, err), msgDBFix)

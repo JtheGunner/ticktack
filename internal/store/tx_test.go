@@ -52,3 +52,14 @@ func TestInTxCommitsAllWritesOrNone(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckWritableOnWritableDatabase(t *testing.T) {
+	s, _ := openTemp(t)
+	if err := s.CheckWritable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The single connection must be usable afterwards.
+	if err := s.Append(context.Background(), event.Event{At: time.Now(), Source: "t", Kind: event.KindPresence}); err != nil {
+		t.Fatal(err)
+	}
+}

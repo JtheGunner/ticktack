@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -338,5 +339,73 @@ func TestDoctorRunsTitleHintCheck(t *testing.T) {
 	_ = runDoctor(context.Background(), env.deps.Doctor, &out)
 	if !strings.Contains(out.String(), "SKIP window title hints:") {
 		t.Errorf("doctor output lacks the title hint line:\n%s", out.String())
+	}
+}
+
+func TestParseAgentInterval(t *testing.T) {
+	plist := func(args ...string) string {
+		var b strings.Builder
+		b.WriteString("<plist><dict><key>ProgramArguments</key><array>")
+		for _, a := range args {
+			b.WriteString("<string>" + a + "</string>")
+		}
+		b.WriteString("</array></dict></plist>")
+		return b.String()
+	}
+	tests := []struct {
+		name string
+		data string
+		want time.Duration
+	}{
+		{"no flag uses the default", plist("/bin/ticktack", "agent"), presence.DefaultInterval},
+		{"separate value", plist("/bin/ticktack", "agent", "--interval", "2m"), 2 * time.Minute},
+		{"equals form", plist("/bin/ticktack", "agent", "--interval=45s"), 45 * time.Second},
+		{"invalid value uses the default", plist("/bin/ticktack", "agent", "--interval", "soon"), presence.DefaultInterval},
+		{"non-positive value uses the default", plist("/bin/ticktack", "agent", "--interval", "0s"), presence.DefaultInterval},
+		{"missing value uses the default", plist("/bin/ticktack", "agent", "--interval"), presence.DefaultInterval},
+		{"garbage uses the default", "plist", presence.DefaultInterval},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseAgentInterval([]byte(tt.data)); got != tt.want {
+				t.Errorf("interval = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckAgentHonoursTheInstalledInterval(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plist := "<plist><array><string>/bin/ticktack</string><string>agent</string><string>--interval</string><string>2m</string></array></plist>"
+	if err := os.WriteFile(agentPlistPath(env.home), []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dbPath, _ := paths.DBPath()
+	// 90 s old: stale for the 30 s default (window 60 s), fresh for 2 m (window 4 m).
+	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-90 * time.Second), Source: "presence", Kind: event.KindPresence})
+	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Errorf("sample within the configured interval rejected: %+v", res)
+	}
+}
+
+func TestCheckDBFailsOnReadOnlyDatabase(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	env := newTestEnv(t, "", "")
+	if res := checkDB(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Fatalf("fresh database: %+v", res)
+	}
+	dbPath, _ := paths.DBPath()
+	if err := os.Chmod(dbPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dbPath, 0o600) })
+	res := checkDB(context.Background(), env.deps.Doctor)
+	if res.Status != statusFail || !strings.Contains(res.Detail, "read-only") || res.Hint == "" {
+		t.Errorf("read-only database not reported with a fix: %+v", res)
 	}
 }
