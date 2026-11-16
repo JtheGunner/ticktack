@@ -393,3 +393,11 @@ func reviewScripted(t *testing.T, deps syncDeps, input string) {
 		t.Fatal(err)
 	}
 }
+
+func TestAutoHelpExplainsTheReviewDayRule(t *testing.T) {
+	for _, want := range []string{"same calendar day or the next", "--day"} {
+		if !strings.Contains(msgAutoLong, want) {
+			t.Errorf("auto help lacks %q", want)
+		}
+	}
+}

@@ -39,20 +39,6 @@ func TestScanJobPassesConfiguredTicketPattern(t *testing.T) {
 	<-done
 }
 
-func TestScanTicketPatternDefaultsToNil(t *testing.T) {
-	if got := scanTicketPattern(config.Config{}); got != nil {
-		t.Errorf("zero config pattern = %v, want nil", got)
-	}
-	def := regexp.MustCompile(config.DefaultTicketPattern)
-	if got := scanTicketPattern(config.Config{TicketPattern: def}); got != nil {
-		t.Errorf("default pattern = %v, want nil", got)
-	}
-	custom := regexp.MustCompile(`[A-Z]+_\d+`)
-	if got := scanTicketPattern(config.Config{TicketPattern: custom}); got != custom {
-		t.Errorf("custom pattern = %v, want it passed through", got)
-	}
-}
-
 func TestScanUsesConfiguredTicketPattern(t *testing.T) {
 	repo := newScanRepo(t, t.TempDir(), "proj")
 	env := newScanEnv(t, repo)

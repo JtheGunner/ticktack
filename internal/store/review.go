@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/JtheGunner/ticktack/internal/event"
 )
 
 // Confirmation records that the user reviewed one item (issue, day, type)
@@ -91,4 +93,34 @@ func (s *Store) CapAcknowledgementFor(ctx context.Context, day string) (CapAckno
 	}
 	a.AcknowledgedAt = time.Unix(0, at).UTC()
 	return a, true, nil
+}
+
+// Tx is the write surface available inside InTx: the corrections a review
+// action stores together with its review log entry.
+type Tx interface {
+	AddOverride(ctx context.Context, o event.Override) error
+	Confirm(ctx context.Context, c Confirmation) error
+	AcknowledgeCap(ctx context.Context, a CapAcknowledgement) error
+	AddLearnedRule(ctx context.Context, r LearnedRule) (LearnedRule, error)
+	UpdateLearnedRule(ctx context.Context, r LearnedRule) error
+	SaveReviewRecord(ctx context.Context, r ReviewRecord) (int64, error)
+}
+
+// InTx runs fn in one transaction: when fn returns an error everything it
+// wrote is rolled back, otherwise it is committed. The Tx must not be used
+// after fn returns, and fn must not call methods of s itself (the store has
+// a single connection that the transaction holds).
+func (s *Store) InTx(ctx context.Context, fn func(tx Tx) error) error {
+	sqlTx, err := s.root.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = sqlTx.Rollback() }()
+	if err := fn(&Store{db: sqlTx, root: s.root}); err != nil {
+		return err
+	}
+	if err := sqlTx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }

@@ -72,7 +72,9 @@ func (c *Collector) Run(ctx context.Context) error {
 // Tick performs one sampling step. Errors are logged, never returned. While
 // paused the window is not even read.
 //
-// The emitted event carries only the ticket ID (when found) and the
+// The emitted event carries only the frontmost app's bundle ID (so the
+// sessionizer can apply the hint only while that app is in front), the
+// ticket ID (when found) and the
 // repository configured for the project name (when mapped). No event is
 // appended when neither is known.
 func (c *Collector) Tick(ctx context.Context) {
@@ -94,7 +96,7 @@ func (c *Collector) Tick(ctx context.Context) {
 	c.failing = false
 
 	hint := Parse(window.App, window.Title, c.TicketPattern)
-	e := event.Event{At: c.Now(), Source: EventSource, Kind: event.KindContext, Ticket: hint.Ticket}
+	e := event.Event{At: c.Now(), Source: EventSource, Kind: event.KindContext, App: window.App, Ticket: hint.Ticket}
 	if hint.Project != "" {
 		e.Repo = c.Projects[hint.Project]
 	}

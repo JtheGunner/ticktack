@@ -35,14 +35,12 @@ type Reader interface {
 // Store is everything review needs from the persistence layer.
 type Store interface {
 	Reader
-	AddOverride(ctx context.Context, o event.Override) error
-	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
-	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
-	Confirm(ctx context.Context, c store.Confirmation) error
 	Confirmations(ctx context.Context, day string) ([]store.Confirmation, error)
-	AcknowledgeCap(ctx context.Context, a store.CapAcknowledgement) error
 	CapAcknowledgementFor(ctx context.Context, day string) (store.CapAcknowledgement, bool, error)
-	SaveReviewRecord(ctx context.Context, r store.ReviewRecord) (int64, error)
+	// InTx runs every write of a session action together with its review log
+	// entry in one transaction, so a crash cannot leave the one without the
+	// other.
+	InTx(ctx context.Context, fn func(tx store.Tx) error) error
 }
 
 // Errors returned by session actions.
@@ -52,6 +50,9 @@ var (
 	ErrInvalidTicket  = errors.New("invalid ticket ID")
 	ErrInvalidSplit   = errors.New("split time must lie strictly inside the entry")
 	ErrNoCapWarning   = errors.New("the day is not over the daily cap")
+	// ErrSplitNeedsTicket is returned when splitting unassigned time without
+	// a ticket for the second part: the result would still be unassigned.
+	ErrSplitNeedsTicket = errors.New("splitting unassigned time needs a ticket for the second part")
 )
 
 // CapBlockedError reports that a day above the daily cap was not acknowledged.
@@ -381,44 +382,50 @@ func (s *Session) Confirm(ctx context.Context, n int) error {
 	if e.Kind == KindGap {
 		return ErrGapNotAttached
 	}
-	if err := s.confirmItem(ctx, e.Ticket); err != nil {
-		return err
-	}
-	return s.changed(ctx, false)
+	return s.confirmItems(ctx, []string{e.Ticket})
 }
 
 // ConfirmAll confirms every attributed, not yet confirmed item. Unassigned
 // time is never confirmed. It returns the number of newly confirmed items.
 func (s *Session) ConfirmAll(ctx context.Context) (int, error) {
-	count := 0
+	var tickets []string
 	for _, it := range s.view.Items {
 		if it.Ticket == "" || isConfirmed(s.conf, it) {
 			continue
 		}
-		if err := s.confirmItem(ctx, it.Ticket); err != nil {
-			return count, err
-		}
-		count++
+		tickets = append(tickets, it.Ticket)
 	}
-	return count, s.changed(ctx, false)
+	if err := s.confirmItems(ctx, tickets); err != nil {
+		return 0, err
+	}
+	return len(tickets), nil
 }
 
-func (s *Session) confirmItem(ctx context.Context, ticket string) error {
-	it, ok := s.itemFor(ticket)
-	if !ok {
-		return fmt.Errorf("%s: nothing to confirm (rounds to zero)", ticket)
+// confirmItems confirms the items of tickets and logs the session in one
+// transaction: either every confirmation and the log entry are stored, or
+// none.
+func (s *Session) confirmItems(ctx context.Context, tickets []string) error {
+	confirmations := make([]store.Confirmation, 0, len(tickets))
+	keys := make([]itemKey, 0, len(tickets))
+	for _, ticket := range tickets {
+		it, ok := s.itemFor(ticket)
+		if !ok {
+			return fmt.Errorf("%s: nothing to confirm (rounds to zero)", ticket)
+		}
+		confirmations = append(confirmations, store.Confirmation{
+			Day: s.day.String(), Issue: it.Ticket, Type: itemType(it),
+			Minutes: it.Minutes, ConfirmedAt: s.now(),
+		})
+		keys = append(keys, itemKey{it.Ticket, itemType(it)})
 	}
-	if err := s.st.Confirm(ctx, store.Confirmation{
-		Day: s.day.String(), Issue: it.Ticket, Type: itemType(it),
-		Minutes: it.Minutes, ConfirmedAt: s.now(),
-	}); err != nil {
-		return err
-	}
-	if s.confirmedHere == nil {
-		s.confirmedHere = map[itemKey]struct{}{}
-	}
-	s.confirmedHere[itemKey{it.Ticket, itemType(it)}] = struct{}{}
-	return nil
+	return s.apply(ctx, false, keys, func(tx store.Tx) error {
+		for _, c := range confirmations {
+			if err := tx.Confirm(ctx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // NormalizeTicket upper-cases ticket and validates it against the configured
@@ -454,10 +461,10 @@ func (s *Session) Reassign(ctx context.Context, n int, ticket string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.st.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Ticket: t}); err != nil {
-		return err
-	}
-	if err := s.changed(ctx, true); err != nil {
+	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+		return tx.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Ticket: t})
+	})
+	if err != nil {
 		return err
 	}
 	if e.Repo != "" && (e.Tier == resolver.TierUnknown || e.Tier == resolver.TierLearned) {
@@ -474,11 +481,14 @@ func (s *Session) Discard(ctx context.Context, n int) error {
 	if err != nil {
 		return err
 	}
-	if err := s.st.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Discard: true}); err != nil {
+	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+		return tx.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Discard: true})
+	})
+	if err != nil {
 		return err
 	}
 	s.discarded++
-	return s.changed(ctx, true)
+	return nil
 }
 
 // MarkBreak marks the entry as a break. A break is stored exactly like a
@@ -520,10 +530,14 @@ func (s *Session) Split(ctx context.Context, n int, clock, ticket string) error 
 			return err
 		}
 	}
-	if err := s.st.AddOverride(ctx, event.Override{Start: at, End: e.End, Ticket: target}); err != nil {
-		return err
+	if target == "" {
+		// An unassigned gap split without a ticket yields two unassigned
+		// halves; storing that as a correction would only break the streak.
+		return ErrSplitNeedsTicket
 	}
-	return s.changed(ctx, true)
+	return s.apply(ctx, true, nil, func(tx store.Tx) error {
+		return tx.AddOverride(ctx, event.Override{Start: at, End: e.End, Ticket: target})
+	})
 }
 
 // AcknowledgeCap records that the user accepts the current day total above
@@ -532,47 +546,65 @@ func (s *Session) AcknowledgeCap(ctx context.Context) error {
 	if !s.view.OverCap {
 		return ErrNoCapWarning
 	}
-	err := s.st.AcknowledgeCap(ctx, store.CapAcknowledgement{
-		Day: s.day.String(), TotalMinutes: s.view.TotalMinutes, AcknowledgedAt: s.now(),
+	ack := store.CapAcknowledgement{Day: s.day.String(), TotalMinutes: s.view.TotalMinutes, AcknowledgedAt: s.now()}
+	return s.apply(ctx, false, nil, func(tx store.Tx) error { return tx.AcknowledgeCap(ctx, ack) })
+}
+
+// apply runs write and the session's review log entry in one transaction,
+// then re-derives the day. A correction is any change to the attribution;
+// confirmations (newly the keys given) and cap acknowledgements are not.
+// Recording with every action means an aborted session still leaves what it
+// did, and the single transaction means the log never lags behind the stored
+// correction. The session's counters change only after the commit.
+func (s *Session) apply(ctx context.Context, correction bool, confirmed []itemKey, write func(tx store.Tx) error) error {
+	corrections := s.corrections
+	if correction {
+		corrections++
+	}
+	confirmedHere := make(map[itemKey]struct{}, len(s.confirmedHere)+len(confirmed))
+	for k := range s.confirmedHere {
+		confirmedHere[k] = struct{}{}
+	}
+	for _, k := range confirmed {
+		confirmedHere[k] = struct{}{}
+	}
+	var logID int64
+	err := s.st.InTx(ctx, func(tx store.Tx) error {
+		if err := write(tx); err != nil {
+			return err
+		}
+		var err error
+		logID, err = tx.SaveReviewRecord(ctx, s.reviewRecord(corrections, len(confirmedHere)))
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	return s.changed(ctx, false)
-}
-
-// changed re-derives the day after an action and updates the session's
-// record in the review log. A correction is any change to the attribution;
-// confirmations and cap acknowledgements are not. Recording after every
-// action means an aborted session still leaves what it did.
-func (s *Session) changed(ctx context.Context, correction bool) error {
-	if correction {
-		s.corrections++
-	}
-	// Record first so the correction is on file even if re-deriving fails.
-	if err := s.record(ctx); err != nil {
-		return err
-	}
+	s.corrections, s.confirmedHere, s.logID = corrections, confirmedHere, logID
 	return s.refresh(ctx)
 }
 
-// record writes the session's own row: its corrections and the items it
-// confirmed itself. Items confirmed in earlier sessions are not counted.
-func (s *Session) record(ctx context.Context) error {
-	id, err := s.st.SaveReviewRecord(ctx, store.ReviewRecord{
+// reviewRecord is the session's own review log row: its corrections and the
+// items it confirmed itself. Items confirmed in earlier sessions do not count.
+func (s *Session) reviewRecord(corrections, confirmed int) store.ReviewRecord {
+	return store.ReviewRecord{
 		ID: s.logID, Day: s.day.String(), SessionStart: s.started, FinishedAt: s.now(),
-		Corrections: s.corrections, Confirmed: len(s.confirmedHere),
-	})
-	if err != nil {
-		return err
+		Corrections: corrections, Confirmed: confirmed,
 	}
-	s.logID = id
-	return nil
 }
 
 // Finish records the end of the session in the review log. Call it when the
 // user ends the review, also when the input ended.
-func (s *Session) Finish(ctx context.Context) error { return s.record(ctx) }
+func (s *Session) Finish(ctx context.Context) error {
+	return s.st.InTx(ctx, func(tx store.Tx) error {
+		id, err := tx.SaveReviewRecord(ctx, s.reviewRecord(s.corrections, len(s.confirmedHere)))
+		if err != nil {
+			return err
+		}
+		s.logID = id
+		return nil
+	})
+}
 
 // Summary counts the current state of the day.
 func (s *Session) Summary() Summary {

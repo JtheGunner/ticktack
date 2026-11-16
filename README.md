@@ -48,6 +48,14 @@ Two independent signals are combined. **Presence** says whether you were at the 
 
 Blocks are always re-derived from the stored events, your rules and your overrides. Corrections never rewrite events.
 
+When several context signals disagree, the strongest one wins:
+
+1. **Pin** — `ticktack switch <TICKET>` holds until you clear it (`--clear` or `switch auto`).
+2. **Window-title hint** — the optional title collector's ticket or project, but only while the hinted app is the frontmost app. While another app is in front, or after you leave it, the hint is ignored.
+3. **Git and shell context** — the branch, repository rules and learned rules.
+
+A ticket key in a branch name is matched by `ticket_pattern` exactly as written, so the default `[A-Z][A-Z0-9]+-\d+` reads `feat/ABC-12-x` as `ABC-12` but `fix/utf-8-handling` or `feat/abc-12` as no ticket. Scan, the shell hook, review and `switch` all use that one pattern. Tickets you type (`ticktack switch`, reassigning in review) are upper-cased before they are checked against the pattern, so a custom pattern with lower-case letters cannot be entered that way.
+
 Each block carries a discrete confidence tier:
 
 | Tier        | Meaning                                                                  |
@@ -108,7 +116,7 @@ ticktack undo
 
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
-Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all, `q` quit.
+Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.
 
 ---
 
@@ -141,6 +149,8 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is never part of the config.
+
+**Rule matching.** Rules (`[[rules]]` and learned rules) are deliberately simple. A repository matches that path and everything below it, on a path boundary (`/work/app` covers `/work/app/sub`, not `/work/application`). A learned rule's branch must equal the branch name exactly: there are no wildcards or globs, so `feature/*` only matches a branch literally named that. Add one rule per branch, or leave the branch out to cover the whole repository. `ticktack map` lists and edits learned rules.
 
 ---
 
@@ -186,7 +196,7 @@ All of these are **off by default** and can be enabled independently.
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
 
 > [!IMPORTANT]
-> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive days were reviewed **without a single correction**. A later correction in `ticktack review` locks it again. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
+> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive days were reviewed **without a single correction**. A later correction in `ticktack review` locks it again. A day counts only if its review session took place on that same calendar day or the next one (in your configured time zone); catch-up reviews with `ticktack review --day` stay valid for booking but do not add to the streak. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
 
 ---
 
@@ -250,11 +260,13 @@ For the maintainer. Releases are built by [GoReleaser](https://goreleaser.com) f
 1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading with the date and commit.
 2. Tag the commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
-Pushing the tag starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which runs `goreleaser release --clean`. It needs the repository secret `HOMEBREW_TAP_GITHUB_TOKEN`: a token with write access to `JtheGunner/homebrew-tap`. The workflow's own `GITHUB_TOKEN` publishes the GitHub release.
+Pushing a tag that matches `v*` starts [`.github/workflows/release.yml`](.github/workflows/release.yml). The workflow runs only in the `JtheGunner/ticktack` repository. It checks out the full history, sets up the Go version from `go.mod` without a build cache and runs `goreleaser release --clean`. Only the release job holds the `contents: write` permission; the workflow is read-only otherwise.
 
-To release from your machine instead, export a GitHub token as `GITHUB_TOKEN` and the tap token as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`.
+GoReleaser first runs `go mod tidy` and `go test ./...` (the `before` hooks), so a failing test stops the release. It then builds the binaries, publishes the GitHub release and pushes the Homebrew formula. The workflow needs one repository secret, `HOMEBREW_TAP_GITHUB_TOKEN`: a token with write access to `JtheGunner/homebrew-tap`. The workflow's own `GITHUB_TOKEN` publishes the GitHub release.
 
-The release publishes darwin arm64 and amd64 archives with checksums and updates the Homebrew formula.
+The release contains darwin arm64 and amd64 archives (`tar.gz` with `LICENSE`, `README.md`, `CHANGELOG.md` and `examples/config.toml`) and `checksums.txt`. GoReleaser does not generate release notes; they are maintained by hand in `CHANGELOG.md`.
+
+To release from your machine instead, check out the tagged commit with a clean working tree, export a GitHub token as `GITHUB_TOKEN` and the tap token as `HOMEBREW_TAP_GITHUB_TOKEN`, then run `goreleaser release --clean`. `goreleaser release --snapshot --clean` is a dry run that publishes nothing.
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -36,8 +37,9 @@ func newTestDeps(sink *fakeSink, gitOut string, gitErr error) (hookDeps, *bytes.
 		Git: func(context.Context, string) (string, error) {
 			return gitOut, gitErr
 		},
-		Now:    func() time.Time { return hookTestNow },
-		Paused: func() bool { return false },
+		Now:     func() time.Time { return hookTestNow },
+		Paused:  func() bool { return false },
+		Pattern: func() (*regexp.Regexp, error) { return nil, nil },
 		Logf: func(format string, args ...any) {
 			logs.WriteString(format)
 		},
@@ -119,7 +121,7 @@ func TestExtractTicket(t *testing.T) {
 		want   string
 	}{
 		{"feature/PROJ-123-foo", "PROJ-123"},
-		{"fix/proj-12", "PROJ-12"},
+		{"fix/proj-12", ""},
 		{"fix/PROJ-1-and-PROJ-2", "PROJ-1"},
 		{"main", ""},
 	}

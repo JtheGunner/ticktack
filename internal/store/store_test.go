@@ -105,7 +105,7 @@ func TestEventsAreImmutable(t *testing.T) {
 	typ := reflect.TypeOf(&Store{})
 	allowed := map[string]bool{
 		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
-		"Purge": true, "Close": true,
+		"Purge": true, "Close": true, "InTx": true, "CheckWritable": true,
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
@@ -149,7 +149,7 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		t.Fatalf("data lost after reopen: %v %v", got, err)
 	}
 	var applied int
-	if err := s2.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
+	if err := s2.root.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := migrationFiles.ReadDir("migrations")
@@ -170,7 +170,7 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	if err := s.AddOverride(ctx, event.Override{Start: base, End: base.Add(time.Hour), Ticket: "TICKT-2"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO ledger (issue, date, type, work_item_id, minutes, content_hash, booked_at)
+	if _, err := s.root.Exec(`INSERT INTO ledger (issue, date, type, work_item_id, minutes, content_hash, booked_at)
 		VALUES ('TICKT-1','2026-01-05','Development','1-1',30,'h',1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	}
 	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements", "learned_rules", "review_log", "digests"} {
 		var n int
-		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
+		if err := s.root.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 0 {
@@ -237,7 +237,7 @@ func TestOverridesRangeAndRoundTrip(t *testing.T) {
 
 func TestNoWindowTitleColumn(t *testing.T) {
 	s, _ := openTemp(t)
-	rows, err := s.db.Query("SELECT name FROM pragma_table_info('events')")
+	rows, err := s.root.Query("SELECT name FROM pragma_table_info('events')")
 	if err != nil {
 		t.Fatal(err)
 	}

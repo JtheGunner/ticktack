@@ -29,13 +29,13 @@ func TestBuildEventsHonoursTicketPattern(t *testing.T) {
 	}
 }
 
-func TestBuildEventsDefaultPatternIsCaseInsensitive(t *testing.T) {
+func TestBuildEventsDefaultPatternIsCaseSensitive(t *testing.T) {
 	isBranch := func(string) bool { return true }
 	entries := []reflogEntry{{
 		At: time.Unix(10, 0).UTC(), Hash: "h", Subject: "checkout: moving from main to feat/abc-12-login",
 	}}
 	got := buildEvents("/r", entries, "main", isBranch, nil)
-	if len(got) != 1 || got[0].Ticket != "ABC-12" {
-		t.Fatalf("events = %+v, want ticket ABC-12", got)
+	if len(got) != 1 || got[0].Ticket != "" {
+		t.Fatalf("events = %+v, want no ticket for a lower-case branch", got)
 	}
 }

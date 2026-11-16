@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -180,5 +181,15 @@ func TestReviewCommandSanitizesSuggestionText(t *testing.T) {
 	assertNoControl(t, out.String())
 	if !strings.Contains(out.String(), "ABC-1") {
 		t.Errorf("suggestion missing:\n%q", out.String())
+	}
+}
+
+func TestReviewErrorForSplitWithoutTicketIsTheCuratedMessage(t *testing.T) {
+	got := msgReviewError(fmt.Errorf("wrapped: %w", review.ErrSplitNeedsTicket))
+	if got != msgReviewSplitNeedsTicket {
+		t.Errorf("message = %q", got)
+	}
+	if other := msgReviewError(errors.New("x")); other != "Error: x" {
+		t.Errorf("other = %q", other)
 	}
 }

@@ -93,7 +93,7 @@ func TestResolveBranchTable(t *testing.T) {
 		tier         Tier
 	}{
 		{"fix/PROJ-1-and-PROJ-2", "PROJ-1", TierExplicit},
-		{"fix/proj-12", "PROJ-12", TierExplicit},
+		{"fix/proj-12", "APP-1", TierRule},
 		{"main", "APP-1", TierRule},
 		{"", "APP-1", TierRule},
 	}

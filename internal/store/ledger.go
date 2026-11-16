@@ -74,7 +74,7 @@ func (s *Store) BeginSyncRun(ctx context.Context, startedAt time.Time) (int64, e
 // RecordBooking upserts the ledger row and stores the run entry in one
 // transaction.
 func (s *Store) RecordBooking(ctx context.Context, runID int64, row LedgerRow, e SyncEntry) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.root.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin record booking: %w", err)
 	}
@@ -144,7 +144,7 @@ func (s *Store) LastSyncRun(ctx context.Context) (SyncRun, bool, error) {
 // ledger row is replaced by restore, or removed when restore is nil, and the
 // entry is deleted. A run without entries is removed.
 func (s *Store) RevertEntry(ctx context.Context, runID int64, e SyncEntry, restore *LedgerRow) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.root.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin revert: %w", err)
 	}

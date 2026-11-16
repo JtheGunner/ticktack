@@ -19,11 +19,19 @@
 //     (carried forward until it changes). The resolver turns it into ticket,
 //     tier and reason. Presence before the first context event yields an
 //     unknown block with an empty ticket, so it can be assigned in review.
+//   - Precedence of the context, strongest first: a manual pin, then a
+//     window-title hint, then git/shell context.
 //   - A context event from ManualSource with a ticket (`ticktack switch`)
 //     pins the attribution: later non-manual context events no longer change
 //     it until the next manual event. A manual event with an empty ticket
 //     clears the pin and restores the latest automatic context. Pinned time
 //     is attributed with tier explicit and reason "manual switch to <ID>".
+//   - A window-title hint (source TitleSource, App set) beats git/shell
+//     context, but only while its app is the frontmost app, which is read
+//     from the App of the latest presence sample. While another app is in
+//     front, git/shell context applies; the hint applies again when its app
+//     returns to the front. A hint that names only the repository the git
+//     context is already in leaves the git branch ticket in place.
 //   - A non-manual context event without repo, branch and ticket (an app-only
 //     hint) carries no attribution signal and is ignored.
 //   - Blocks are split whenever the attributed ticket or the context changes;
@@ -233,35 +241,92 @@ func (s contextStep) attribution(rules resolver.Rules) resolver.Attribution {
 	return resolver.Resolve(s.signal, rules)
 }
 
-// contextTimeline folds the sorted context events into steps. After a manual
-// event with a ticket, non-manual context events produce no steps until the
-// next manual event: a new switch, or a clear event with an empty ticket,
-// which restores the latest automatic signal. It also returns the latest
-// non-manual signal.
+// TitleSource is the event source of window-title hints.
+const TitleSource = "title"
+
+// autoContext is the automatic (non-manual) context: the latest git or shell
+// signal, and the latest window-title hint together with the frontmost app.
+type autoContext struct {
+	git   contextSource
+	hint  contextSource
+	front string // bundle ID of the frontmost app, from presence samples
+}
+
+type contextSource struct {
+	event  event.Event
+	signal resolver.ContextSignal
+	ok     bool
+}
+
+// current returns the effective automatic signal and the event behind it. A
+// title hint that names its app applies only while that app is frontmost; a
+// hint that is only a repository does not hide the branch of the same
+// repository from git. Hints without an app are treated as plain git/shell
+// context events (latest wins), as before apps were recorded on hints.
+func (a autoContext) current() contextSource {
+	if a.hint.ok && a.hint.event.App == a.front {
+		if a.hint.signal.Ticket == "" && a.git.ok && a.git.signal.Repo == a.hint.signal.Repo {
+			return a.git
+		}
+		return a.hint
+	}
+	return a.git
+}
+
+// contextTimeline folds the sorted events into steps. Precedence, strongest
+// first:
+//
+//  1. A manual pin (event from ManualSource with a ticket): later automatic
+//     context produces no steps until the next manual event; an empty
+//     manual ticket clears the pin and restores the automatic context.
+//  2. A window-title hint (Source TitleSource with an App), only while that
+//     app is the frontmost app according to the latest presence sample with
+//     an app. A hint without an App is an ordinary context event.
+//  3. The latest git or shell context.
+//
+// Presence samples take part only to track the frontmost app: they add a step
+// when a change of frontmost app changes the effective automatic signal. It
+// also returns the effective automatic signal at the end.
 func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSignal) {
 	var steps []contextStep
-	var latestAuto resolver.ContextSignal
+	var auto autoContext
 	manualTicket := ""
 	for _, e := range sorted {
-		if e.Kind != event.KindContext {
+		before := auto.current()
+		switch {
+		case e.Kind == event.KindPresence:
+			if e.App == "" || e.App == auto.front {
+				continue
+			}
+			auto.front = e.App
+			after := auto.current()
+			if manualTicket == "" && after.ok && (!before.ok || after.signal != before.signal) {
+				steps = append(steps, contextStep{at: e.At, event: after.event, signal: after.signal})
+			}
 			continue
-		}
-		if e.Source == ManualSource {
+		case e.Kind != event.KindContext:
+			continue
+		case e.Source == ManualSource:
 			manualTicket = strings.ToUpper(strings.TrimSpace(e.Ticket))
-			steps = append(steps, contextStep{at: e.At, event: e, signal: latestAuto, manualTicket: manualTicket})
+			steps = append(steps, contextStep{at: e.At, event: e, signal: before.signal, manualTicket: manualTicket})
 			continue
-		}
-		if e.Repo == "" && e.Branch == "" && e.Ticket == "" {
+		case e.Repo == "" && e.Branch == "" && e.Ticket == "":
 			// An app-only hint (for example from ActivityWatch) carries no
 			// attribution signal and must not wipe the current context.
 			continue
 		}
-		latestAuto = resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}
+		src := contextSource{event: e, signal: resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}, ok: true}
+		if e.Source == TitleSource && e.App != "" {
+			auto.hint = src
+		} else {
+			auto.git = src
+		}
 		if manualTicket == "" {
-			steps = append(steps, contextStep{at: e.At, event: e, signal: latestAuto})
+			now := auto.current()
+			steps = append(steps, contextStep{at: e.At, event: now.event, signal: now.signal})
 		}
 	}
-	return steps, latestAuto
+	return steps, auto.current().signal
 }
 
 // CurrentContext is the context in effect after a list of events.

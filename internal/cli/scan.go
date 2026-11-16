@@ -46,16 +46,6 @@ func defaultRepoScanner(ctx context.Context, repo string, from, to time.Time, pa
 	return gitscan.Scan(ctx, repo, from, to, pattern)
 }
 
-// scanTicketPattern returns the configured ticket pattern for the git scanner,
-// or nil while it is the built-in default. nil keeps the scanner's
-// case-insensitive default matching, so default setups behave as before.
-func scanTicketPattern(cfg config.Config) *regexp.Regexp {
-	if cfg.TicketPattern == nil || cfg.TicketPattern.String() == config.DefaultTicketPattern {
-		return nil
-	}
-	return cfg.TicketPattern
-}
-
 var errGitMissing = errors.New(msgRepoGitMissing)
 
 // repoProblem describes why a configured repository path cannot be scanned.
@@ -233,7 +223,7 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	if err != nil {
 		return err
 	}
-	report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, to, scanTicketPattern(cfg), scan, st)
+	report, err := scanRepositories(ctx, cfg.RepoPaths, home, from, to, cfg.TicketPattern, scan, st)
 	if err != nil {
 		return err
 	}

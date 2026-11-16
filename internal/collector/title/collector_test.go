@@ -48,9 +48,9 @@ func TestHintMapsProjectNameToRepo(t *testing.T) {
 		c.Tick(context.Background())
 	}
 	want := []event.Event{
-		{At: testNow, Source: "title", Kind: event.KindContext, Repo: "/work/ticktack"},
-		{At: testNow, Source: "title", Kind: event.KindContext, Repo: "/work/abc", Ticket: "ABC-9"},
-		{At: testNow, Source: "title", Kind: event.KindContext, Ticket: "DEF-3"},
+		{At: testNow, Source: "title", Kind: event.KindContext, App: "com.jetbrains.goland", Repo: "/work/ticktack"},
+		{At: testNow, Source: "title", Kind: event.KindContext, App: "com.jetbrains.goland", Repo: "/work/abc", Ticket: "ABC-9"},
+		{At: testNow, Source: "title", Kind: event.KindContext, App: "com.google.Chrome", Ticket: "DEF-3"},
 	}
 	if !reflect.DeepEqual(rec.events, want) {
 		t.Errorf("events = %+v\nwant %+v", rec.events, want)
