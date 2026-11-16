@@ -1,0 +1,7 @@
+  [32m✓[0m  [1mconfig[0m[2m: valid: /home/u/.config/ticktack/config.toml[0m
+  [32m✓[0m  [1mtoken[0m[2m: valid (user jane)[0m
+  [32m✓[0m  [1mdatabase[0m[2m: writable: /home/u/.local/share/ticktack/ticktack.db[0m
+
+[36m╭─────────────────────────────[0m[1m Summary [0m[36m──────────────────────────────╮[0m
+[36m│[0m [32mAll 3 checks passed.[0m                                               [36m│[0m
+[36m╰────────────────────────────────────────────────────────────────────╯[0m

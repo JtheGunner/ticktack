@@ -1,0 +1,16 @@
+  Step 1/4 - config: create the config file with commented defaults at <HOME>/xdg-config/ticktack/config.toml
+  x  config not written: "not a url" is not an absolute URL
+
+  Step 2/4 - token: store the YouTrack permanent token in the OS keychain
+Token (input hidden, empty to skip): 
+  x  token not stored: keychain locked
+
+  Step 3/4 - shell hook: add a managed block to <HOME>/.zshrc
+  +  shell hook written: <HOME>/.zshrc (open a new shell to activate it)
+
+  Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
+  +  plist written: <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
+  x  agent step failed: launchctl bootstrap: exit status 5: boom
+  i  hint: run `launchctl bootstrap gui/501 <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist` manually, then `ticktack doctor`
+
+  +  Done. Run `ticktack doctor` to verify the setup.

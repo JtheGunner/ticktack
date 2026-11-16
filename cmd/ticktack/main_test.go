@@ -21,13 +21,14 @@ func isolate(t *testing.T) {
 }
 
 func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
-	isolate(t) // no config, so the checks fail without any network access
+	isolate(t)              // no config, so the checks fail without any network access
+	t.Setenv("LC_ALL", "C") // ASCII glyphs, whatever the developer's locale
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"doctor"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code 0 although checks failed:\n%s", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "FAIL config:") {
+	if !strings.Contains(stdout.String(), "x  config:") {
 		t.Errorf("failure not reported on stdout:\n%s", stdout.String())
 	}
 	if stderr.Len() != 0 {

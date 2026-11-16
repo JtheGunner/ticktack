@@ -17,6 +17,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
 )
@@ -64,7 +65,8 @@ func newTestEnv(t *testing.T, secret, answers string) *testEnv {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "xdg-data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "xdg-state"))
 	env := &testEnv{home: home, fl: &fakeLaunchctl{}}
-	doc := defaultDoctorDeps()
+	doc := defaultDoctorDeps(newDoctorCommand())
+	doc.Render = render.Plain()
 	doc.Home = home
 	doc.GOOS = "darwin"
 	doc.UID = 501
@@ -78,6 +80,7 @@ func newTestEnv(t *testing.T, secret, answers string) *testEnv {
 		Binary:     func() (string, error) { return testBinary, nil },
 		Getenv:     func(string) string { return "/bin/zsh" },
 		LogPath:    paths.LogPath,
+		Render:     render.Plain(),
 	}
 	return env
 }

@@ -74,8 +74,5 @@ const (
 	msgTitleReadFail  = "reading the frontmost window failed: %v"
 	msgTitleReadFix   = "check that /usr/bin/osascript works, or set enabled = false under [titlehint]"
 
-	msgStatusOK   = "OK  "
-	msgStatusFail = "FAIL"
-	msgStatusSkip = "SKIP"
-	msgFixPrefix  = "     fix: "
+	msgFixPrefix = "fix: "
 )

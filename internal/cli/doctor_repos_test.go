@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/JtheGunner/ticktack/internal/render"
 )
 
 func writeRepoPathsConfig(t *testing.T, body string) {
@@ -79,7 +81,7 @@ func TestCheckRepositoriesNamesEachUnusablePath(t *testing.T) {
 
 	var out bytes.Buffer
 	res := checkRepositories(context.Background(), env.deps.Doctor)
-	printResult(&out, res)
+	printResult(&out, render.Plain(), res)
 	text := out.String()
 	if res.Status != statusFail {
 		t.Fatalf("result = %+v", res)
@@ -89,7 +91,7 @@ func TestCheckRepositoriesNamesEachUnusablePath(t *testing.T) {
 		missing + " does not exist",
 		aFile + " is not a directory",
 		plain + " is not the root of a git repository",
-		"     fix: ",
+		"fix: ",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("output lacks %q:\n%s", want, text)
@@ -122,7 +124,7 @@ func TestDoctorSanitisesRepositoryPaths(t *testing.T) {
 	writeRepoPathsConfig(t, tomlList(filepath.Join(t.TempDir(), "gone\x1b[31m")))
 	var out bytes.Buffer
 	_ = runDoctor(context.Background(), env.deps.Doctor, &out)
-	if strings.Contains(out.String(), "\x1b") || !strings.Contains(out.String(), "FAIL git repositories:") {
+	if strings.Contains(out.String(), "\x1b") || !strings.Contains(out.String(), "x  git repositories:") {
 		t.Fatalf("unsafe or missing output:\n%q", out.String())
 	}
 }

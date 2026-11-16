@@ -23,6 +23,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
 	"github.com/JtheGunner/ticktack/internal/youtrack"
@@ -93,6 +94,8 @@ type doctorDeps struct {
 	// TitleSource builds the window title source used to probe the
 	// Accessibility permission.
 	TitleSource func() title.Source
+	// Render styles the output; the zero value renders plain text.
+	Render render.Renderer
 }
 
 // bucketLister is the part of the ActivityWatch client the doctor needs.
@@ -100,9 +103,12 @@ type bucketLister interface {
 	Buckets(ctx context.Context) ([]activitywatch.Bucket, error)
 }
 
-func defaultDoctorDeps() doctorDeps {
+// defaultDoctorDeps wires the real dependencies; the renderer follows the
+// command's output stream.
+func defaultDoctorDeps(cmd *cobra.Command) doctorDeps {
 	home, _ := os.UserHomeDir()
 	return doctorDeps{
+		Render:     rendererFor(cmd, cmd.OutOrStdout()),
 		Home:       home,
 		GOOS:       runtime.GOOS,
 		UID:        os.Getuid(),
@@ -140,7 +146,7 @@ func newDoctorCommand() *cobra.Command {
 		Short: "Check the setup and name the fix for each problem",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDoctor(cmd.Context(), defaultDoctorDeps(), cmd.OutOrStdout())
+			return runDoctor(cmd.Context(), defaultDoctorDeps(cmd), cmd.OutOrStdout())
 		},
 	}
 }
@@ -160,35 +166,59 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkTitleHint,
 		checkRepositories,
 	}
-	failed := 0
+	results := make([]checkResult, 0, len(checks))
 	for _, check := range checks {
-		res := check(ctx, deps)
-		printResult(out, res)
+		results = append(results, check(ctx, deps))
+	}
+	if failed := writeDoctorReport(out, deps.Render, results); failed > 0 {
+		return ErrChecksFailed
+	}
+	return nil
+}
+
+// writeDoctorReport prints one line per result and a summary box, coloured
+// green when every check passed and red otherwise. The summary text states
+// the outcome, so it reads without colour. It returns the number of failed
+// checks.
+func writeDoctorReport(out io.Writer, r render.Renderer, results []checkResult) int {
+	failed := 0
+	for _, res := range results {
+		printResult(out, r, res)
 		if res.Status == statusFail {
 			failed++
 		}
 	}
-	if failed == 0 {
-		_, _ = fmt.Fprintf(out, msgDoctorSummaryOK+"\n", len(checks))
-		return nil
+	summary := fmt.Sprintf(msgDoctorSummaryOK, len(results))
+	paint := r.Colors.OK
+	if failed > 0 {
+		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, len(results))
+		paint = r.Colors.Fail
 	}
-	_, _ = fmt.Fprintf(out, msgDoctorSummaryFailed+"\n", failed, len(checks))
-	return ErrChecksFailed
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, r.Box(msgDoctorSummaryTitle, []string{paint(summary)}))
+	return failed
 }
 
-func printResult(out io.Writer, res checkResult) {
-	label := msgStatusOK
+// printResult writes one gutter line per check and, for a failure with a
+// hint, an indented follow-up line naming the fix. External text is
+// sanitised before it is styled.
+func printResult(out io.Writer, r render.Renderer, res checkResult) {
+	status := render.StatusOK
 	switch res.Status {
 	case statusFail:
-		label = msgStatusFail
+		status = render.StatusFail
 	case statusSkip:
-		label = msgStatusSkip
+		status = render.StatusSkip
 	}
-	_, _ = fmt.Fprintf(out, "%s %s: %s\n", label, res.Name, SanitizeForTerminal(res.Detail))
+	detail := SanitizeForTerminal(res.Detail)
+	_, _ = fmt.Fprintln(out, r.Gutter(status, r.Colors.Bold(res.Name)+r.Colors.Dim(": "+detail)))
 	if res.Status == statusFail && res.Hint != "" {
-		_, _ = fmt.Fprintln(out, msgFixPrefix+SanitizeForTerminal(res.Hint))
+		_, _ = fmt.Fprintln(out, hintIndent+r.Gutter(render.StatusGo, msgFixPrefix+SanitizeForTerminal(res.Hint)))
 	}
 }
+
+// hintIndent aligns a fix line under the check name of the gutter line above.
+const hintIndent = "   "
 
 // loadConfig resolves the config path and loads the file.
 func loadConfig(deps doctorDeps) (config.Config, string, error) {
