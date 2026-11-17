@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The standard task that ticktack creates for time without a ticket now carries the `manual` tag. The tag is created when it does not exist yet; standard tasks that already exist are left untouched.
+
 ## [0.3.2] - 2026-11-17
 
 ### Added

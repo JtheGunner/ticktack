@@ -133,6 +133,8 @@ func TestCreateIssueSendsProjectSummaryDescriptionAndAssignee(t *testing.T) {
 			_, _ = io.WriteString(w, `{"id":"0-5"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/users/me":
 			_, _ = io.WriteString(w, `{"login":"jane"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
+			_, _ = io.WriteString(w, `[{"id":"5-1","name":"manual"}]`)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/issues":
 			_ = json.NewDecoder(r.Body).Decode(&got)
 			_, _ = io.WriteString(w, `{"idReadable":"G-9"}`)
@@ -165,6 +167,108 @@ func TestCreateIssueSendsProjectSummaryDescriptionAndAssignee(t *testing.T) {
 	}
 }
 
+func TestCreateIssueTagsTheStandardTaskManual(t *testing.T) {
+	tests := []struct {
+		name         string
+		tagsOnServer string
+		wantTagID    string
+		wantCreate   bool
+	}{
+		{"existing tag is reused", `[{"id":"5-1","name":"manual"}]`, "5-1", false},
+		{"missing tag is created", `[]`, "5-2", true},
+		{"tag name match ignores case", `[{"id":"5-3","name":"Manual"}]`, "5-3", false},
+		{"similarly named tags do not count", `[{"id":"5-4","name":"manual-x"},{"id":"5-5","name":"not-manual"}]`, "5-2", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var issueBody, tagBody map[string]any
+			created := false
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects/G":
+					_, _ = io.WriteString(w, `{"id":"0-5"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/users/me":
+					_, _ = io.WriteString(w, `{"login":"jane"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
+					_, _ = io.WriteString(w, tt.tagsOnServer)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/tags":
+					created = true
+					_ = json.NewDecoder(r.Body).Decode(&tagBody)
+					_, _ = io.WriteString(w, `{"id":"5-2","name":"manual"}`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/issues":
+					_ = json.NewDecoder(r.Body).Decode(&issueBody)
+					_, _ = io.WriteString(w, `{"idReadable":"G-9"}`)
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL)
+				}
+			}))
+
+			if _, err := c.CreateIssue(context.Background(), "G", "s", "d"); err != nil {
+				t.Fatal(err)
+			}
+			if created != tt.wantCreate {
+				t.Errorf("tag created = %v, want %v", created, tt.wantCreate)
+			}
+			if created && tagBody["name"] != "manual" {
+				t.Errorf("created tag body = %v, want name manual", tagBody)
+			}
+			tags, _ := issueBody["tags"].([]any)
+			if len(tags) != 1 {
+				t.Fatalf("issue tags = %v, want exactly the manual tag", issueBody["tags"])
+			}
+			if tag, _ := tags[0].(map[string]any); tag["id"] != tt.wantTagID {
+				t.Errorf("issue tag = %v, want id %s", tags[0], tt.wantTagID)
+			}
+		})
+	}
+}
+
+func TestCreateIssueCreatesNothingWhenTheTagCannotBeResolved(t *testing.T) {
+	tests := []struct {
+		name         string
+		failLookup   bool
+		failCreation bool
+	}{
+		{"tag lookup fails", true, false},
+		{"tag creation fails", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects/G":
+					_, _ = io.WriteString(w, `{"id":"0-5"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/users/me":
+					_, _ = io.WriteString(w, `{"login":"jane"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
+					if tt.failLookup {
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					_, _ = io.WriteString(w, `[]`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/tags":
+					w.WriteHeader(http.StatusForbidden)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/issues":
+					t.Error("issue created although the manual tag could not be resolved")
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL)
+				}
+			}))
+
+			key, err := c.CreateIssue(context.Background(), "G", "s", "d")
+			if err == nil {
+				t.Fatalf("CreateIssue = %q, want an error", key)
+			}
+			if !strings.Contains(err.Error(), `"manual"`) {
+				t.Errorf("error %q must name the tag", err)
+			}
+			if strings.Contains(err.Error(), testToken) {
+				t.Errorf("error leaks the token: %v", err)
+			}
+		})
+	}
+}
+
 func TestCreateIssueFailsWithoutAnIssueKey(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -172,6 +276,8 @@ func TestCreateIssueFailsWithoutAnIssueKey(t *testing.T) {
 			_, _ = io.WriteString(w, `{"id":"0-5"}`)
 		case "/api/users/me":
 			_, _ = io.WriteString(w, `{"login":"jane"}`)
+		case "/api/tags":
+			_, _ = io.WriteString(w, `[{"id":"5-1","name":"manual"}]`)
 		default:
 			_, _ = io.WriteString(w, `{}`)
 		}
