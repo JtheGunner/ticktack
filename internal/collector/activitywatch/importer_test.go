@@ -154,7 +154,7 @@ func TestImportedPresenceDerivesExpectedBlockMinutes(t *testing.T) {
 	// app-only window event carries no ticket signal.
 	events = append(events, event.Event{At: day.Add(-time.Minute), Source: "git", Kind: event.KindContext, Repo: "/work/app", Ticket: "APP-1"})
 
-	cfg := sessionizer.Config{GapThreshold: 5 * time.Minute, SampleInterval: 30 * time.Second}
+	cfg := sessionizer.Config{GapThreshold: 5 * time.Minute}
 	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
 
 	if len(blocks) != 2 {
@@ -167,10 +167,12 @@ func TestImportedPresenceDerivesExpectedBlockMinutes(t *testing.T) {
 			t.Errorf("block %+v lost the git context", b)
 		}
 	}
-	if total != 3*time.Minute {
-		t.Errorf("total = %v, want 3m (2m + 1m, afk time excluded)", total)
+	// A block ends at its last presence sample: 10:00-10:01:30 and
+	// 10:05-10:05:30. The afk time is excluded.
+	if total != 2*time.Minute {
+		t.Errorf("total = %v, want 2m (1m30s + 30s, afk time excluded)", total)
 	}
-	if !blocks[0].Start.Equal(day) || !blocks[0].End.Equal(day.Add(2*time.Minute)) {
+	if !blocks[0].Start.Equal(day) || !blocks[0].End.Equal(day.Add(90*time.Second)) {
 		t.Errorf("first block = %v-%v", blocks[0].Start, blocks[0].End)
 	}
 }

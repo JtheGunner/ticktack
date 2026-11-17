@@ -153,7 +153,7 @@ func TestReviewSplitAttributesSecondPart(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := s.Entries()
-	if len(e) != 2 || e[0].Ticket != "ABC-1" || e[1].Ticket != "DEF-2" || e[1].Minutes != 31 {
+	if len(e) != 2 || e[0].Ticket != "ABC-1" || e[1].Ticket != "DEF-2" || e[1].Minutes != 30 {
 		t.Fatalf("entries = %+v", e)
 	}
 	if err := s.Split(ctx, 1, "09:00", "DEF-2"); !errors.Is(err, ErrInvalidSplit) {
@@ -176,7 +176,7 @@ func TestReviewShowsUnassignedGaps(t *testing.T) {
 	ctx := context.Background()
 	s := newSession(t, st, testConfig())
 	e := s.Entries()
-	if len(e) != 1 || e[0].Kind != KindGap || e[0].Tier != resolver.TierUnknown || e[0].Minutes != 61 {
+	if len(e) != 1 || e[0].Kind != KindGap || e[0].Tier != resolver.TierUnknown || e[0].Minutes != 60 {
 		t.Fatalf("entries = %+v", e)
 	}
 	if err := s.Confirm(ctx, 1); !errors.Is(err, ErrGapNotAttached) {

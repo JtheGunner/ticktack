@@ -1,7 +1,7 @@
   [1mReview for 2026-01-05[0m
 
   [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m        [2mTier[0m     [2mReason[0m  [2mState[0m
-  1  09:00-10:00   1h01m  (unassigned)  [2munknown[0m          [33mneeds ticket[0m
+  1  09:00-10:00      1h  (unassigned)  [2munknown[0m          [33mneeds ticket[0m
     [2mno ticket in branch and no rule for repo[0m
 
   [36mℹ[0m  Suggestions for 1 (assigned to you, In Progress; take one with u 1 <n>):
@@ -14,7 +14,7 @@
 review>   [1mReview for 2026-01-05[0m
 
   [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m  [2mTier[0m      [2mReason[0m           [2mState[0m
-  1  09:00-10:00   1h01m  ABC-7   [32mexplicit[0m  manual override
+  1  09:00-10:00      1h  ABC-7   [32mexplicit[0m  manual override
 
 [36m──────────────────────────────────[0m[1m Actions [0m[36m───────────────────────────────────[0m
   [1m[36mc[0m[0m [2mconfirm[0m   [1m[36mt[0m[0m [2massign[0m   [1m[36ms[0m[0m [2msplit[0m   [1m[36md[0m[0m [2mdiscard[0m   [1m[36mb[0m[0m [2mbreak[0m   [1m[36my[0m[0m [2mconfirm all[0m

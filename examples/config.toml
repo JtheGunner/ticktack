@@ -14,6 +14,9 @@ youtrack_url = "https://example.youtrack.cloud"
 # Presence gaps longer than this end a work block.
 gap_threshold = "5m0s"
 
+# A presence sample with at least this much idle time is ignored; time after the last input is never booked.
+idle_threshold = "3m0s"
+
 # Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.
 min_block_duration = "10m0s"
 

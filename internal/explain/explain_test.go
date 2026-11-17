@@ -100,6 +100,33 @@ func TestPresenceEvidenceReportsGapsAndNeighbours(t *testing.T) {
 	}
 }
 
+func TestPresenceEvidenceJudgesSamplesByTheirLastInput(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	events := []event.Event{{At: t0, Kind: event.KindContext, Source: "shell", Repo: "/r", Branch: "ABC-1"}}
+	events = append(events, presenceRun(t0, 10)...)
+	// The user stops at minute 10; the next two samples only report growing
+	// idle time and must not count as new activity.
+	events = append(events,
+		event.Event{At: t0.Add(11 * time.Minute), Kind: event.KindPresence, IdleSeconds: 60, Source: "presence"},
+		event.Event{At: t0.Add(12 * time.Minute), Kind: event.KindPresence, IdleSeconds: 120, Source: "presence"},
+	)
+	back := t0.Add(60 * time.Minute)
+	events = append(events, presenceRun(back, 5)...)
+
+	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[0], Events: events, Config: cfg})
+	wantEnd := t0.Add(10 * time.Minute)
+	if !blocks[0].End.Equal(wantEnd) || !ex.Presence.Last.Equal(wantEnd) {
+		t.Fatalf("block end = %v, last activity = %v, want %v", blocks[0].End, ex.Presence.Last, wantEnd)
+	}
+	if !ex.Presence.Next.Equal(back) {
+		t.Fatalf("next activity = %v, want %v (idle samples are no activity)", ex.Presence.Next, back)
+	}
+}
+
 func shortCfg() sessionizer.Config {
 	cfg := sessionizer.DefaultConfig()
 	cfg.MinBlock = 10 * time.Minute

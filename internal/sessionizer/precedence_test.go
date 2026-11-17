@@ -11,7 +11,7 @@ import (
 func presenceApp(from, to float64, app string) []event.Event {
 	var out []event.Event
 	for m := from; m <= to; m++ {
-		out = append(out, event.Event{At: at(m), Kind: event.KindPresence, IdleSeconds: 1, App: app})
+		out = append(out, event.Event{At: at(m), Kind: event.KindPresence, App: app})
 	}
 	return out
 }
@@ -38,7 +38,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 4, "term"), presenceApp(5, 9, "ide"), presenceApp(10, 20, "term"),
 				[]event.Event{gitCtx, appHint(5, "ide", "", "WEB-7")},
 			),
-			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 10}, {"ABC-1", 10, 21}},
+			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 10}, {"ABC-1", 10, 20}},
 		},
 		{
 			name: "hint is ignored when its app is not frontmost",
@@ -46,7 +46,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 20, "term"),
 				[]event.Event{gitCtx, appHint(5, "ide", "", "WEB-7")},
 			),
-			want: []span{{"ABC-1", 0, 21}},
+			want: []span{{"ABC-1", 0, 20}},
 		},
 		{
 			name: "hint does not outlive its app and returns with it",
@@ -54,7 +54,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 9, "ide"), presenceApp(10, 14, "term"), presenceApp(15, 20, "ide"),
 				[]event.Event{gitCtx, appHint(0, "ide", "", "WEB-7")},
 			),
-			want: []span{{"WEB-7", 0, 10}, {"ABC-1", 10, 15}, {"WEB-7", 15, 21}},
+			want: []span{{"WEB-7", 0, 10}, {"ABC-1", 10, 15}, {"WEB-7", 15, 20}},
 		},
 		{
 			name: "manual pin beats hint and git",
@@ -62,7 +62,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 20, "ide"),
 				[]event.Event{gitCtx, appHint(0, "ide", "", "WEB-7"), manual(0, "PIN-1")},
 			),
-			want: []span{{"PIN-1", 0, 21}},
+			want: []span{{"PIN-1", 0, 20}},
 		},
 		{
 			name: "cleared pin restores the hint, not the git context",
@@ -70,7 +70,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 20, "ide"),
 				[]event.Event{gitCtx, appHint(0, "ide", "", "WEB-7"), manual(0, "PIN-1"), manual(10, "")},
 			),
-			want: []span{{"PIN-1", 0, 10}, {"WEB-7", 10, 21}},
+			want: []span{{"PIN-1", 0, 10}, {"WEB-7", 10, 20}},
 		},
 		{
 			name: "hint without app keeps latest-wins behaviour",
@@ -78,7 +78,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 20, "term"),
 				[]event.Event{gitCtx, appHint(5, "", "", "WEB-7"), ctx(12, "/r/a", "ABC-2-next")},
 			),
-			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 12}, {"ABC-2", 12, 21}},
+			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 12}, {"ABC-2", 12, 20}},
 		},
 		{
 			name: "repo-only hint for the git repo keeps the branch ticket",
@@ -86,7 +86,7 @@ func TestPrecedencePinBeatsHintBeatsGit(t *testing.T) {
 				presenceApp(0, 20, "ide"),
 				[]event.Event{gitCtx, appHint(5, "ide", "/r/a", "")},
 			),
-			want: []span{{"ABC-1", 0, 21}},
+			want: []span{{"ABC-1", 0, 20}},
 		},
 	}
 	for _, tt := range tests {
@@ -121,7 +121,7 @@ func TestPrecedenceEdgeCases(t *testing.T) {
 				presenceApp(15, 20, "term"),
 				[]event.Event{gitCtx, appHint(0, "ide", "", "WEB-7")},
 			),
-			want: []span{{"WEB-7", 0, 10}, {"ABC-1", 15, 21}},
+			want: []span{{"WEB-7", 0, 9}, {"ABC-1", 15, 20}},
 		},
 		{
 			name: "hint and git at the same time: the hint wins whatever the ID order",
@@ -129,7 +129,7 @@ func TestPrecedenceEdgeCases(t *testing.T) {
 				presenceApp(0, 20, "ide"),
 				[]event.Event{withID(appHint(5, "ide", "", "WEB-7"), 1), withID(ctx(5, "/r/a", "ABC-2-next"), 2), withID(gitCtx, 0)},
 			),
-			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 21}},
+			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 20}},
 		},
 		{
 			name: "hint and git at the same time, reversed IDs",
@@ -137,15 +137,15 @@ func TestPrecedenceEdgeCases(t *testing.T) {
 				presenceApp(0, 20, "ide"),
 				[]event.Event{withID(appHint(5, "ide", "", "WEB-7"), 2), withID(ctx(5, "/r/a", "ABC-2-next"), 1), withID(gitCtx, 0)},
 			),
-			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 21}},
+			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 20}},
 		},
 		{
 			name: "hint and the presence sample that brings its app to the front share a timestamp",
 			events: join(
 				presenceApp(0, 4, "term"), presenceApp(6, 20, "ide"),
-				[]event.Event{withID(gitCtx, 0), withID(appHint(5, "ide", "", "WEB-7"), 1), withID(event.Event{At: at(5), Kind: event.KindPresence, IdleSeconds: 1, App: "ide"}, 2)},
+				[]event.Event{withID(gitCtx, 0), withID(appHint(5, "ide", "", "WEB-7"), 1), withID(event.Event{At: at(5), Kind: event.KindPresence, App: "ide"}, 2)},
 			),
-			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 21}},
+			want: []span{{"ABC-1", 0, 5}, {"WEB-7", 5, 20}},
 		},
 		{
 			name: "a presence sample without an app neither clears nor changes the frontmost app",
@@ -153,7 +153,7 @@ func TestPrecedenceEdgeCases(t *testing.T) {
 				presenceApp(0, 4, "ide"), presenceApp(5, 9, ""), presenceApp(10, 20, "ide"),
 				[]event.Event{gitCtx, appHint(0, "ide", "", "WEB-7")},
 			),
-			want: []span{{"WEB-7", 0, 21}},
+			want: []span{{"WEB-7", 0, 20}},
 		},
 	}
 	for _, tt := range tests {

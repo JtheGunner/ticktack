@@ -17,10 +17,9 @@ var update = flag.Bool("update", false, "rewrite the expected fixture files")
 
 type fixture struct {
 	Config struct {
-		GapThreshold   string `json:"gapThreshold"`
-		IdleThreshold  string `json:"idleThreshold"`
-		SampleInterval string `json:"sampleInterval"`
-		MinBlock       string `json:"minBlock"`
+		GapThreshold  string `json:"gapThreshold"`
+		IdleThreshold string `json:"idleThreshold"`
+		MinBlock      string `json:"minBlock"`
 	} `json:"config"`
 	Rules struct {
 		Repos []resolver.RepoRule `json:"repos"`
@@ -41,6 +40,18 @@ func parseDuration(t *testing.T, s string) time.Duration {
 	return d
 }
 
+// TestReplayFixtures derives blocks from recorded event files and compares them
+// with the expected files next to them.
+//
+// Fixture notes:
+//   - A block ends at its last activity: the last present sample minus its idle
+//     time (1 s in these recordings). It no longer extends by one sample
+//     interval, so every expected end is one interval earlier than before and
+//     the fixtures carry no sampleInterval setting.
+//   - In sleep_gap.json the gap marker at 09:40 precedes the first sample after
+//     the gap, the order in which the agent writes them (the marker first, then
+//     the sample). Earlier the order did not matter; now a sample sorted ahead
+//     of its own gap marker would start a span that the marker closes at once.
 func TestReplayFixtures(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "*.json"))
 	if err != nil {
@@ -63,10 +74,9 @@ func TestReplayFixtures(t *testing.T) {
 				t.Fatalf("decode fixture: %v", err)
 			}
 			cfg := Config{
-				GapThreshold:   parseDuration(t, fx.Config.GapThreshold),
-				IdleThreshold:  parseDuration(t, fx.Config.IdleThreshold),
-				SampleInterval: parseDuration(t, fx.Config.SampleInterval),
-				MinBlock:       parseDuration(t, fx.Config.MinBlock),
+				GapThreshold:  parseDuration(t, fx.Config.GapThreshold),
+				IdleThreshold: parseDuration(t, fx.Config.IdleThreshold),
+				MinBlock:      parseDuration(t, fx.Config.MinBlock),
 			}
 			blocks := Derive(fx.Events, fx.Overrides, cfg, resolver.Rules{Repos: fx.Rules.Repos})
 			for i := range blocks {

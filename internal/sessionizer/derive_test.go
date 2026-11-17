@@ -18,7 +18,7 @@ func at(minutes float64) time.Time {
 func presence(from, to, step float64) []event.Event {
 	var out []event.Event
 	for m := from; m <= to; m += step {
-		out = append(out, event.Event{At: at(m), Kind: event.KindPresence, IdleSeconds: 1})
+		out = append(out, event.Event{At: at(m), Kind: event.KindPresence})
 	}
 	return out
 }
@@ -36,7 +36,7 @@ func join(parts ...[]event.Event) []event.Event {
 }
 
 func testConfig() Config {
-	return Config{GapThreshold: 5 * time.Minute, IdleThreshold: 5 * time.Minute, SampleInterval: time.Minute, MinBlock: 2 * time.Minute}
+	return Config{GapThreshold: 5 * time.Minute, IdleThreshold: 5 * time.Minute, MinBlock: 2 * time.Minute}
 }
 
 func total(blocks []Block) time.Duration {
@@ -50,8 +50,8 @@ func total(blocks []Block) time.Duration {
 func TestDeriveBridgesShortGaps(t *testing.T) {
 	events := join(presence(0, 10, 1), presence(14, 20, 1), []event.Event{ctx(0, "/r/a", "ABC-1-work")})
 	blocks := Derive(events, nil, testConfig(), resolver.Rules{})
-	if len(blocks) != 1 || !blocks[0].Start.Equal(at(0)) || !blocks[0].End.Equal(at(21)) {
-		t.Fatalf("want one block 0..21, got %+v", blocks)
+	if len(blocks) != 1 || !blocks[0].Start.Equal(at(0)) || !blocks[0].End.Equal(at(20)) {
+		t.Fatalf("want one block 0..20, got %+v", blocks)
 	}
 	if blocks[0].Ticket != "ABC-1" {
 		t.Fatalf("ticket = %q", blocks[0].Ticket)
@@ -64,7 +64,7 @@ func TestDeriveDoesNotBridgeLongGaps(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("want two blocks, got %+v", blocks)
 	}
-	if !blocks[0].End.Equal(at(11)) || !blocks[1].Start.Equal(at(20)) {
+	if !blocks[0].End.Equal(at(10)) || !blocks[1].Start.Equal(at(20)) {
 		t.Fatalf("unexpected edges: %+v", blocks)
 	}
 }
@@ -72,7 +72,7 @@ func TestDeriveDoesNotBridgeLongGaps(t *testing.T) {
 func TestDeriveCarriesContextForward(t *testing.T) {
 	events := join(presence(0, 30, 1), []event.Event{ctx(0, "/r/a", "ABC-1-work")})
 	blocks := Derive(events, nil, testConfig(), resolver.Rules{})
-	if len(blocks) != 1 || blocks[0].Ticket != "ABC-1" || blocks[0].Duration() != 31*time.Minute {
+	if len(blocks) != 1 || blocks[0].Ticket != "ABC-1" || blocks[0].Duration() != 30*time.Minute {
 		t.Fatalf("context not carried forward: %+v", blocks)
 	}
 }
@@ -81,7 +81,7 @@ func TestDeriveIgnoresAppOnlyContextHints(t *testing.T) {
 	hint := event.Event{At: at(10), Kind: event.KindContext, Source: "activitywatch", App: "Safari"}
 	events := join(presence(0, 30, 1), []event.Event{ctx(0, "/r/a", "ABC-1-work"), hint})
 	blocks := Derive(events, nil, testConfig(), resolver.Rules{})
-	if len(blocks) != 1 || blocks[0].Ticket != "ABC-1" || blocks[0].Duration() != 31*time.Minute {
+	if len(blocks) != 1 || blocks[0].Ticket != "ABC-1" || blocks[0].Duration() != 30*time.Minute {
 		t.Fatalf("app-only hint disturbed the context: %+v", blocks)
 	}
 }
@@ -127,10 +127,10 @@ func TestDeriveIgnoresSleepGapMarker(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("gap marker was bridged: %+v", blocks)
 	}
-	if !blocks[0].End.Equal(at(11)) || !blocks[1].Start.Equal(at(13)) {
+	if !blocks[0].End.Equal(at(10)) || !blocks[1].Start.Equal(at(13)) {
 		t.Fatalf("time inside the gap counted: %+v", blocks)
 	}
-	if total(blocks) != 19*time.Minute {
+	if total(blocks) != 17*time.Minute {
 		t.Fatalf("total = %v", total(blocks))
 	}
 }
@@ -181,7 +181,7 @@ func TestDeriveAppliesOverridesAfterRederive(t *testing.T) {
 				rule += b.Duration()
 			}
 		}
-		if zzz != 10*time.Minute || sum != 50*time.Minute || rule != 40*time.Minute {
+		if zzz != 10*time.Minute || sum != 49*time.Minute || rule != 39*time.Minute {
 			t.Fatalf("zzz=%v rule=%v sum=%v blocks=%+v", zzz, rule, sum, blocks)
 		}
 	}
@@ -206,7 +206,7 @@ func TestDeriveMergesShortBlockIntoSameTicketNeighbour(t *testing.T) {
 		}
 		sum += b.Duration()
 	}
-	if len(blocks) != 2 || sum != 30*time.Minute {
+	if len(blocks) != 2 || sum != 29*time.Minute {
 		t.Fatalf("got %+v", blocks)
 	}
 }
@@ -235,7 +235,7 @@ func TestDeriveMergesTouchingDemotedBlocksOfDifferentContexts(t *testing.T) {
 		t.Fatalf("want one merged block, got %+v", blocks)
 	}
 	b := blocks[0]
-	if b.Ticket != "" || b.Tier != resolver.TierUnknown || b.Repo != "" || b.Branch != "" || b.Duration() != 9*time.Minute {
+	if b.Ticket != "" || b.Tier != resolver.TierUnknown || b.Repo != "" || b.Branch != "" || b.Duration() != 8*time.Minute {
 		t.Fatalf("merged block wrong: %+v", b)
 	}
 }

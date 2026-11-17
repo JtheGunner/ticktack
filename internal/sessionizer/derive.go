@@ -8,13 +8,13 @@
 //   - Time to book is presence intersected with context. Context events alone
 //     never create time; without presence there is no block at all.
 //   - A presence sample counts as present only if its idle time is below
-//     Config.IdleThreshold. Consecutive present samples at most
+//     Config.IdleThreshold, and it is evidence of activity at the moment of
+//     the last input (sample time minus idle time). Activity moments at most
 //     Config.GapThreshold apart form one presence span (short gaps are
 //     bridged). A longer gap, or a gap marker event (event.KindGap) between
 //     them, ends the span: gap markers are never bridged and time inside a
-//     gap is never counted. A span runs from its first to its last present
-//     sample plus at most Config.SampleInterval, so the trailing edge is not
-//     over-counted.
+//     gap is never counted. A span runs from its first to its last activity,
+//     so idle time after the last input is never booked.
 //   - The current context is the latest context event at or before a moment
 //     (carried forward until it changes). The resolver turns it into ticket,
 //     tier and reason. Presence before the first context event yields an
@@ -64,11 +64,8 @@ type Config struct {
 	// GapThreshold is the longest gap between present samples that is bridged.
 	GapThreshold time.Duration
 	// IdleThreshold is the idle time from which a sample no longer counts as
-	// present. Zero means GapThreshold.
+	// present. It is independent of GapThreshold.
 	IdleThreshold time.Duration
-	// SampleInterval is the presence sampling interval; it bounds how far a
-	// span extends past its last present sample.
-	SampleInterval time.Duration
 	// MinBlock is the minimum length of a block before it is merged or
 	// demoted to unknown.
 	MinBlock time.Duration
@@ -77,20 +74,21 @@ type Config struct {
 // DefaultConfig returns the default derivation thresholds.
 func DefaultConfig() Config {
 	return Config{
-		GapThreshold:   config.DefaultGapThreshold,
-		IdleThreshold:  config.DefaultGapThreshold,
-		SampleInterval: 30 * time.Second,
-		MinBlock:       config.DefaultMinBlockDuration,
+		GapThreshold:  config.DefaultGapThreshold,
+		IdleThreshold: config.DefaultIdleThreshold,
+		MinBlock:      config.DefaultMinBlockDuration,
 	}
 }
 
-// ConfigFrom builds a Config from the user configuration. Idle threshold and
-// sample interval are not user-configurable and use their defaults.
+// ConfigFrom builds a Config from the user configuration. The sample interval
+// is not user-configurable and uses its default.
 func ConfigFrom(c config.Config) Config {
 	cfg := DefaultConfig()
 	if c.GapThreshold > 0 {
 		cfg.GapThreshold = c.GapThreshold
-		cfg.IdleThreshold = c.GapThreshold
+	}
+	if c.IdleThreshold > 0 {
+		cfg.IdleThreshold = c.IdleThreshold
 	}
 	if c.MinBlockDuration > 0 {
 		cfg.MinBlock = c.MinBlockDuration
@@ -104,10 +102,7 @@ func (c Config) withDefaults() Config {
 		c.GapThreshold = d.GapThreshold
 	}
 	if c.IdleThreshold <= 0 {
-		c.IdleThreshold = c.GapThreshold
-	}
-	if c.SampleInterval <= 0 {
-		c.SampleInterval = d.SampleInterval
+		c.IdleThreshold = d.IdleThreshold
 	}
 	if c.MinBlock < 0 {
 		c.MinBlock = 0
@@ -175,24 +170,23 @@ func sortedEvents(events []event.Event) []event.Event {
 
 type interval struct{ start, end time.Time }
 
-// presenceSpans folds the sorted events into bridged presence spans.
+// presenceSpans folds the sorted events into presence spans.
+//
+// A present sample is evidence of activity at At minus its idle time, the
+// moment of the last input. That moment is never earlier than the latest gap
+// marker, so time slept through is not credited. A span starts at its first
+// sample, so it never begins ahead of the context event the returning user
+// triggered, and ends at its last activity; idle time after the last input is
+// not work. An activity more than GapThreshold after the previous one starts
+// a new span.
 func presenceSpans(sorted []event.Event, cfg Config) []interval {
 	var spans []interval
 	var cur *interval
-	var last time.Time
+	var floor time.Time
 
-	// closeSpan ends the open span at last+SampleInterval, limited by limit
-	// when limit lies after the last sample.
-	closeSpan := func(limit time.Time) {
-		if cur == nil {
-			return
-		}
-		end := last.Add(cfg.SampleInterval)
-		if limit.After(last) && limit.Before(end) {
-			end = limit
-		}
-		if end.After(cur.start) {
-			spans = append(spans, interval{cur.start, end})
+	closeSpan := func() {
+		if cur != nil && cur.end.After(cur.start) {
+			spans = append(spans, *cur)
 		}
 		cur = nil
 	}
@@ -200,21 +194,26 @@ func presenceSpans(sorted []event.Event, cfg Config) []interval {
 	for _, e := range sorted {
 		switch e.Kind {
 		case event.KindGap:
-			closeSpan(e.At.Add(-time.Duration(e.IdleSeconds) * time.Second))
+			closeSpan()
+			floor = e.At
 		case event.KindPresence:
-			if time.Duration(e.IdleSeconds)*time.Second >= cfg.IdleThreshold {
+			idle := time.Duration(e.IdleSeconds) * time.Second
+			if idle >= cfg.IdleThreshold {
 				continue
 			}
-			if cur != nil && e.At.Sub(last) > cfg.GapThreshold {
-				closeSpan(e.At)
+			active := maxTime(e.At.Add(-idle), floor)
+			if cur != nil && active.Sub(cur.end) > cfg.GapThreshold {
+				closeSpan()
 			}
 			if cur == nil {
-				cur = &interval{start: e.At}
+				cur = &interval{start: e.At, end: e.At}
 			}
-			last = e.At
+			if active.After(cur.end) {
+				cur.end = active
+			}
 		}
 	}
-	closeSpan(time.Time{})
+	closeSpan()
 	return spans
 }
 
