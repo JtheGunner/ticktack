@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-17
+
 ### Added
 
 - `ticktack review` has a help screen: type `?` (or `help`) for every action with its placeholders, a description and an example, one command per line.
@@ -118,7 +120,8 @@ First public release.
 - The git scan (`ticktack scan` and the agent scan) now honours the configured `ticket_pattern` instead of always using the default.
 - The ActivityWatch URL check rejects IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`) and zoned loopback addresses; numerically encoded and `localhost`-lookalike hosts stay rejected.
 
-[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/JtheGunner/ticktack/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/JtheGunner/ticktack/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/JtheGunner/ticktack/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/JtheGunner/ticktack/compare/v0.3.1...v0.3.2
