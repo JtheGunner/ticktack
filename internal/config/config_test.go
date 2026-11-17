@@ -86,6 +86,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.GapThreshold != 5*time.Minute {
 		t.Errorf("GapThreshold = %v", cfg.GapThreshold)
 	}
+	if cfg.IdleThreshold != DefaultIdleThreshold || DefaultIdleThreshold != 3*time.Minute {
+		t.Errorf("IdleThreshold = %v, want default 3m", cfg.IdleThreshold)
+	}
 	if cfg.MinBlockDuration != DefaultMinBlockDuration {
 		t.Errorf("MinBlockDuration = %v", cfg.MinBlockDuration)
 	}
@@ -110,6 +113,7 @@ func TestLoadParsesValues(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `
 youtrack_url = "https://yt.example.com"
 gap_threshold = "10m"
+idle_threshold = "2m"
 min_block_duration = "15m"
 rounding = "30m"
 daily_cap = "8h"
@@ -126,6 +130,9 @@ ticket = "PRJ-1"
 	}
 	if cfg.GapThreshold != 10*time.Minute || cfg.DailyCap != 8*time.Hour {
 		t.Errorf("durations not parsed: %+v", cfg)
+	}
+	if cfg.IdleThreshold != 2*time.Minute {
+		t.Errorf("IdleThreshold = %v, want 2m", cfg.IdleThreshold)
 	}
 	if cfg.Location.String() != "Europe/Zurich" {
 		t.Errorf("Location = %v", cfg.Location)
@@ -151,6 +158,8 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	cases := map[string]string{
 		"bad duration":  `gap_threshold = "soon"`,
 		"negative":      `gap_threshold = "-5m"`,
+		"bad idle":      `idle_threshold = "soon"`,
+		"negative idle": `idle_threshold = "-1m"`,
 		"bad time zone": `time_zone = "Mars/Olympus"`,
 		"bad url":       `youtrack_url = "not a url"`,
 		"rule no repo":  "[[rules]]\nticket = \"A-1\"",

@@ -2,7 +2,6 @@
  "config": {
   "gapThreshold": "5m",
   "idleThreshold": "5m",
-  "sampleInterval": "2m",
   "minBlock": "5m"
  },
  "rules": {
@@ -172,16 +171,16 @@
   },
   {
    "At": "2026-03-02T09:40:00Z",
-   "Kind": "presence",
+   "Kind": "gap",
    "Source": "presence",
-   "IdleSeconds": 1,
+   "IdleSeconds": 60,
    "ID": 23
   },
   {
    "At": "2026-03-02T09:40:00Z",
-   "Kind": "gap",
+   "Kind": "presence",
    "Source": "presence",
-   "IdleSeconds": 60,
+   "IdleSeconds": 1,
    "ID": 24
   },
   {

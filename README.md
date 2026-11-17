@@ -136,6 +136,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 |----------------------|------------------------|------------------------------------------------------------------|
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance.                              |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
+| `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
 | `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this.              |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |

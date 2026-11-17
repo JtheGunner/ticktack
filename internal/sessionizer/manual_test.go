@@ -27,7 +27,7 @@ func TestDeriveManualSwitchPinsAttribution(t *testing.T) {
 	if b.Ticket != "PROJ-12" || b.Tier != resolver.TierExplicit || b.Reason != "manual switch to PROJ-12" {
 		t.Errorf("manual block = %+v", b)
 	}
-	if !b.Start.Equal(at(10)) || !b.End.Equal(at(31)) {
+	if !b.Start.Equal(at(10)) || !b.End.Equal(at(30)) {
 		t.Errorf("manual block range = %v..%v", b.Start, b.End)
 	}
 }

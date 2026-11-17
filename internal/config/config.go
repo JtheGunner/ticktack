@@ -21,7 +21,10 @@ import (
 
 // Defaults applied when a key is absent from the configuration file.
 const (
-	DefaultGapThreshold     = 5 * time.Minute
+	DefaultGapThreshold = 5 * time.Minute
+	// DefaultIdleThreshold is the idle time from which a presence sample no
+	// longer counts as activity.
+	DefaultIdleThreshold    = 3 * time.Minute
 	DefaultMinBlockDuration = 10 * time.Minute
 	DefaultRounding         = 15 * time.Minute
 	DefaultDailyCap         = 10 * time.Hour
@@ -79,6 +82,7 @@ type DefaultIssue struct {
 type Config struct {
 	YouTrackURL      string
 	GapThreshold     time.Duration
+	IdleThreshold    time.Duration
 	MinBlockDuration time.Duration
 	Rounding         time.Duration
 	DailyCap         time.Duration
@@ -117,6 +121,7 @@ type titleHintFile struct {
 type fileConfig struct {
 	YouTrackURL      string   `toml:"youtrack_url"`
 	GapThreshold     string   `toml:"gap_threshold"`
+	IdleThreshold    string   `toml:"idle_threshold"`
 	MinBlockDuration string   `toml:"min_block_duration"`
 	Rounding         string   `toml:"rounding"`
 	DailyCap         string   `toml:"daily_cap"`
@@ -225,6 +230,7 @@ func build(raw fileConfig) (Config, error) {
 		target   *time.Duration
 	}{
 		{"gap_threshold", raw.GapThreshold, DefaultGapThreshold, &cfg.GapThreshold},
+		{"idle_threshold", raw.IdleThreshold, DefaultIdleThreshold, &cfg.IdleThreshold},
 		{"min_block_duration", raw.MinBlockDuration, DefaultMinBlockDuration, &cfg.MinBlockDuration},
 		{"rounding", raw.Rounding, DefaultRounding, &cfg.Rounding},
 		{"daily_cap", raw.DailyCap, DefaultDailyCap, &cfg.DailyCap},

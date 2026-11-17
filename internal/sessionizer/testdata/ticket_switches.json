@@ -2,7 +2,6 @@
  "config": {
   "gapThreshold": "5m",
   "idleThreshold": "5m",
-  "sampleInterval": "2m",
   "minBlock": "5m"
  },
  "rules": {

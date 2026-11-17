@@ -17,10 +17,9 @@ var update = flag.Bool("update", false, "rewrite the expected fixture files")
 
 type fixture struct {
 	Config struct {
-		GapThreshold   string `json:"gapThreshold"`
-		IdleThreshold  string `json:"idleThreshold"`
-		SampleInterval string `json:"sampleInterval"`
-		MinBlock       string `json:"minBlock"`
+		GapThreshold  string `json:"gapThreshold"`
+		IdleThreshold string `json:"idleThreshold"`
+		MinBlock      string `json:"minBlock"`
 	} `json:"config"`
 	Rules struct {
 		Repos []resolver.RepoRule `json:"repos"`
@@ -63,10 +62,9 @@ func TestReplayFixtures(t *testing.T) {
 				t.Fatalf("decode fixture: %v", err)
 			}
 			cfg := Config{
-				GapThreshold:   parseDuration(t, fx.Config.GapThreshold),
-				IdleThreshold:  parseDuration(t, fx.Config.IdleThreshold),
-				SampleInterval: parseDuration(t, fx.Config.SampleInterval),
-				MinBlock:       parseDuration(t, fx.Config.MinBlock),
+				GapThreshold:  parseDuration(t, fx.Config.GapThreshold),
+				IdleThreshold: parseDuration(t, fx.Config.IdleThreshold),
+				MinBlock:      parseDuration(t, fx.Config.MinBlock),
 			}
 			blocks := Derive(fx.Events, fx.Overrides, cfg, resolver.Rules{Repos: fx.Rules.Repos})
 			for i := range blocks {

@@ -21,6 +21,8 @@ func DefaultTOML(youTrackURL string) string {
 	}
 	b.WriteString("# Presence gaps longer than this end a work block.\n")
 	fmt.Fprintf(&b, "# gap_threshold = %q\n\n", DefaultGapThreshold.String())
+	b.WriteString("# A presence sample with at least this much idle time is ignored; time after the last input is never booked.\n")
+	fmt.Fprintf(&b, "# idle_threshold = %q\n\n", DefaultIdleThreshold.String())
 	b.WriteString("# Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.\n")
 	fmt.Fprintf(&b, "# min_block_duration = %q\n\n", DefaultMinBlockDuration.String())
 	b.WriteString("# Booked durations are rounded to a multiple of this.\n")

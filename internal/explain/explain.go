@@ -48,10 +48,10 @@ type Gap struct{ Start, End time.Time }
 type Presence struct {
 	// Samples is the number of present samples inside the block.
 	Samples int
-	// First and Last are the first and last present sample inside the block
-	// (zero without samples).
+	// First and Last are the first and last moment of activity (sample time
+	// minus its idle time) inside the block, zero without samples.
 	First, Last time.Time
-	// Previous and Next are the nearest present samples outside the block
+	// Previous and Next are the nearest moments of activity outside the block
 	// (zero when none exists); a distance above the gap threshold is what ends
 	// a presence span.
 	Previous, Next time.Time
@@ -197,25 +197,30 @@ func presenceFor(in Input) Presence {
 				p.Gaps = append(p.Gaps, gap)
 			}
 		case event.KindPresence:
-			if time.Duration(e.IdleSeconds)*time.Second >= cfg.IdleThreshold {
+			idle := time.Duration(e.IdleSeconds) * time.Second
+			if idle >= cfg.IdleThreshold {
 				continue
 			}
+			// A sample is evidence of activity at the last input, the same
+			// moment Derive uses; judging it by its own timestamp would place
+			// the sample that ends a block outside of it.
+			active := e.At.Add(-idle)
 			switch {
-			case e.At.Before(b.Start):
-				if e.At.After(p.Previous) {
-					p.Previous = e.At
+			case active.Before(b.Start):
+				if active.After(p.Previous) {
+					p.Previous = active
 				}
-			case !e.At.Before(b.End):
-				if p.Next.IsZero() || e.At.Before(p.Next) {
-					p.Next = e.At
+			case active.After(b.End):
+				if p.Next.IsZero() || active.Before(p.Next) {
+					p.Next = active
 				}
 			default:
 				p.Samples++
-				if p.First.IsZero() || e.At.Before(p.First) {
-					p.First = e.At
+				if p.First.IsZero() || active.Before(p.First) {
+					p.First = active
 				}
-				if e.At.After(p.Last) {
-					p.Last = e.At
+				if active.After(p.Last) {
+					p.Last = active
 				}
 			}
 		}
