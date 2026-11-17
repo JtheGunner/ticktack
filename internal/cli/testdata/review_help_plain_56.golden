@@ -1,0 +1,38 @@
+----------------------- Actions ------------------------
+  c confirm   t assign   s split   d discard   b break
+  y confirm all   ? help   q quit
+
+------------------------- Help -------------------------
+  Assign
+    t <block> <ticket>
+      Assign a block to a ticket
+    u <block> <n>
+      Take suggestion <n>
+    r [repo]
+      Remember last assignment
+  Confirm
+    c <block>
+      Confirm a block
+    y
+      Confirm all assigned blocks
+  Adjust
+    s <block> <time> [<ticket>]
+      Split a block at a time
+    b <block>
+      Mark a block as a break
+    d <block>
+      Discard a block
+  Other
+    a
+      Acknowledge daily cap
+    q
+      Quit
+    ?
+      Show this help (also: help)
+
+  Placeholders
+    <block>   number from the # column
+    <ticket>  ticket key, e.g. ABC-12
+    <time>    time of day, HH:MM
+    <n>       suggestion number
+    [repo]    optional: whole repository

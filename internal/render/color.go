@@ -1,13 +1,14 @@
 package render
 
 const (
-	ansiReset  = "\x1b[0m"
-	ansiRed    = "\x1b[31m"
-	ansiGreen  = "\x1b[32m"
-	ansiYellow = "\x1b[33m"
-	ansiCyan   = "\x1b[36m"
-	ansiBold   = "\x1b[1m"
-	ansiDim    = "\x1b[2m"
+	ansiReset   = "\x1b[0m"
+	ansiRed     = "\x1b[31m"
+	ansiGreen   = "\x1b[32m"
+	ansiYellow  = "\x1b[33m"
+	ansiMagenta = "\x1b[35m"
+	ansiCyan    = "\x1b[36m"
+	ansiBold    = "\x1b[1m"
+	ansiDim     = "\x1b[2m"
 )
 
 // Colors decides whether ANSI colour sequences are written. The zero value
@@ -41,6 +42,10 @@ func (c Colors) Dim(s string) string { return c.paint(ansiDim, s) }
 
 // Accent renders s in the accent colour (cyan).
 func (c Colors) Accent(s string) string { return c.paint(ansiCyan, s) }
+
+// Placeholder renders s in magenta. It marks the part of a command text that
+// the user replaces with a value.
+func (c Colors) Placeholder(s string) string { return c.paint(ansiMagenta, s) }
 
 // OK renders s in green.
 func (c Colors) OK(s string) string { return c.paint(ansiGreen, s) }

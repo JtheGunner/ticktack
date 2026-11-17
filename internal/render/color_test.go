@@ -44,6 +44,7 @@ func TestColorsStyleMethods(t *testing.T) {
 		{"Bold", Colors.Bold, "\x1b[1m"},
 		{"Dim", Colors.Dim, "\x1b[2m"},
 		{"Accent", Colors.Accent, "\x1b[36m"},
+		{"Placeholder", Colors.Placeholder, "\x1b[35m"},
 		{"OK", Colors.OK, "\x1b[32m"},
 		{"Warn", Colors.Warn, "\x1b[33m"},
 		{"Fail", Colors.Fail, "\x1b[31m"},

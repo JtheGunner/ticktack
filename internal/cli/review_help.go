@@ -8,79 +8,139 @@ import (
 )
 
 const (
-	reviewHelpIndent    = 2
-	reviewHelpLabelGap  = 2
-	reviewHelpSeparator = "   "
-	reviewHelpKeyGap    = "  "
+	keyBarIndent    = 2
+	keyBarSeparator = "   "
+	helpGroupIndent = 2
+	helpItemIndent  = 4
+	helpStackIndent = 6
+	helpColumnGap   = 2
 )
 
-// reviewHelpLines renders the action overview: a titled rule followed by one
-// block per group. The commands of a group share lines and wrap under the
-// group label when the layout is too narrow for them.
-func reviewHelpLines(rd render.Renderer) []string {
-	labelWidth := 0
-	for _, g := range reviewHelpGroups {
-		labelWidth = max(labelWidth, utf8.RuneCountInString(g.Name))
-	}
-	prefixWidth := reviewHelpIndent + labelWidth + reviewHelpLabelGap
-	budget := max(rd.LayoutWidth()-prefixWidth, 1)
+// styledText is text with its visible width, so styled strings can be padded
+// and packed without measuring escape sequences.
+type styledText struct {
+	text  string
+	width int
+}
 
+func plainText(s string) styledText { return styledText{s, utf8.RuneCountInString(s)} }
+
+func (s styledText) padded(width int) string {
+	return s.text + strings.Repeat(" ", max(width-s.width, 0))
+}
+
+// reviewKeyBarLines renders the key bar: a titled rule and the main commands
+// as "key verb" pairs, wrapped to the layout width. It holds no placeholders;
+// those belong to the help screen.
+func reviewKeyBarLines(rd render.Renderer) []string {
+	budget := max(rd.LayoutWidth()-keyBarIndent, 1)
 	lines := []string{rd.Rule(msgReviewHelpTitle)}
-	for _, g := range reviewHelpGroups {
-		for i, row := range packHelpChips(rd, g.Commands, budget) {
-			label := ""
-			if i == 0 {
-				label = g.Name
-			}
-			pad := strings.Repeat(" ", labelWidth-utf8.RuneCountInString(label)+reviewHelpLabelGap)
-			lines = append(lines, strings.Repeat(" ", reviewHelpIndent)+rd.Colors.Dim(label)+pad+strings.Join(row, reviewHelpSeparator))
+	var row []string
+	used := 0
+	flush := func() {
+		if len(row) > 0 {
+			lines = append(lines, strings.Repeat(" ", keyBarIndent)+strings.Join(row, keyBarSeparator))
+			row, used = nil, 0
 		}
 	}
+	for _, key := range reviewKeyBarKeys {
+		c := reviewCommandByKey(key)
+		chip := styledText{
+			text:  rd.Colors.Bold(rd.Colors.Accent(c.Key)) + " " + rd.Colors.Dim(c.Verb),
+			width: utf8.RuneCountInString(c.Key) + 1 + utf8.RuneCountInString(c.Verb),
+		}
+		if len(row) > 0 && used+len(keyBarSeparator)+chip.width > budget {
+			flush()
+		}
+		if len(row) > 0 {
+			used += len(keyBarSeparator)
+		}
+		row = append(row, chip.text)
+		used += chip.width
+	}
+	flush()
 	return lines
 }
 
-// packHelpChips fills lines of at most budget columns with the styled chips of
-// the commands, keeping their order.
-func packHelpChips(rd render.Renderer, commands []reviewCommand, budget int) [][]string {
-	var rows [][]string
-	var row []string
-	used := 0
-	for _, c := range commands {
-		chip, width := helpChip(rd, c, budget)
-		if len(row) > 0 && used+len(reviewHelpSeparator)+width > budget {
-			rows = append(rows, row)
-			row, used = nil, 0
+// helpLayout says which columns of the help screen fit the layout width.
+type helpLayout int
+
+const (
+	helpStacked  helpLayout = iota // description on its own line under the command
+	helpTwoCols                    // command | description
+	helpThreeCol                   // command | description | example
+)
+
+// reviewHelpLines renders the help screen: one command per line, grouped,
+// with description and example in aligned columns, followed by a legend of the
+// placeholders. A layout too narrow for all columns drops the example, then
+// moves the description under its command.
+func reviewHelpLines(rd render.Renderer) []string {
+	width := rd.LayoutWidth()
+	var usageW, descW, exampleW int
+	for _, g := range reviewHelpGroups {
+		for _, c := range g.Commands {
+			usageW = max(usageW, utf8.RuneCountInString(reviewUsage(c.Key)))
+			descW = max(descW, utf8.RuneCountInString(c.Description))
+			exampleW = max(exampleW, utf8.RuneCountInString(c.Example))
 		}
-		if len(row) > 0 {
-			used += len(reviewHelpSeparator)
+	}
+	layout := helpStacked
+	switch {
+	case helpItemIndent+usageW+helpColumnGap+descW+helpColumnGap+exampleW <= width:
+		layout = helpThreeCol
+	case helpItemIndent+usageW+helpColumnGap+descW <= width:
+		layout = helpTwoCols
+	}
+
+	lines := []string{rd.Rule(msgReviewHelpScreenTitle)}
+	for _, g := range reviewHelpGroups {
+		lines = append(lines, strings.Repeat(" ", helpGroupIndent)+rd.Colors.Bold(g.Name))
+		for _, c := range g.Commands {
+			usage := commandUsage(rd, c)
+			item := strings.Repeat(" ", helpItemIndent)
+			switch layout {
+			case helpThreeCol:
+				item += usage.padded(usageW+helpColumnGap) +
+					plainText(c.Description).padded(descW+helpColumnGap) + rd.Colors.Dim(c.Example)
+			case helpTwoCols:
+				item += usage.padded(usageW+helpColumnGap) + c.Description
+			default:
+				item += usage.text
+			}
+			lines = append(lines, item)
+			if layout == helpStacked {
+				lines = append(lines, strings.Repeat(" ", helpStackIndent)+c.Description)
+			}
 		}
-		row = append(row, chip)
-		used += width
 	}
-	if len(row) > 0 {
-		rows = append(rows, row)
-	}
-	return rows
+	return append(lines, placeholderLegend(rd, width)...)
 }
 
-// helpChip returns the styled "key args  description" text of one command and
-// its visible width. A description that cannot fit a line on its own is cut
-// with an ellipsis.
-func helpChip(rd render.Renderer, c reviewCommand, budget int) (string, int) {
-	head := c.Key
+// commandUsage styles "key args": the key bold and accented, the placeholders
+// in their own colour.
+func commandUsage(rd render.Renderer, c reviewCommand) styledText {
+	text := rd.Colors.Bold(rd.Colors.Accent(c.Key))
 	if c.Args != "" {
-		head += " " + c.Args
+		text += " " + rd.Colors.Placeholder(c.Args)
 	}
-	desc := c.Description
-	if room := budget - utf8.RuneCountInString(head) - len(reviewHelpKeyGap); utf8.RuneCountInString(desc) > room {
-		desc = truncateRunes(desc, room, rd.Glyphs.Ellipsis)
+	return styledText{text, utf8.RuneCountInString(reviewUsage(c.Key))}
+}
+
+// placeholderLegend explains every placeholder, one per line.
+func placeholderLegend(rd render.Renderer, width int) []string {
+	nameW := 0
+	for _, p := range reviewPlaceholders {
+		nameW = max(nameW, utf8.RuneCountInString(p.Name))
 	}
-	styled := rd.Colors.Bold(rd.Colors.Accent(c.Key))
-	if c.Args != "" {
-		styled += " " + rd.Colors.Dim(c.Args)
+	lines := []string{"", strings.Repeat(" ", helpGroupIndent) + rd.Colors.Bold(msgReviewHelpPlaceholders)}
+	for _, p := range reviewPlaceholders {
+		room := max(width-helpItemIndent-nameW-helpColumnGap, 1)
+		lines = append(lines, strings.Repeat(" ", helpItemIndent)+
+			styledText{rd.Colors.Placeholder(p.Name), utf8.RuneCountInString(p.Name)}.padded(nameW+helpColumnGap)+
+			truncateRunes(p.Meaning, room, rd.Glyphs.Ellipsis))
 	}
-	styled += reviewHelpKeyGap + desc
-	return styled, utf8.RuneCountInString(head) + len(reviewHelpKeyGap) + utf8.RuneCountInString(desc)
+	return lines
 }
 
 // truncateRunes shortens s to at most n runes, ending in ellipsis when it was

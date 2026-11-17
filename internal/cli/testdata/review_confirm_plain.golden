@@ -5,11 +5,8 @@
     explicit ticket ABC-1 on event
 
 ---------------------------------- Actions -----------------------------------
-  Assign   t N TICKET  reassign   u N K  take suggestion K
-           r [repo]  remember last reassignment
-  Confirm  c N  confirm   y  confirm all
-  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
-  Other    a  acknowledge cap   q  quit
+  c confirm   t assign   s split   d discard   b break   y confirm all
+  ? help   q quit
 review>   Review for 2026-01-05
 
   #  Time         Length  Ticket  Tier      Reason  State
@@ -17,11 +14,8 @@ review>   Review for 2026-01-05
     explicit ticket ABC-1 on event
 
 ---------------------------------- Actions -----------------------------------
-  Assign   t N TICKET  reassign   u N K  take suggestion K
-           r [repo]  remember last reassignment
-  Confirm  c N  confirm   y  confirm all
-  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
-  Other    a  acknowledge cap   q  quit
+  c confirm   t assign   s split   d discard   b break   y confirm all
+  ? help   q quit
   +  Confirmed ABC-1.
 review>   x  Error: no such entry: 7
 review> 
