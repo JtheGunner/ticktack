@@ -3,6 +3,7 @@ package youtrack
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +17,9 @@ const (
 	// markerSearchLimit bounds how many issues of a project are inspected when
 	// looking for a marker; standard tasks are old and few.
 	markerSearchLimit = 100
+	// standardTaskTag marks every standard task ticktack creates, so that it
+	// stays recognisable as a catch-all task.
+	standardTaskTag = "manual"
 )
 
 // Projects lists every non-archived project, paging through the admin
@@ -93,8 +97,9 @@ func searchWords(marker string) string {
 	}), " ")
 }
 
-// CreateIssue creates an issue in project assigned to the token owner and
-// returns its readable key.
+// CreateIssue creates an issue in project assigned to the token owner, tagged
+// "manual", and returns its readable key. The tag is resolved (and created when
+// missing) before the issue, so a failure leaves no untagged issue behind.
 func (c *Client) CreateIssue(ctx context.Context, project, summary, description string) (string, error) {
 	var proj struct {
 		ID string `json:"id"`
@@ -110,10 +115,15 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 	if err != nil {
 		return "", err
 	}
+	tagID, err := c.ensureTag(ctx, standardTaskTag)
+	if err != nil {
+		return "", fmt.Errorf("youtrack: resolve tag %q: %w", standardTaskTag, err)
+	}
 	body := map[string]any{
 		"project":     map[string]any{"id": proj.ID},
 		"summary":     summary,
 		"description": description,
+		"tags":        []map[string]any{{"id": tagID}},
 		"customFields": []map[string]any{{
 			"name":  "Assignee",
 			"$type": "SingleUserIssueCustomField",
@@ -130,4 +140,33 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 		return "", errors.New("youtrack: create issue response has no key")
 	}
 	return out.ID, nil
+}
+
+// ensureTag returns the id of the tag called name, creating it when no tag of
+// that name (case-insensitive) is visible to the token owner.
+func (c *Client) ensureTag(ctx context.Context, name string) (string, error) {
+	var tags []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	q := url.Values{"query": {name}, "fields": {"id,name"}}
+	if err := c.do(ctx, http.MethodGet, "/api/tags", q, nil, &tags); err != nil {
+		return "", err
+	}
+	for _, t := range tags {
+		if t.ID != "" && strings.EqualFold(t.Name, name) {
+			return t.ID, nil
+		}
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	body := map[string]any{"name": name}
+	if err := c.do(ctx, http.MethodPost, "/api/tags", url.Values{"fields": {"id"}}, body, &created); err != nil {
+		return "", err
+	}
+	if created.ID == "" {
+		return "", errors.New("create tag response has no id")
+	}
+	return created.ID, nil
 }
