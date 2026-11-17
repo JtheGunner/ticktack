@@ -4,14 +4,24 @@
   1  09:00-10:00   1h01m  ABC-1   explicit
     explicit ticket ABC-1 on event
 
-  i  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+---------------------------------- Actions -----------------------------------
+  Assign   t N TICKET  reassign   u N K  take suggestion K
+           r [repo]  remember last reassignment
+  Confirm  c N  confirm   y  confirm all
+  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
+  Other    a  acknowledge cap   q  quit
 review>   Review for 2026-01-05
 
   #  Time         Length  Ticket  Tier      Reason  State
   1  09:00-10:00   1h01m  ABC-1   explicit          confirmed
     explicit ticket ABC-1 on event
 
-  i  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+---------------------------------- Actions -----------------------------------
+  Assign   t N TICKET  reassign   u N K  take suggestion K
+           r [repo]  remember last reassignment
+  Confirm  c N  confirm   y  confirm all
+  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
+  Other    a  acknowledge cap   q  quit
   +  Confirmed ABC-1.
 review>   x  Error: no such entry: 7
 review> 

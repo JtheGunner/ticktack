@@ -15,7 +15,7 @@ const (
 	msgReviewPrompt                 = "review> "
 	msgReviewNoEntries              = "No time recorded for %s."
 	msgReviewProjectsStale          = "Could not refresh the YouTrack project list, using the cached one: %s"
-	msgReviewHelp                   = "Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit"
+	msgReviewHelpTitle              = "Actions"
 	msgReviewConfirmed              = "Confirmed %s."
 	msgReviewConfirmAll             = "Confirmed %d item(s). Unassigned time is never confirmed."
 	msgReviewReassigned             = "Entry %d assigned to %s."
@@ -36,7 +36,42 @@ const (
 )
 
 func msgReviewUnknownCommand(line string) string {
-	return fmt.Sprintf("Unknown command %q. %s", line, msgReviewHelp)
+	return fmt.Sprintf("Unknown command %q.", line)
+}
+
+// reviewCommand is one action of the review prompt as the help shows it.
+type reviewCommand struct {
+	Key         string
+	Args        string
+	Description string
+}
+
+// reviewCommandGroup bundles the actions that serve one purpose.
+type reviewCommandGroup struct {
+	Name     string
+	Commands []reviewCommand
+}
+
+// reviewHelpGroups is the content of the review help, in display order.
+var reviewHelpGroups = []reviewCommandGroup{
+	{Name: "Assign", Commands: []reviewCommand{
+		{Key: "t", Args: "N TICKET", Description: "reassign"},
+		{Key: "u", Args: "N K", Description: "take suggestion K"},
+		{Key: "r", Args: "[repo]", Description: "remember last reassignment"},
+	}},
+	{Name: "Confirm", Commands: []reviewCommand{
+		{Key: "c", Args: "N", Description: "confirm"},
+		{Key: "y", Description: "confirm all"},
+	}},
+	{Name: "Adjust", Commands: []reviewCommand{
+		{Key: "s", Args: "N HH:MM [TICKET]", Description: "split"},
+		{Key: "b", Args: "N", Description: "break"},
+		{Key: "d", Args: "N", Description: "discard"},
+	}},
+	{Name: "Other", Commands: []reviewCommand{
+		{Key: "a", Description: "acknowledge cap"},
+		{Key: "q", Description: "quit"},
+	}},
 }
 
 func msgReviewSuggestionsHeader(index int) string {

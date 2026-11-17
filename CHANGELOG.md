@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `ticktack review` shows its actions as a grouped overview (Assign, Confirm, Adjust, Other) with highlighted keys instead of one long line. It shows the same overview after an unknown command, and falls back to plain text without colour support.
+
 ## [0.3.3] - 2026-11-17
 
 ### Changed
