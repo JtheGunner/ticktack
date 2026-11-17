@@ -238,7 +238,19 @@ func (r *reviewRun) show() {
 		r.say(render.StatusWarn, msgReviewCapWarning(*w))
 	}
 	r.println("")
-	r.say(render.StatusInfo, msgReviewHelp)
+	r.showHelp()
+}
+
+// showHelp prints the grouped action overview. While an action runs it is
+// held with the other feedback lines so it lands next to the prompt.
+func (r *reviewRun) showHelp() {
+	for _, line := range reviewHelpLines(r.render) {
+		if r.hold {
+			r.held = append(r.held, line)
+			continue
+		}
+		r.println(line)
+	}
 }
 
 // entryRow returns the table cells of one entry. The block number is the same
@@ -340,6 +352,7 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 		return r.entryAction(cmd, args)
 	}
 	r.say(render.StatusWarn, msgReviewUnknownCommand(strings.Join(f, " ")))
+	r.showHelp()
 	return false, nil
 }
 

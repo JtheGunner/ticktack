@@ -8,7 +8,12 @@
      1) ABC-1  first
      2) DEF-2  second
 
-  i  Actions: c N confirm | t N TICKET reassign | u N K take suggestion K | r [repo] remember last reassignment | d N discard | b N break | s N HH:MM [TICKET] split | a acknowledge cap | y confirm all | q quit
+------------------------------ Actions -------------------------------
+  Assign   t N TICKET  reassign   u N K  take suggestion K
+           r [repo]  remember last reassignment
+  Confirm  c N  confirm   y  confirm all
+  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
+  Other    a  acknowledge cap   q  quit
 review> 
   i  Summary: 0 confirmed, 0 discarded, 0 unconfirmed, 1 unassigned.
   i  Nothing confirmed yet: `ticktack sync` will book nothing.
