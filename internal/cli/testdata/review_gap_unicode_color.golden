@@ -4,27 +4,21 @@
   1  09:00-10:00   1h01m  (unassigned)  [2munknown[0m          [33mneeds ticket[0m
     [2mno ticket in branch and no rule for repo[0m
 
-  [36mℹ[0m  Suggestions for 1 (assigned to you, In Progress; take one with u 1 K):
+  [36mℹ[0m  Suggestions for 1 (assigned to you, In Progress; take one with u 1 <n>):
      1) ABC-1  first
      2) DEF-2  second
 
 [36m──────────────────────────────────[0m[1m Actions [0m[36m───────────────────────────────────[0m
-  [2mAssign[0m   [1m[36mt[0m[0m [2mN TICKET[0m  reassign   [1m[36mu[0m[0m [2mN K[0m  take suggestion K
-           [1m[36mr[0m[0m [2m[repo][0m  remember last reassignment
-  [2mConfirm[0m  [1m[36mc[0m[0m [2mN[0m  confirm   [1m[36my[0m[0m  confirm all
-  [2mAdjust[0m   [1m[36ms[0m[0m [2mN HH:MM [TICKET][0m  split   [1m[36mb[0m[0m [2mN[0m  break   [1m[36md[0m[0m [2mN[0m  discard
-  [2mOther[0m    [1m[36ma[0m[0m  acknowledge cap   [1m[36mq[0m[0m  quit
+  [1m[36mc[0m[0m [2mconfirm[0m   [1m[36mt[0m[0m [2massign[0m   [1m[36ms[0m[0m [2msplit[0m   [1m[36md[0m[0m [2mdiscard[0m   [1m[36mb[0m[0m [2mbreak[0m   [1m[36my[0m[0m [2mconfirm all[0m
+  [1m[36m?[0m[0m [2mhelp[0m   [1m[36mq[0m[0m [2mquit[0m
 review>   [1mReview for 2026-01-05[0m
 
   [2m#[0m  [2mTime[0m         [2mLength[0m  [2mTicket[0m  [2mTier[0m      [2mReason[0m           [2mState[0m
   1  09:00-10:00   1h01m  ABC-7   [32mexplicit[0m  manual override
 
 [36m──────────────────────────────────[0m[1m Actions [0m[36m───────────────────────────────────[0m
-  [2mAssign[0m   [1m[36mt[0m[0m [2mN TICKET[0m  reassign   [1m[36mu[0m[0m [2mN K[0m  take suggestion K
-           [1m[36mr[0m[0m [2m[repo][0m  remember last reassignment
-  [2mConfirm[0m  [1m[36mc[0m[0m [2mN[0m  confirm   [1m[36my[0m[0m  confirm all
-  [2mAdjust[0m   [1m[36ms[0m[0m [2mN HH:MM [TICKET][0m  split   [1m[36mb[0m[0m [2mN[0m  break   [1m[36md[0m[0m [2mN[0m  discard
-  [2mOther[0m    [1m[36ma[0m[0m  acknowledge cap   [1m[36mq[0m[0m  quit
+  [1m[36mc[0m[0m [2mconfirm[0m   [1m[36mt[0m[0m [2massign[0m   [1m[36ms[0m[0m [2msplit[0m   [1m[36md[0m[0m [2mdiscard[0m   [1m[36mb[0m[0m [2mbreak[0m   [1m[36my[0m[0m [2mconfirm all[0m
+  [1m[36m?[0m[0m [2mhelp[0m   [1m[36mq[0m[0m [2mquit[0m
   [32m✓[0m  Entry 1 assigned to ABC-7.
   [36mℹ[0m  Remember ABC-7 for /work/app? Type r for branch "spike" only, or r repo for the whole repository.
 review>   [31m✗[0m  Error: no such suggestion: 2

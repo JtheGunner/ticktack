@@ -238,13 +238,13 @@ func (r *reviewRun) show() {
 		r.say(render.StatusWarn, msgReviewCapWarning(*w))
 	}
 	r.println("")
-	r.showHelp()
+	r.showLines(reviewKeyBarLines(r.render))
 }
 
-// showHelp prints the grouped action overview. While an action runs it is
-// held with the other feedback lines so it lands next to the prompt.
-func (r *reviewRun) showHelp() {
-	for _, line := range reviewHelpLines(r.render) {
+// showLines prints lines as they are. While an action runs they are held with
+// the other feedback lines so they land next to the prompt.
+func (r *reviewRun) showLines(lines []string) {
+	for _, line := range lines {
 		if r.hold {
 			r.held = append(r.held, line)
 			continue
@@ -302,7 +302,7 @@ func (r *reviewRun) remember(args []string) error {
 	case len(args) == 1 && args[0] == "repo":
 		wholeRepo = true
 	case len(args) > 0:
-		r.say(render.StatusWarn, msgReviewUsage("r [repo]"))
+		r.say(render.StatusWarn, msgReviewUsage(reviewUsage("r")))
 		return nil
 	}
 	rule, err := r.s.Remember(r.ctx, wholeRepo)
@@ -332,6 +332,9 @@ func (r *reviewRun) finish() {
 func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 	cmd, args := f[0], f[1:]
 	switch cmd {
+	case "?", "help":
+		r.showLines(reviewHelpLines(r.render))
+		return false, nil
 	case "a":
 		if err := r.s.AcknowledgeCap(r.ctx); err != nil {
 			return false, err
@@ -352,14 +355,12 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 		return r.entryAction(cmd, args)
 	}
 	r.say(render.StatusWarn, msgReviewUnknownCommand(strings.Join(f, " ")))
-	r.showHelp()
+	r.showLines(reviewKeyBarLines(r.render))
 	return false, nil
 }
 
 func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
-	usage := map[string]string{
-		"c": "c N", "d": "d N", "b": "b N", "t": "t N PROJ-12", "s": "s N HH:MM [PROJ-12]", "u": "u N K",
-	}[cmd]
+	usage := reviewUsage(cmd)
 	min, max := 1, 1
 	switch cmd {
 	case "t", "u":
@@ -403,7 +404,7 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 func (r *reviewRun) useSuggestion(n int, rawK string) error {
 	k, err := strconv.Atoi(rawK)
 	if err != nil {
-		r.say(render.StatusWarn, msgReviewUsage("u N K"))
+		r.say(render.StatusWarn, msgReviewUsage(reviewUsage("u")))
 		return nil
 	}
 	ticket, err := r.s.ReassignSuggestion(r.ctx, n, k)

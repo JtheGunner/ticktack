@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktack review` has a help screen: type `?` (or `help`) for every action with its placeholders, a description and an example, one command per line.
+
+### Changed
+
+- The action overview in `ticktack review` is now a compact key bar (key and one word per action) that points to `?`. Placeholders in usage messages read `<block>`, `<ticket>`, `<time>` and `<n>` instead of `N` and `K`.
+
 ## [0.3.4] - 2026-11-17
 
 ### Changed

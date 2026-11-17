@@ -4,16 +4,13 @@
   1  09:00-10:00   1h01m  (unassigned)  unknown          needs ticket
     no ticket in branch and no rule for repo
 
-  i  Suggestions for 1 (assigned to you, In Progress; take one with u 1 K):
+  i  Suggestions for 1 (assigned to you, In Progress; take one with u 1 <n>):
      1) ABC-1  first
      2) DEF-2  second
 
 ------------------------------ Actions -------------------------------
-  Assign   t N TICKET  reassign   u N K  take suggestion K
-           r [repo]  remember last reassignment
-  Confirm  c N  confirm   y  confirm all
-  Adjust   s N HH:MM [TICKET]  split   b N  break   d N  discard
-  Other    a  acknowledge cap   q  quit
+  c confirm   t assign   s split   d discard   b break   y confirm all
+  ? help   q quit
 review> 
   i  Summary: 0 confirmed, 0 discarded, 0 unconfirmed, 1 unassigned.
   i  Nothing confirmed yet: `ticktack sync` will book nothing.

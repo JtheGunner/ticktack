@@ -23,11 +23,11 @@ const (
 	msgReviewBreak                  = "Entry %d marked as break (not booked)."
 	msgReviewSplit                  = "Entry %d split at %s."
 	msgReviewCapAcked               = "Daily cap warning acknowledged for this total."
-	msgReviewSplitNeedsTicket       = "Error: unassigned time can only be split together with a ticket for the second part (s N HH:MM TICKET)."
+	msgReviewSplitNeedsTicket       = "Error: unassigned time can only be split together with a ticket for the second part (s <block> <time> <ticket>)."
 	msgReviewSplitPrompt            = "Ticket for the second part (empty keeps %s): "
 	msgReviewNextStep               = "Next step: run `ticktack sync` to book the confirmed items."
 	msgReviewNothingYet             = "Nothing confirmed yet: `ticktack sync` will book nothing."
-	msgReviewSuggestionNeedsConfirm = "A suggestion is only a proposal: confirm the entry (c N) to release it for booking."
+	msgReviewSuggestionNeedsConfirm = "A suggestion is only a proposal: confirm the entry (c <block>) to release it for booking."
 	msgReviewStateConfirmed         = "confirmed"
 	msgReviewStateNeedsTicket       = "needs ticket"
 	msgColLength                    = "Length"
@@ -39,11 +39,25 @@ func msgReviewUnknownCommand(line string) string {
 	return fmt.Sprintf("Unknown command %q.", line)
 }
 
+// User-facing strings of the review help.
+const (
+	msgReviewHelpPlaceholders = "Placeholders"
+	msgReviewHelpScreenTitle  = "Help"
+)
+
 // reviewCommand is one action of the review prompt as the help shows it.
 type reviewCommand struct {
-	Key         string
-	Args        string
+	// Key is what the user types.
+	Key string
+	// Args are the placeholders that follow the key.
+	Args string
+	// Verb is the one word shown in the key bar; empty keeps the command out
+	// of the bar.
+	Verb string
+	// Description says what the command does, for the help screen.
 	Description string
+	// Example is a concrete input, for the help screen.
+	Example string
 }
 
 // reviewCommandGroup bundles the actions that serve one purpose.
@@ -55,27 +69,62 @@ type reviewCommandGroup struct {
 // reviewHelpGroups is the content of the review help, in display order.
 var reviewHelpGroups = []reviewCommandGroup{
 	{Name: "Assign", Commands: []reviewCommand{
-		{Key: "t", Args: "N TICKET", Description: "reassign"},
-		{Key: "u", Args: "N K", Description: "take suggestion K"},
-		{Key: "r", Args: "[repo]", Description: "remember last reassignment"},
+		{Key: "t", Args: "<block> <ticket>", Verb: "assign", Description: "Assign a block to a ticket", Example: "t 3 ABC-12"},
+		{Key: "u", Args: "<block> <n>", Description: "Take suggestion <n>", Example: "u 3 2"},
+		{Key: "r", Args: "[repo]", Description: "Remember last assignment", Example: "r"},
 	}},
 	{Name: "Confirm", Commands: []reviewCommand{
-		{Key: "c", Args: "N", Description: "confirm"},
-		{Key: "y", Description: "confirm all"},
+		{Key: "c", Args: "<block>", Verb: "confirm", Description: "Confirm a block", Example: "c 3"},
+		{Key: "y", Verb: "confirm all", Description: "Confirm all assigned blocks", Example: "y"},
 	}},
 	{Name: "Adjust", Commands: []reviewCommand{
-		{Key: "s", Args: "N HH:MM [TICKET]", Description: "split"},
-		{Key: "b", Args: "N", Description: "break"},
-		{Key: "d", Args: "N", Description: "discard"},
+		{Key: "s", Args: "<block> <time> [<ticket>]", Verb: "split", Description: "Split a block at a time", Example: "s 3 09:30 ABC-12"},
+		{Key: "b", Args: "<block>", Verb: "break", Description: "Mark a block as a break", Example: "b 3"},
+		{Key: "d", Args: "<block>", Verb: "discard", Description: "Discard a block", Example: "d 3"},
 	}},
 	{Name: "Other", Commands: []reviewCommand{
-		{Key: "a", Description: "acknowledge cap"},
-		{Key: "q", Description: "quit"},
+		{Key: "a", Description: "Acknowledge daily cap", Example: "a"},
+		{Key: "q", Verb: "quit", Description: "Quit", Example: "q"},
+		{Key: "?", Verb: "help", Description: "Show this help (also: help)", Example: "?"},
 	}},
 }
 
+// reviewKeyBarKeys are the commands of the key bar, in display order.
+var reviewKeyBarKeys = []string{"c", "t", "s", "d", "b", "y", "?", "q"}
+
+// reviewPlaceholders explains every placeholder the help uses.
+var reviewPlaceholders = []struct{ Name, Meaning string }{
+	{"<block>", "number from the # column"},
+	{"<ticket>", "ticket key, e.g. ABC-12"},
+	{"<time>", "time of day, HH:MM"},
+	{"<n>", "suggestion number"},
+	{"[repo]", "optional: whole repository"},
+}
+
+// reviewCommandByKey returns the documented command for key; the zero value
+// when there is none.
+func reviewCommandByKey(key string) reviewCommand {
+	for _, g := range reviewHelpGroups {
+		for _, c := range g.Commands {
+			if c.Key == key {
+				return c
+			}
+		}
+	}
+	return reviewCommand{}
+}
+
+// reviewUsage returns the plain "key args" text of a command.
+func reviewUsage(key string) string {
+	c := reviewCommandByKey(key)
+	if c.Args == "" {
+		return c.Key
+	}
+	return c.Key + " " + c.Args
+}
+
 func msgReviewSuggestionsHeader(index int) string {
-	return fmt.Sprintf("Suggestions for %d (assigned to you, In Progress; take one with u %d K):", index, index)
+	return fmt.Sprintf("Suggestions for %d (assigned to you, In Progress; take one with u %d <n>):", index, index)
 }
 
 func msgReviewSuggestion(k int, c suggest.Candidate) string {

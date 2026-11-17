@@ -1,0 +1,27 @@
+[36m----------------------------------[0m[1m Actions [0m[36m-----------------------------------[0m
+  [1m[36mc[0m[0m [2mconfirm[0m   [1m[36mt[0m[0m [2massign[0m   [1m[36ms[0m[0m [2msplit[0m   [1m[36md[0m[0m [2mdiscard[0m   [1m[36mb[0m[0m [2mbreak[0m   [1m[36my[0m[0m [2mconfirm all[0m
+  [1m[36m?[0m[0m [2mhelp[0m   [1m[36mq[0m[0m [2mquit[0m
+
+[36m------------------------------------[0m[1m Help [0m[36m------------------------------------[0m
+  [1mAssign[0m
+    [1m[36mt[0m[0m [35m<block> <ticket>[0m           Assign a block to a ticket   [2mt 3 ABC-12[0m
+    [1m[36mu[0m[0m [35m<block> <n>[0m                Take suggestion <n>          [2mu 3 2[0m
+    [1m[36mr[0m[0m [35m[repo][0m                     Remember last assignment     [2mr[0m
+  [1mConfirm[0m
+    [1m[36mc[0m[0m [35m<block>[0m                    Confirm a block              [2mc 3[0m
+    [1m[36my[0m[0m                            Confirm all assigned blocks  [2my[0m
+  [1mAdjust[0m
+    [1m[36ms[0m[0m [35m<block> <time> [<ticket>][0m  Split a block at a time      [2ms 3 09:30 ABC-12[0m
+    [1m[36mb[0m[0m [35m<block>[0m                    Mark a block as a break      [2mb 3[0m
+    [1m[36md[0m[0m [35m<block>[0m                    Discard a block              [2md 3[0m
+  [1mOther[0m
+    [1m[36ma[0m[0m                            Acknowledge daily cap        [2ma[0m
+    [1m[36mq[0m[0m                            Quit                         [2mq[0m
+    [1m[36m?[0m[0m                            Show this help (also: help)  [2m?[0m
+
+  [1mPlaceholders[0m
+    [35m<block>[0m   number from the # column
+    [35m<ticket>[0m  ticket key, e.g. ABC-12
+    [35m<time>[0m    time of day, HH:MM
+    [35m<n>[0m       suggestion number
+    [35m[repo][0m    optional: whole repository
