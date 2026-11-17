@@ -40,6 +40,18 @@ func parseDuration(t *testing.T, s string) time.Duration {
 	return d
 }
 
+// TestReplayFixtures derives blocks from recorded event files and compares them
+// with the expected files next to them.
+//
+// Fixture notes:
+//   - A block ends at its last activity: the last present sample minus its idle
+//     time (1 s in these recordings). It no longer extends by one sample
+//     interval, so every expected end is one interval earlier than before and
+//     the fixtures carry no sampleInterval setting.
+//   - In sleep_gap.json the gap marker at 09:40 precedes the first sample after
+//     the gap, the order in which the agent writes them (the marker first, then
+//     the sample). Earlier the order did not matter; now a sample sorted ahead
+//     of its own gap marker would start a span that the marker closes at once.
 func TestReplayFixtures(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "*.json"))
 	if err != nil {
