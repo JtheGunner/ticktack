@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-17
+
 ### Changed
 
 - The standard task that ticktack creates for time without a ticket now carries the `manual` tag. The tag is created when it does not exist yet; standard tasks that already exist are left untouched.
@@ -102,7 +104,8 @@ First public release.
 - The git scan (`ticktack scan` and the agent scan) now honours the configured `ticket_pattern` instead of always using the default.
 - The ActivityWatch URL check rejects IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`) and zoned loopback addresses; numerically encoded and `localhost`-lookalike hosts stay rejected.
 
-[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/JtheGunner/ticktack/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/JtheGunner/ticktack/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/JtheGunner/ticktack/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/JtheGunner/ticktack/compare/v0.2.0...v0.3.0
