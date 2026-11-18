@@ -32,6 +32,10 @@ var (
 	ErrTimeTrackingDisabled = errors.New("youtrack: time tracking is disabled for the project")
 	ErrWorkItemTypeNotFound = errors.New("youtrack: work item type not found in project")
 	ErrInvalidID            = errors.New("youtrack: invalid work item id")
+	// ErrOutcomeUnclear marks a failed create request that the server may
+	// have stored all the same: no usable answer arrived. Such a request is
+	// never repeated; the caller looks the object up by its marker instead.
+	ErrOutcomeUnclear = errors.New("youtrack: outcome unclear (the request may have been stored)")
 )
 
 const (
@@ -82,7 +86,8 @@ func WithBackoff(f func(attempt int) time.Duration) Option {
 	return func(c *Client) { c.backoff = f }
 }
 
-// WithMaxRetries sets how often a 429 or 5xx response is retried.
+// WithMaxRetries sets how often a 429 or 5xx response is retried. Create
+// requests are only ever retried after a 429.
 func WithMaxRetries(n int) Option {
 	return func(c *Client) { c.maxRetries = max(n, 0) }
 }
@@ -177,7 +182,9 @@ func (c *Client) Me(ctx context.Context) (string, error) {
 }
 
 // Create books w and returns its id. The work item type name is resolved to
-// the project's type id first.
+// the project's type id first. The request is not repeated after a server or
+// transport error: ErrOutcomeUnclear then tells the caller that the item may
+// exist and has to be looked up by its marker.
 func (c *Client) Create(ctx context.Context, w sink.WorkItem) (string, error) {
 	project, err := projectKey(w.Issue)
 	if err != nil {
@@ -199,7 +206,7 @@ func (c *Client) Create(ctx context.Context, w sink.WorkItem) (string, error) {
 		ID string `json:"id"`
 	}
 	path := "/api/issues/" + url.PathEscape(w.Issue) + "/timeTracking/workItems"
-	if err := c.do(ctx, http.MethodPost, path, url.Values{"fields": {"id"}}, body, &out); err != nil {
+	if err := c.doCreate(ctx, path, url.Values{"fields": {"id"}}, body, &out); err != nil {
 		return "", err
 	}
 	if out.ID == "" {
@@ -374,10 +381,22 @@ func itemPath(issue, itemID string) string {
 	return "/api/issues/" + url.PathEscape(issue) + "/timeTracking/workItems/" + url.PathEscape(itemID)
 }
 
-// do performs one logical request with bounded retries on 429 and 5xx.
-// Errors are derived from the status code only; 403 and 404 bodies are never
-// read because a proxy replaces them with HTML.
+// do performs one idempotent logical request with bounded retries on 429 and
+// 5xx. Errors are derived from the status code only; 403 and 404 bodies are
+// never read because a proxy replaces them with HTML.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body, out any) error {
+	return c.send(ctx, method, path, query, body, out, true)
+}
+
+// doCreate performs a POST that creates an object. YouTrack offers no
+// idempotency key, so the request is sent again only after a 429, which
+// rejects it before anything is stored. Any failure that leaves open whether
+// the object exists is returned as ErrOutcomeUnclear.
+func (c *Client) doCreate(ctx context.Context, path string, query url.Values, body, out any) error {
+	return c.send(ctx, http.MethodPost, path, query, body, out, false)
+}
+
+func (c *Client) send(ctx context.Context, method, path string, query url.Values, body, out any, idempotent bool) error {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -396,8 +415,11 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		if err == nil {
 			return nil
 		}
-		retryable := status == http.StatusTooManyRequests || status >= 500
+		retryable := status == http.StatusTooManyRequests || (idempotent && status >= 500)
 		if !retryable || attempt >= c.maxRetries {
+			if !idempotent && mayHaveBeenStored(status) {
+				return fmt.Errorf("%s %s: %w: %w", method, path, ErrOutcomeUnclear, err)
+			}
 			return fmt.Errorf("%s %s: %w", method, path, err)
 		}
 		wait := c.backoff(attempt + 1)
@@ -408,6 +430,13 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return fmt.Errorf("%s %s: %w", method, path, serr)
 		}
 	}
+}
+
+// mayHaveBeenStored reports whether a failed request with this status can
+// still have taken effect: no response at all (status 0), an unreadable
+// success response, or a server or proxy error. A 4xx is a definite rejection.
+func mayHaveBeenStored(status int) bool {
+	return status < 300 || status >= 500
 }
 
 // once sends a single request. status is 0 if no response was received.

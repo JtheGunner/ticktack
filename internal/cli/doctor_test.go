@@ -21,6 +21,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/shellhook"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
+	"github.com/JtheGunner/ticktack/launchd"
 )
 
 func TestDoctorReportsEachCheckIndependently(t *testing.T) {
@@ -66,12 +67,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	installTestAgent(t, env)
 	dbPath, _ := paths.DBPath()
 	now := time.Now()
 	seedEvents(t, dbPath,
@@ -221,14 +217,145 @@ func TestCheckHookNamesTheMissingHalf(t *testing.T) {
 	}
 }
 
-func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
-	env := newTestEnv(t, "", "")
+// installTestAgent creates a stand-in binary under the test home, makes it the
+// running binary of the doctor and writes a plist that runs it. It returns the
+// path of the binary.
+func installTestAgent(t *testing.T, env *testEnv) string {
+	t.Helper()
+	binary := filepath.Join(env.home, "bin", "ticktack")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.deps.Doctor.Binary = func() (string, error) { return binary, nil }
+	writeTestPlist(t, env, binary)
+	return binary
+}
+
+// writeTestPlist writes the agent plist of the test home with program as the
+// program to run.
+func writeTestPlist(t *testing.T, env *testEnv, program string) {
+	t.Helper()
+	rendered, err := launchd.RenderAgentPlist(launchd.Params{Binary: program, LogPath: filepath.Join(env.home, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+	if err := os.WriteFile(agentPlistPath(env.home), []byte(rendered), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestCheckAgentVerifiesThePlistProgram(t *testing.T) {
+	tests := []struct {
+		name string
+		// arrange changes the installed agent and returns the doctor to run.
+		arrange    func(t *testing.T, env *testEnv, binary string)
+		wantStatus checkStatus
+		wantDetail string
+		wantHint   string
+	}{
+		{
+			name:       "program is the running binary",
+			arrange:    func(*testing.T, *testEnv, string) {},
+			wantStatus: statusOK,
+		},
+		{
+			name: "program is a symlink to the running binary",
+			arrange: func(t *testing.T, env *testEnv, binary string) {
+				link := filepath.Join(env.home, "opt-link")
+				if err := os.Symlink(binary, link); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, link)
+			},
+			wantStatus: statusOK,
+		},
+		{
+			name: "program does not exist",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				writeTestPlist(t, env, filepath.Join(env.home, "Cellar", "ticktack", "0.3.4", "bin", "ticktack"))
+			},
+			wantStatus: statusFail,
+			wantDetail: "does not exist",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "dangling symlink counts as missing",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				link := filepath.Join(env.home, "dangling")
+				if err := os.Symlink(filepath.Join(env.home, "gone"), link); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, link)
+			},
+			wantStatus: statusFail,
+			wantDetail: "does not exist",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "program is another binary",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				other := filepath.Join(env.home, "other-ticktack")
+				if err := os.WriteFile(other, []byte("old"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, other)
+			},
+			wantStatus: statusFail,
+			wantDetail: "not the binary you are running",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "plist without a program",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus: statusFail,
+			wantDetail: "cannot be read",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "running binary unknown",
+			arrange: func(_ *testing.T, env *testEnv, _ string) {
+				env.deps.Doctor.Binary = func() (string, error) { return "", errors.New("no executable") }
+			},
+			wantStatus: statusFail,
+			wantDetail: "no executable",
+			wantHint:   "ticktack init",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			binary := installTestAgent(t, env)
+			dbPath, _ := paths.DBPath()
+			seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Second), Source: "presence", Kind: event.KindPresence})
+			tt.arrange(t, env, binary)
+
+			res := checkAgent(context.Background(), env.deps.Doctor)
+			if res.Status != tt.wantStatus {
+				t.Fatalf("status = %v, want %v: %+v", res.Status, tt.wantStatus, res)
+			}
+			if !strings.Contains(res.Detail, tt.wantDetail) {
+				t.Errorf("detail %q lacks %q", res.Detail, tt.wantDetail)
+			}
+			if !strings.Contains(res.Hint, tt.wantHint) {
+				t.Errorf("hint %q lacks %q", res.Hint, tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	installTestAgent(t, env)
 	dbPath, _ := paths.DBPath()
 	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Minute), Source: "presence", Kind: event.KindPresence})
 	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusFail {
@@ -380,10 +507,9 @@ func TestParseAgentInterval(t *testing.T) {
 
 func TestCheckAgentHonoursTheInstalledInterval(t *testing.T) {
 	env := newTestEnv(t, "", "")
-	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	plist := "<plist><array><string>/bin/ticktack</string><string>agent</string><string>--interval</string><string>2m</string></array></plist>"
+	binary := installTestAgent(t, env)
+	plist := "<plist><dict><key>ProgramArguments</key><array><string>" + binary +
+		"</string><string>agent</string><string>--interval</string><string>2m</string></array></dict></plist>"
 	if err := os.WriteFile(agentPlistPath(env.home), []byte(plist), 0o644); err != nil {
 		t.Fatal(err)
 	}

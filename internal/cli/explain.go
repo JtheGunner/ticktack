@@ -64,7 +64,7 @@ func runExplain(ctx context.Context, deps dailyDeps, day, target string) error {
 		Block: b, Events: derived.Events, Overrides: derived.Overrides,
 		Rules: derived.Rules, Config: sessionizer.ConfigFrom(cfg),
 	})
-	printExplanation(deps, ex, n, label, loc)
+	printExplanation(deps, ex, n, label, start, loc)
 	return nil
 }
 
@@ -102,9 +102,18 @@ func selectBlock(blocks []sessionizer.Block, target string, dayStart time.Time, 
 	return 0, fmt.Errorf(msgExplainNoBlockAt, target, label)
 }
 
-func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label string, loc *time.Location) {
+// printExplanation prints the explanation of block n of the day starting at
+// dayStart. Times are clock times of that day, except for a deciding event
+// from before it (carried context), which is printed with its date.
+func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label string, dayStart time.Time, loc *time.Location) {
 	r := deps.Render
 	clock := func(t time.Time) string { return t.In(loc).Format("15:04:05") }
+	eventTime := func(t time.Time) string {
+		if t.Before(dayStart) {
+			return t.In(loc).Format(dayLayout + " 15:04:05")
+		}
+		return clock(t)
+	}
 	b := ex.Block
 	minutes := int(b.Duration() / time.Minute)
 
@@ -127,7 +136,7 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		for _, m := range ex.Merged {
 			me := m.Event
 			merged = append(merged, fmt.Sprintf(msgExplainMergedItem, SanitizeForTerminal(msgExplainEventSignal(
-				me.Source, string(me.Kind), clock(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
+				me.Source, string(me.Kind), eventTime(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
 				SanitizeForTerminal(msgExplainRuleText(m.Decision, m.Decision.Ticket))))
 		}
 	case explain.SourceNoContext:
@@ -138,7 +147,7 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		e := ex.Event
 		rows = append(rows,
 			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainEventSignal(
-				e.Source, string(e.Kind), clock(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket)))},
+				e.Source, string(e.Kind), eventTime(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket)))},
 			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainRuleText(ex.Decision, b.Ticket))})
 		var skipped []string
 		for _, kind := range ex.Skipped {

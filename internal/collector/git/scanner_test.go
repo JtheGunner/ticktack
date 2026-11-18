@@ -297,14 +297,16 @@ func TestBuildEvents(t *testing.T) {
 			want:    []string{"4 feat"},
 		},
 		{
-			name: "legacy rebase checkout is suppressed",
+			// No rebase state is kept, so a checkout between two rebase lines
+			// counts like any other checkout.
+			name: "checkout between rebase lines is reported on its own",
 			entries: []reflogEntry{
 				entry(1, "rebase -i (start): checkout main"),
 				entry(2, "checkout: moving from feat to deadbeef2"),
 				entry(3, "rebase -i (finish): returning to refs/heads/feat"),
 			},
 			current: "feat",
-			want:    []string{"3 feat"},
+			want:    []string{"2 ", "3 feat"},
 		},
 		{
 			name:    "reset pull merge are ignored",

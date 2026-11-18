@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -143,22 +144,14 @@ type derivedDay struct {
 }
 
 // deriveDay loads the events, overrides and rules of the local day starting at
-// start and derives its blocks. Block numbers (1-based) are indexes into
+// start and derives its blocks through the loader review uses, so the day
+// starts with the context carried over from before it. Block numbers (1-based) are indexes into
 // Blocks, so today and explain agree.
 func deriveDay(ctx context.Context, st dailyStore, cfg config.Config, start time.Time) (derivedDay, error) {
 	end := time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, cfg.Location)
-	events, err := st.Events(ctx, start, end)
+	in, err := review.LoadDayInput(ctx, st, cfg, start, end)
 	if err != nil {
 		return derivedDay{}, err
 	}
-	overrides, err := st.Overrides(ctx, start, end)
-	if err != nil {
-		return derivedDay{}, err
-	}
-	rules, err := resolverRules(ctx, st, cfg)
-	if err != nil {
-		return derivedDay{}, err
-	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
-	return derivedDay{Events: events, Overrides: overrides, Rules: rules, Blocks: blocks}, nil
+	return derivedDay{Events: in.Events, Overrides: in.Overrides, Rules: in.Rules, Blocks: in.Blocks}, nil
 }

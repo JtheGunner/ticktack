@@ -9,6 +9,21 @@
 		<string>{{.Binary}}</string>
 		<string>agent</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+{{- if .ConfigHome}}
+		<key>XDG_CONFIG_HOME</key>
+		<string>{{.ConfigHome}}</string>
+{{- end}}
+{{- if .DataHome}}
+		<key>XDG_DATA_HOME</key>
+		<string>{{.DataHome}}</string>
+{{- end}}
+{{- if .StateHome}}
+		<key>XDG_STATE_HOME</key>
+		<string>{{.StateHome}}</string>
+{{- end}}
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
