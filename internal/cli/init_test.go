@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -361,5 +362,99 @@ func TestInitHookRefusesDanglingSymlink(t *testing.T) {
 	}
 	if fileExists(filepath.Join(env.home, "missing")) {
 		t.Error("filesystem touched")
+	}
+}
+
+// plistValue returns the value that follows key in a rendered plist, with XML
+// escapes resolved.
+func plistValue(t *testing.T, plist, key string) string {
+	t.Helper()
+	dec := xml.NewDecoder(strings.NewReader(plist))
+	found := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("plist has no value for %s: %v", key, err)
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		var text string
+		switch start.Name.Local {
+		case "key", "string":
+			if err := dec.DecodeElement(&text, &start); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			continue
+		}
+		if found && start.Name.Local == "string" {
+			return text
+		}
+		found = start.Name.Local == "key" && text == key
+	}
+}
+
+func TestInitPinsTheResolvedPathsInThePlist(t *testing.T) {
+	tests := []struct {
+		name string
+		// env maps an XDG variable to a directory below the test home; an
+		// empty value leaves the variable unset.
+		env  map[string]string
+		want map[string]string
+	}{
+		{
+			name: "exported XDG directories",
+			env:  map[string]string{"XDG_CONFIG_HOME": "my config", "XDG_DATA_HOME": "data & more", "XDG_STATE_HOME": "state"},
+			want: map[string]string{"XDG_CONFIG_HOME": "my config", "XDG_DATA_HOME": "data & more", "XDG_STATE_HOME": "state"},
+		},
+		{
+			name: "defaults below the home directory",
+			env:  map[string]string{"XDG_CONFIG_HOME": "", "XDG_DATA_HOME": "", "XDG_STATE_HOME": ""},
+			want: map[string]string{"XDG_CONFIG_HOME": ".config", "XDG_DATA_HOME": ".local/share", "XDG_STATE_HOME": ".local/state"},
+		},
+		{
+			name: "only the data directory exported",
+			env:  map[string]string{"XDG_CONFIG_HOME": "", "XDG_DATA_HOME": "elsewhere", "XDG_STATE_HOME": ""},
+			want: map[string]string{"XDG_CONFIG_HOME": ".config", "XDG_DATA_HOME": "elsewhere", "XDG_STATE_HOME": ".local/state"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			for key, dir := range tt.env {
+				if dir != "" {
+					dir = filepath.Join(env.home, dir)
+				}
+				t.Setenv(key, dir)
+			}
+			opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipHook: true}
+			var out bytes.Buffer
+			if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+				t.Fatal(err)
+			}
+			plist := readFile(t, agentPlistPath(env.home))
+			for key, dir := range tt.want {
+				if got, want := plistValue(t, plist, key), filepath.Join(env.home, filepath.FromSlash(dir)); got != want {
+					t.Errorf("%s = %q, want %q", key, got, want)
+				}
+			}
+
+			// The agent started from this plist resolves the same files as the CLI.
+			cfgPath, _ := config.DefaultPath()
+			dbPath, _ := paths.DBPath()
+			pausePath, _ := paths.PausePath()
+			for key := range tt.want {
+				t.Setenv(key, plistValue(t, plist, key))
+			}
+			agentCfg, _ := config.DefaultPath()
+			agentDB, _ := paths.DBPath()
+			agentPause, _ := paths.PausePath()
+			if agentCfg != cfgPath || agentDB != dbPath || agentPause != pausePath {
+				t.Errorf("agent paths %q %q %q differ from CLI paths %q %q %q",
+					agentCfg, agentDB, agentPause, cfgPath, dbPath, pausePath)
+			}
+		})
 	}
 }

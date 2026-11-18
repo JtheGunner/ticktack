@@ -44,7 +44,8 @@ type initDeps struct {
 	SetToken   func(secret string) error
 	// Launchctl runs launchctl with args and returns its combined output.
 	Launchctl func(ctx context.Context, args ...string) (string, error)
-	// Binary returns the absolute path of the running executable.
+	// Binary returns the absolute path of the running executable in the form
+	// that survives upgrades.
 	Binary  func() (string, error)
 	Getenv  func(key string) string
 	LogPath func() (string, error)
@@ -115,18 +116,6 @@ func defaultInitDeps(cmd *cobra.Command, in *bufio.Reader) initDeps {
 func runLaunchctl(ctx context.Context, args ...string) (string, error) {
 	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
-}
-
-func currentBinary() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve executable: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(exe)
-	if err != nil {
-		return "", fmt.Errorf("resolve executable symlinks: %w", err)
-	}
-	return resolved, nil
 }
 
 // initRun carries the state shared by the init steps.
@@ -218,6 +207,11 @@ func (r *initRun) configStep() {
 	if address != "" {
 		if u, err := url.Parse(address); err != nil || u.Scheme == "" || u.Host == "" {
 			r.say(render.StatusFail, msgInitConfigBadURL, SanitizeForTerminal(address))
+			return
+		}
+		// Same rule as the loader: a config it rejects must not be written.
+		if err := config.CheckYouTrackURL(address); err != nil {
+			r.say(render.StatusFail, msgInitConfigNoHTTPS, SanitizeForTerminal(err.Error()))
 			return
 		}
 	}
@@ -353,6 +347,20 @@ func (r *initRun) agentStep(ctx context.Context) {
 	}
 }
 
+// xdgBaseOf returns the absolute XDG base directory behind a ticktack file.
+// Every such file lives at <base>/ticktack/<file>.
+func xdgBaseOf(file func() (string, error)) (string, error) {
+	path, err := file()
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", path, err)
+	}
+	return filepath.Dir(filepath.Dir(abs)), nil
+}
+
 func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error {
 	binary, err := r.deps.Binary()
 	if err != nil {
@@ -365,7 +373,23 @@ func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return fmt.Errorf("create log directory: %w", err)
 	}
-	rendered, err := launchd.RenderAgentPlist(launchd.Params{Binary: binary, LogPath: logPath})
+	params := launchd.Params{Binary: binary, LogPath: logPath}
+	// launchd does not inherit the shell environment. Pinning the XDG base
+	// directories this run resolved keeps the agent on the same config file,
+	// database and pause flag as the CLI.
+	if params.DataHome, err = xdgBaseOf(r.deps.Doctor.DBPath); err != nil {
+		return err
+	}
+	if params.StateHome, err = xdgBaseOf(r.deps.LogPath); err != nil {
+		return err
+	}
+	// The config step already reported an unresolvable config path. The agent
+	// runs its presence sampling without a config file, so that alone does not
+	// stop the installation; the plist then names no config directory.
+	if configHome, err := xdgBaseOf(r.deps.Doctor.ConfigPath); err == nil {
+		params.ConfigHome = configHome
+	}
+	rendered, err := launchd.RenderAgentPlist(params)
 	if err != nil {
 		return err
 	}

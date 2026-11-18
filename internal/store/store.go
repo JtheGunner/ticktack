@@ -168,11 +168,13 @@ func (s *Store) AddOverride(ctx context.Context, o event.Override) error {
 	return nil
 }
 
-// Overrides returns overrides whose start lies in [from, to), ordered by start.
+// Overrides returns overrides whose start lies in [from, to) in creation
+// order. Callers apply them in that order and let later ones win, so the most
+// recent correction decides wherever overrides overlap.
 func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT start, "end", ticket, discard FROM overrides
-		 WHERE start >= ? AND start < ? ORDER BY start, id`,
+		 WHERE start >= ? AND start < ? ORDER BY id`,
 		from.UTC().UnixNano(), to.UTC().UnixNano())
 	if err != nil {
 		return nil, fmt.Errorf("query overrides: %w", err)

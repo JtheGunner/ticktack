@@ -23,6 +23,7 @@ import (
 type dailyStore interface {
 	Append(ctx context.Context, e event.Event) error
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
+	CarriedContext(ctx context.Context, before time.Time, src store.CarrySources) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
 	Projects(ctx context.Context) ([]store.Project, time.Time, error)

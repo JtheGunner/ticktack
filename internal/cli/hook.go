@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -124,7 +125,10 @@ func gitRepoInfo(ctx context.Context, cwd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, hookGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	// Without the inherited GIT_DIR and friends: a prompt inside a hook, an
+	// alias or a `git rebase --exec` shell would otherwise report the outer
+	// repository instead of the one in cwd.
+	cmd.Env = gitscan.CommandEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

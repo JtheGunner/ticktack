@@ -33,6 +33,8 @@ type fakeSink struct {
 	updateErr  map[string]error
 	deleteErr  map[string]error // by work item id
 	createLand bool             // Create stores the item but still returns an error
+	existsErr  error            // returned by every WorkItemExists call
+	findErrs   []error          // consumed one per FindByMarker call; nil looks up normally
 }
 
 func newFakeSink() *fakeSink {
@@ -75,8 +77,24 @@ func (f *fakeSink) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeSink) WorkItemExists(_ context.Context, issue, id string) (bool, error) {
+	f.calls = append(f.calls, "exists:"+id)
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	fi, ok := f.items[id]
+	return ok && fi.item.Issue == issue, nil
+}
+
 func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string, bool, error) {
 	f.calls = append(f.calls, "find:"+issue)
+	if len(f.findErrs) > 0 {
+		err := f.findErrs[0]
+		f.findErrs = f.findErrs[1:]
+		if err != nil {
+			return "", false, err
+		}
+	}
 	ids := make([]string, 0, len(f.items))
 	for id := range f.items {
 		ids = append(ids, id)
@@ -93,7 +111,7 @@ func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string
 func (f *fakeSink) mutating() []string {
 	var out []string
 	for _, c := range f.calls {
-		if !strings.HasPrefix(c, "find:") {
+		if !strings.HasPrefix(c, "find:") && !strings.HasPrefix(c, "exists:") {
 			out = append(out, c)
 		}
 	}
@@ -243,7 +261,7 @@ func TestSyncSkipsUnchanged(t *testing.T) {
 	mustSync(t, items, s, opts(repo))
 	s.calls = nil
 	rep := mustSync(t, items, s, opts(repo))
-	if rep.Skipped != 1 || len(s.calls) != 0 {
+	if rep.Skipped != 1 || len(s.mutating()) != 0 {
 		t.Fatalf("report=%+v calls=%v", rep, s.calls)
 	}
 }
@@ -352,6 +370,32 @@ func TestSyncRecoversAfterAmbiguousCreateFailure(t *testing.T) {
 	}
 	if len(s.items) != 1 || len(repo.rows) != 0 {
 		t.Fatalf("items=%d rows=%d", len(s.items), len(repo.rows))
+	}
+}
+
+func TestSyncReportsUnclearCreateAndNextSyncFindsTheItem(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	s.createErr["ABC-1"] = fmt.Errorf("POST /api/issues/ABC-1/timeTracking/workItems: %w: status 504", youtrack.ErrOutcomeUnclear)
+	s.createLand = true
+	// The lookup before the create works, the one right after it fails too.
+	s.findErrs = []error{nil, errors.New("youtrack: unexpected status 504")}
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30)}
+
+	rep := mustSync(t, items, s, opts(repo))
+	if rep.Failed != 1 || rep.Created != 0 || len(repo.rows) != 0 {
+		t.Fatalf("report=%+v rows=%d", rep, len(repo.rows))
+	}
+	if got := rep.Items[0]; got.Action != ActionFailed || !strings.Contains(got.Error, "outcome unclear") {
+		t.Fatalf("item = %+v, want a failure reported as unclear outcome", got)
+	}
+
+	s.createErr = map[string]error{}
+	rep = mustSync(t, items, s, opts(repo))
+	if rep.Recovered != 1 || rep.Created != 0 || rep.Failed != 0 {
+		t.Fatalf("second report = %+v", rep)
+	}
+	if len(s.items) != 1 || len(repo.rows) != 1 {
+		t.Fatalf("items=%d rows=%d, want one work item adopted by the ledger", len(s.items), len(repo.rows))
 	}
 }
 

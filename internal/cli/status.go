@@ -10,10 +10,12 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
-// statusLookback bounds how far back status looks for the latest signals.
+// statusLookback bounds how far back status looks for the last presence
+// sample. The context is not read from it: see currentDayEvents.
 const statusLookback = 14 * 24 * time.Hour
 
 func newStatusCommand() *cobra.Command {
@@ -41,7 +43,11 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 	defer func() { _ = st.Close() }()
 
 	now := deps.Now()
-	events, err := st.Events(ctx, now.Add(-statusLookback), now.Add(time.Minute))
+	events, err := currentDayEvents(ctx, st, now, cfg.Location)
+	if err != nil {
+		return err
+	}
+	recent, err := st.Events(ctx, now.Add(-statusLookback), now.Add(time.Minute))
 	if err != nil {
 		return err
 	}
@@ -87,9 +93,23 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 	}, 2)...)
 	lines = append(lines, "",
 		r.Gutter(captureStatus, captureText),
-		r.Gutter(render.StatusInfo, presenceLine(events, now, cfg.Location)))
+		r.Gutter(render.StatusInfo, presenceLine(recent, now, cfg.Location)))
 	_, err = fmt.Fprintln(deps.Out, strings.Join(lines, "\n"))
 	return err
+}
+
+// currentDayEvents returns the events status takes the current context from:
+// those of the current local day up to now, led by the context carried into
+// the day. That is the input today and review derive the day from, so the
+// three agree. A longer window would differ: an app-bound window-title hint
+// is not carried into a day, but inside one window it applies whenever its
+// app is frontmost again.
+func currentDayEvents(ctx context.Context, st dailyStore, now time.Time, loc *time.Location) ([]event.Event, error) {
+	start, err := dayStart("", now, loc)
+	if err != nil {
+		return nil, err
+	}
+	return review.EventsWithCarriedContext(ctx, st, start, now.Add(time.Minute))
 }
 
 func presenceLine(events []event.Event, now time.Time, loc *time.Location) string {

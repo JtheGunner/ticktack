@@ -106,6 +106,8 @@ func TestEventsAreImmutable(t *testing.T) {
 	allowed := map[string]bool{
 		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
 		"Purge": true, "Close": true, "InTx": true, "CheckWritable": true,
+		// CarriedContext only reads the events table.
+		"CarriedContext": true,
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,

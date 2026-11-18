@@ -18,6 +18,6 @@ const (
 	msgSyncPlanTitle    = "Plan"
 	msgSyncPlan         = "Plan: %d to change, %d skipped, %d failed."
 	// The totals are two box rows so they fit narrow terminals.
-	msgSyncTotalsBooked  = "Created %d, updated %d, recovered %d, deleted %d."
+	msgSyncTotalsBooked  = "Created %d, updated %d, recovered %d, repaired %d, deleted %d."
 	msgSyncTotalsOutcome = "Skipped %d, failed %d, not sent %d."
 )

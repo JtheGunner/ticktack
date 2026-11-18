@@ -29,7 +29,7 @@ import (
 
 // Reader is the read side of the store needed to derive a day.
 type Reader interface {
-	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
+	EventReader
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
 	Projects(ctx context.Context) ([]store.Project, time.Time, error)
@@ -143,24 +143,18 @@ func location(cfg config.Config) *time.Location {
 	return cfg.Location
 }
 
-// LoadDay derives the blocks and aggregated items of one local day.
+// LoadDay derives the blocks and aggregated items of one local day. The day
+// starts with the context carried over from before it (see
+// EventsWithCarriedContext); its time comes from the day's own presence only.
 func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (Day, error) {
 	loc := location(cfg)
 	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, loc)
 	to := time.Date(day.Year, day.Month, day.Day+1, 0, 0, 0, 0, loc)
-	events, err := r.Events(ctx, from, to)
+	in, err := LoadDayInput(ctx, r, cfg, from, to)
 	if err != nil {
 		return Day{}, err
 	}
-	overrides, err := r.Overrides(ctx, from, to)
-	if err != nil {
-		return Day{}, err
-	}
-	rules, err := LoadRules(ctx, r, cfg)
-	if err != nil {
-		return Day{}, err
-	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
+	blocks := in.Blocks
 	rc := sessionizer.RoundingConfigFrom(cfg)
 	d := Day{Date: day, Start: from, End: to, CapMinutes: int(rc.DailyCap / time.Minute)}
 	for _, b := range blocks {
