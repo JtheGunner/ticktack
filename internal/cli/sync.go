@@ -256,7 +256,7 @@ func printReport(out io.Writer, r render.Renderer, report ledger.Report, planOnl
 	}
 	title := msgSyncSummaryTitle
 	summary := []string{
-		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered, report.Deleted),
+		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered, report.Repaired, report.Deleted),
 		fmt.Sprintf(msgSyncTotalsOutcome, report.Skipped, report.Failed, report.NotSent),
 	}
 	if planOnly {

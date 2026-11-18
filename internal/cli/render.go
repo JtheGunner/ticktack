@@ -61,7 +61,7 @@ func colorTier(r render.Renderer, tier resolver.Tier) string {
 // were not sent warn and dry-run plans point forward.
 func actionStatus(action string) render.Status {
 	switch ledger.Action(action) {
-	case ledger.ActionCreated, ledger.ActionUpdated, ledger.ActionRecovered, ledger.ActionDeleted:
+	case ledger.ActionCreated, ledger.ActionUpdated, ledger.ActionRecovered, ledger.ActionRepaired, ledger.ActionDeleted:
 		return render.StatusOK
 	case ledger.ActionSkipped:
 		return render.StatusSkip
@@ -69,7 +69,7 @@ func actionStatus(action string) render.Status {
 		return render.StatusFail
 	case ledger.ActionNotSent:
 		return render.StatusWarn
-	case ledger.ActionWouldCreate, ledger.ActionWouldUpdate, ledger.ActionWouldRecover, ledger.ActionWouldDelete:
+	case ledger.ActionWouldCreate, ledger.ActionWouldUpdate, ledger.ActionWouldRecover, ledger.ActionWouldRepair, ledger.ActionWouldDelete:
 		return render.StatusGo
 	default:
 		return render.StatusInfo

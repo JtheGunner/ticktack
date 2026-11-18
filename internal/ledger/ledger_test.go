@@ -33,6 +33,7 @@ type fakeSink struct {
 	updateErr  map[string]error
 	deleteErr  map[string]error // by work item id
 	createLand bool             // Create stores the item but still returns an error
+	existsErr  error            // returned by every WorkItemExists call
 	findErrs   []error          // consumed one per FindByMarker call; nil looks up normally
 }
 
@@ -76,6 +77,15 @@ func (f *fakeSink) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeSink) WorkItemExists(_ context.Context, issue, id string) (bool, error) {
+	f.calls = append(f.calls, "exists:"+id)
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	fi, ok := f.items[id]
+	return ok && fi.item.Issue == issue, nil
+}
+
 func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string, bool, error) {
 	f.calls = append(f.calls, "find:"+issue)
 	if len(f.findErrs) > 0 {
@@ -101,7 +111,7 @@ func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string
 func (f *fakeSink) mutating() []string {
 	var out []string
 	for _, c := range f.calls {
-		if !strings.HasPrefix(c, "find:") {
+		if !strings.HasPrefix(c, "find:") && !strings.HasPrefix(c, "exists:") {
 			out = append(out, c)
 		}
 	}
@@ -251,7 +261,7 @@ func TestSyncSkipsUnchanged(t *testing.T) {
 	mustSync(t, items, s, opts(repo))
 	s.calls = nil
 	rep := mustSync(t, items, s, opts(repo))
-	if rep.Skipped != 1 || len(s.calls) != 0 {
+	if rep.Skipped != 1 || len(s.mutating()) != 0 {
 		t.Fatalf("report=%+v calls=%v", rep, s.calls)
 	}
 }

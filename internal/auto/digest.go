@@ -29,17 +29,18 @@ type Digest struct {
 	DryRun  bool
 	Entries []DigestEntry
 
-	Created, Updated, Recovered, Deleted, Skipped, Failed, NotSent int
-	// BookedMinutes is the sum of minutes of created, updated and recovered items.
+	Created, Updated, Recovered, Repaired, Deleted, Skipped, Failed, NotSent int
+	// BookedMinutes is the sum of minutes of created, updated, recovered and
+	// repaired items.
 	BookedMinutes int
 	CapExceeded   bool
 	TotalMinutes  int
 	CapMinutes    int
 }
 
-// Changed reports whether the run created, updated, recovered or deleted
-// anything, so that "ticktack undo" has something to revert.
-func (d Digest) Changed() bool { return d.Created+d.Updated+d.Recovered+d.Deleted > 0 }
+// Changed reports whether the run created, updated, recovered, repaired or
+// deleted anything, so that "ticktack undo" has something to revert.
+func (d Digest) Changed() bool { return d.Created+d.Updated+d.Recovered+d.Repaired+d.Deleted > 0 }
 
 // BuildDigest merges the selection with the ledger report. Every ledger
 // outcome becomes an entry with the tier of its item; every item the
@@ -48,7 +49,8 @@ func (d Digest) Changed() bool { return d.Created+d.Updated+d.Recovered+d.Delete
 func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun bool) Digest {
 	d := Digest{
 		Day: day, DryRun: dryRun,
-		Created: report.Created, Updated: report.Updated, Recovered: report.Recovered, Deleted: report.Deleted,
+		Created: report.Created, Updated: report.Updated, Recovered: report.Recovered,
+		Repaired: report.Repaired, Deleted: report.Deleted,
 		Skipped: report.Skipped + len(sel.Skipped), Failed: report.Failed, NotSent: report.NotSent,
 		CapExceeded: sel.CapExceeded, TotalMinutes: sel.TotalMinutes, CapMinutes: sel.CapMinutes,
 	}
@@ -69,7 +71,7 @@ func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun boo
 		}
 		d.Entries = append(d.Entries, entry)
 		switch r.Action {
-		case ledger.ActionCreated, ledger.ActionUpdated, ledger.ActionRecovered:
+		case ledger.ActionCreated, ledger.ActionUpdated, ledger.ActionRecovered, ledger.ActionRepaired:
 			d.BookedMinutes += r.Minutes
 		}
 	}

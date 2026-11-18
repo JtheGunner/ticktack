@@ -4,8 +4,9 @@
   x  ABC-4:2026-01-05:Development   45 min  failed: HTTP 500
   !  ABC-5:2026-01-05:Development   15 min  not-sent (run stopped)
   +  ABC-6:2026-01-05:Development   30 min  deleted (no longer part of the day)
+  +  ABC-7:2026-01-05:Development   20 min  repaired (booked work item was missing)
 
 +--------------------------------- Summary ----------------------------------+
-| Created 1, updated 1, recovered 0, deleted 1.                              |
+| Created 1, updated 1, recovered 0, repaired 1, deleted 1.                  |
 | Skipped 1, failed 1, not sent 1.                                           |
 +----------------------------------------------------------------------------+
