@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -214,33 +213,39 @@ func describeDecodeError(err error) error {
 }
 
 func build(raw fileConfig) (Config, error) {
-	cfg := Config{YouTrackURL: raw.YouTrackURL, Rules: raw.Rules, RepoPaths: raw.RepoPaths}
+	cfg := Config{YouTrackURL: raw.YouTrackURL, RepoPaths: raw.RepoPaths}
 
-	if raw.YouTrackURL != "" {
-		u, err := url.Parse(raw.YouTrackURL)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return Config{}, fmt.Errorf("youtrack_url %q is not an absolute URL", raw.YouTrackURL)
-		}
+	if err := checkYouTrackURL(raw.YouTrackURL); err != nil {
+		return Config{}, err
 	}
 
+	// zeroFix is the hint appended when the value is zero. A zero duration
+	// is rejected because it would silently fall back to the default.
 	durations := []struct {
 		key      string
 		value    string
 		fallback time.Duration
 		target   *time.Duration
+		zeroFix  string
 	}{
-		{"gap_threshold", raw.GapThreshold, DefaultGapThreshold, &cfg.GapThreshold},
-		{"idle_threshold", raw.IdleThreshold, DefaultIdleThreshold, &cfg.IdleThreshold},
-		{"min_block_duration", raw.MinBlockDuration, DefaultMinBlockDuration, &cfg.MinBlockDuration},
-		{"rounding", raw.Rounding, DefaultRounding, &cfg.Rounding},
-		{"daily_cap", raw.DailyCap, DefaultDailyCap, &cfg.DailyCap},
+		{"gap_threshold", raw.GapThreshold, DefaultGapThreshold, &cfg.GapThreshold, msgZeroFixRemove},
+		{"idle_threshold", raw.IdleThreshold, DefaultIdleThreshold, &cfg.IdleThreshold, msgZeroFixRemove},
+		{"min_block_duration", raw.MinBlockDuration, DefaultMinBlockDuration, &cfg.MinBlockDuration, msgZeroFixRemove},
+		{"rounding", raw.Rounding, DefaultRounding, &cfg.Rounding, msgZeroFixRounding},
+		{"daily_cap", raw.DailyCap, DefaultDailyCap, &cfg.DailyCap, msgZeroFixDailyCap},
 	}
 	for _, d := range durations {
 		parsed, err := parseDuration(d.key, d.value, d.fallback)
 		if err != nil {
 			return Config{}, err
 		}
+		if parsed == 0 {
+			return Config{}, fmt.Errorf(msgZeroDuration, d.key, d.zeroFix)
+		}
 		*d.target = parsed
+	}
+	if cfg.Rounding%time.Minute != 0 {
+		return Config{}, fmt.Errorf(msgRoundingNotMinutes, raw.Rounding)
 	}
 
 	cfg.DailyCapDisabled = raw.DailyCapEnabled != nil && !*raw.DailyCapEnabled
@@ -264,11 +269,11 @@ func build(raw fileConfig) (Config, error) {
 		cfg.Location = loc
 	}
 
-	for i, rule := range raw.Rules {
-		if rule.Repo == "" || rule.Ticket == "" {
-			return Config{}, fmt.Errorf("rules[%d]: repo and ticket are both required", i)
-		}
+	rules, err := buildRules(raw.Rules, pattern)
+	if err != nil {
+		return Config{}, err
 	}
+	cfg.Rules = rules
 	aw, err := buildActivityWatch(raw)
 	if err != nil {
 		return Config{}, err
@@ -345,8 +350,9 @@ func buildActivityWatch(raw fileConfig) (ActivityWatch, error) {
 	return aw, nil
 }
 
-// buildTitleHint validates the project mapping. Errors name the project key
-// only, never the configured value.
+// buildTitleHint validates the project mapping and normalises the repository
+// paths, so they compare equal to the paths git reports. Errors name the
+// project key only, never the configured value.
 func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 	hint := TitleHint{Enabled: raw.Enabled}
 	if len(raw.Projects) == 0 {
@@ -360,7 +366,7 @@ func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 		if !filepath.IsAbs(repo) {
 			return TitleHint{}, fmt.Errorf("titlehint.projects.%q: repo path must be absolute", name)
 		}
-		hint.Projects[name] = repo
+		hint.Projects[name] = resolvePath(repo)
 	}
 	return hint, nil
 }

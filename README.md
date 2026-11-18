@@ -136,25 +136,25 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 
 | Key                  | Default                | Meaning                                                          |
 |----------------------|------------------------|------------------------------------------------------------------|
-| `youtrack_url`       | none                   | Base URL of your YouTrack instance.                              |
+| `youtrack_url`       | none                   | Base URL of your YouTrack instance. Must use `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `::1`. |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
 | `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
 | `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
-| `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this.              |
+| `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this. Must be whole minutes; `"1m"` books exact minutes. |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
 | `daily_cap_enabled`  | `true`                 | `false` turns the daily cap off: no warning, and neither `sync` nor `auto` is blocked by it. |
 | `ticket_pattern`     | `[A-Z][A-Z0-9]+-\d+`   | Regular expression that extracts a ticket id from a branch name. |
 | `repo_paths`         | none                   | Repositories read by `ticktack scan` and the agent's periodic scan. Each entry is the root of one repository, as an absolute path or starting with `~/`; subdirectories are not searched. |
 | `repo_roots`         | none                   | Folders whose direct subfolders are scanned like `repo_paths` entries, for example `["~/Projects", "~/StudioProjects"]`. A subfolder counts when it contains `.git`. |
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
-| `[[rules]]`          | none                   | Fixed mappings with `repo` (path) and `ticket`. Repeatable.      |
+| `[[rules]]`          | none                   | Fixed mappings with `repo` (absolute path or starting with `~/`) and `ticket` (must match `ticket_pattern`). Repeatable. |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
 | `[scan]`             | `interval = "0"`       | Periodic git scan by the agent. `"0"` is off; otherwise at least `"5m"`. |
 | `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (required, for example `"Meetings / Admin"`). Turns on standard tasks (see below). |
 | `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
 
-Durations use Go syntax such as `"90s"` or `"1h30m"`. The YouTrack token is never part of the config.
+Durations use Go syntax such as `"90s"` or `"1h30m"`. A duration of zero is rejected, except for `scan.interval`, where `"0"` means off; to turn the daily cap off, set `daily_cap_enabled = false`. Top-level keys such as `time_zone` must come before the first table (`[scan]`, `[[rules]]`, ...). Repository paths in `[[rules]]` and `[titlehint.projects]` are normalised when the config is loaded: a trailing slash is dropped and symlinks are resolved. The YouTrack token is never part of the config.
 
 **Rule matching.** Rules (`[[rules]]` and learned rules) are deliberately simple. A repository matches that path and everything below it, on a path boundary (`/work/app` covers `/work/app/sub`, not `/work/application`). A learned rule's branch must equal the branch name exactly: there are no wildcards or globs, so `feature/*` only matches a branch literally named that. Add one rule per branch, or leave the branch out to cover the whole repository. `ticktack map` lists and edits learned rules.
 
