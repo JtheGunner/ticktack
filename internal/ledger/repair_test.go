@@ -111,8 +111,105 @@ func TestSyncChecksEachSkippedRowOnce(t *testing.T) {
 	if rep.Skipped != 2 || rep.Repaired != 0 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if want := []string{"find:ABC-1", "find:ABC-2"}; !equalStrings(s.calls, want) {
+	// One existence check per unchanged row and no marker lookup: the listing
+	// is only consulted once an item is known to be missing.
+	if want := []string{"exists:ABC-1/1", "exists:ABC-2/2"}; !equalStrings(s.calls, want) {
 		t.Fatalf("calls = %v, want %v", s.calls, want)
+	}
+}
+
+// blindMarkerSink never finds an item by marker, like a listing that returns
+// only its first page while the item sits beyond it.
+type blindMarkerSink struct {
+	*fakeSink
+}
+
+func (b blindMarkerSink) FindByMarker(_ context.Context, issue, _ string) (string, bool, error) {
+	b.calls = append(b.calls, "find:"+issue)
+	return "", false, nil
+}
+
+func TestSyncSkipsExistingItemTheMarkerLookupDoesNotSee(t *testing.T) {
+	inner, repo := newFakeSink(), newFakeRepo()
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30)}
+	mustSync(t, items, inner, opts(repo))
+	bookedID := repo.rows[repairKey].WorkItemID
+	inner.calls = nil
+
+	rep := mustSync(t, items, blindMarkerSink{fakeSink: inner}, opts(repo))
+
+	if rep.Skipped != 1 || rep.Repaired+rep.Created+rep.Failed != 0 || rep.Items[0].Reason != skipReasonUnchanged {
+		t.Fatalf("report = %+v", rep)
+	}
+	if want := []string{"exists:" + bookedID}; !equalStrings(inner.calls, want) {
+		t.Fatalf("calls = %v, want %v", inner.calls, want)
+	}
+	if len(inner.items) != 1 || repo.rows[repairKey].WorkItemID != bookedID {
+		t.Fatalf("items=%d row=%+v", len(inner.items), repo.rows[repairKey])
+	}
+}
+
+func TestSyncDoesNotAdoptMarkerItemWhileBookedItemExists(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30)}
+	mustSync(t, items, s, opts(repo))
+	bookedID := repo.rows[repairKey].WorkItemID
+	// A second item with the same marker that a marker lookup returns first.
+	const twinID = "ABC-1/0"
+	twin := fakeItem{item: sink.WorkItem{
+		Issue: "ABC-1", Date: day, Minutes: 5, Type: "Development", Text: "twin " + Marker(repairKey),
+	}}
+	s.items[twinID] = twin
+	if id, _, _ := s.FindByMarker(context.Background(), "ABC-1", Marker(repairKey)); id != twinID {
+		t.Fatalf("setup: marker lookup returns %q, want the twin", id)
+	}
+	s.calls = nil
+
+	rep := mustSync(t, items, s, opts(repo))
+
+	if rep.Skipped != 1 || rep.Repaired+rep.Recovered+rep.Created+rep.Updated+rep.Failed != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if len(s.mutating()) != 0 || s.items[twinID] != twin {
+		t.Fatalf("calls = %v, twin = %+v", s.calls, s.items[twinID])
+	}
+	if repo.rows[repairKey].WorkItemID != bookedID {
+		t.Fatalf("ledger row repointed: %+v", repo.rows[repairKey])
+	}
+}
+
+func TestSyncReportsFailedExistenceCheck(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantStop bool
+	}{
+		{name: "server error", err: errors.New("HTTP 500")},
+		{name: "unauthorized stops the run", err: youtrack.ErrUnauthorized, wantStop: true},
+		{name: "rate limited stops the run", err: youtrack.ErrRateLimited, wantStop: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, repo := newFakeSink(), newFakeRepo()
+			staleID := bookedThenDeleted(t, s, repo)
+			s.existsErr = tt.err
+
+			rep, err := Sync(context.Background(), []sessionizer.DayItem{dayItem("ABC-1", 30)}, s, opts(repo))
+
+			if stopped := err != nil; stopped != tt.wantStop {
+				t.Fatalf("Sync error = %v, want stop=%v", err, tt.wantStop)
+			}
+			if rep.Failed != 1 || rep.Repaired != 0 || rep.Items[0].Error == "" {
+				t.Fatalf("report = %+v", rep)
+			}
+			// An unknown state is never repaired and never looked up by marker.
+			if want := []string{"exists:" + staleID}; !equalStrings(s.calls, want) {
+				t.Fatalf("calls = %v, want %v", s.calls, want)
+			}
+			if len(s.items) != 0 || repo.rows[repairKey].WorkItemID != staleID {
+				t.Fatalf("failed check changed state: items=%d row=%+v", len(s.items), repo.rows[repairKey])
+			}
+		})
 	}
 }
 

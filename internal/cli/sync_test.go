@@ -40,6 +40,11 @@ func (r *recordingSink) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (r *recordingSink) WorkItemExists(_ context.Context, _, id string) (bool, error) {
+	_, ok := r.items[id]
+	return ok, nil
+}
+
 func (r *recordingSink) FindByMarker(context.Context, string, string) (string, bool, error) {
 	r.calls = append(r.calls, "find")
 	return "", false, nil

@@ -148,7 +148,9 @@ func Marker(key string) string { return markerPrefix + key + "]" }
 //
 // A booked item that is missing in the sink is repaired: an item carrying the
 // marker is adopted, otherwise the item is created again, and the ledger row
-// is replaced. Finding out costs one marker lookup per unchanged item.
+// is replaced. Finding out costs one existence lookup by id per unchanged
+// item; the marker lookup follows only for an item that is known to be
+// missing.
 //
 // After the items, the days in opts.Reconcile are reconciled: booked rows the
 // items no longer cover are deleted. A run that stopped early reconciles
@@ -458,25 +460,36 @@ func failed(res ItemResult, err error) (ItemResult, error) {
 	return res, nil
 }
 
-// verifyBooked checks that the work item of an unchanged row still exists,
-// with one marker lookup, and repairs the row when it does not. Without the
-// check a row whose item was deleted in the sink would be reported as
-// unchanged forever although nothing is booked.
+// verifyBooked checks that the work item of an unchanged row still exists and
+// repairs the row when it does not. Without the check a row whose item was
+// deleted in the sink would be reported as unchanged forever although nothing
+// is booked.
+//
+// Existence is established by the item's id, one lookup per row, never by the
+// marker lookup: a marker lookup that finds nothing, or finds another item,
+// does not show that the booked item is gone, and repairing on that basis
+// would book the time twice. The marker lookup runs only once the item is
+// known to be missing; a failed existence check leaves the row untouched.
 func (r *syncRun) verifyBooked(ctx context.Context, work sink.WorkItem, row store.LedgerRow, res ItemResult) (ItemResult, error) {
-	id, found, err := r.sink.FindByMarker(ctx, work.Issue, Marker(res.Key))
+	exists, err := r.sink.WorkItemExists(ctx, work.Issue, row.WorkItemID)
 	if err != nil {
 		return failed(res, err)
 	}
-	if found && id == row.WorkItemID {
+	if exists {
 		res.Action, res.Reason = ActionSkipped, skipReasonUnchanged
 		return res, nil
+	}
+	id, found, err := r.sink.FindByMarker(ctx, work.Issue, Marker(res.Key))
+	if err != nil {
+		return failed(res, err)
 	}
 	return r.repair(ctx, work, res, id, found)
 }
 
 // replaceMissing repairs a row whose update reported the work item as not
-// found. The sink reports a missing issue the same way, so the marker lookup
-// decides: when it fails, or still lists the item, the update failure stands.
+// found, which already shows that the row's own item is gone. The sink
+// reports a missing issue the same way, so the marker lookup decides: when it
+// fails, or still lists the item, the update failure stands.
 func (r *syncRun) replaceMissing(ctx context.Context, work sink.WorkItem, row store.LedgerRow, res ItemResult, updateErr error) (ItemResult, error) {
 	id, found, err := r.sink.FindByMarker(ctx, work.Issue, Marker(res.Key))
 	if err != nil {
@@ -494,6 +507,12 @@ func (r *syncRun) replaceMissing(ctx context.Context, work sink.WorkItem, row st
 // adopted item is recorded as recovered, so undo never deletes an item that
 // may predate this run. A failed create is not looked up here: the row stays
 // as it is and the next sync adopts the item if the create did land.
+//
+// Callers must have established that the row's own item is missing before
+// they call repair. The marker lookup behind (id, found) is still limited to
+// the first page of the issue's work items until the paged search (TICKT-61)
+// lands, so a repair creates a new item when the only item carrying the
+// marker sits beyond that page.
 func (r *syncRun) repair(ctx context.Context, work sink.WorkItem, res ItemResult, id string, found bool) (ItemResult, error) {
 	res.Reason = RepairedReason
 	if r.opts.DryRun {
