@@ -1,6 +1,8 @@
 package auto
 
 import (
+	"strings"
+
 	"cloud.google.com/go/civil"
 
 	"github.com/JtheGunner/ticktack/internal/ledger"
@@ -9,7 +11,8 @@ import (
 )
 
 // DigestEntry is one line of the digest. Status is the ledger action
-// (created, updated, recovered, skipped, failed, not-sent, or a dry-run plan).
+// (created, updated, recovered, deleted, skipped, failed, not-sent, or a
+// dry-run plan).
 type DigestEntry struct {
 	Ticket  string
 	Date    civil.Date
@@ -19,14 +22,14 @@ type DigestEntry struct {
 	Reason  string
 }
 
-// Digest summarises one auto run: every item that was booked, updated or
-// skipped, with totals.
+// Digest summarises one auto run: every item that was booked, updated,
+// deleted or skipped, with totals.
 type Digest struct {
 	Day     civil.Date
 	DryRun  bool
 	Entries []DigestEntry
 
-	Created, Updated, Recovered, Skipped, Failed, NotSent int
+	Created, Updated, Recovered, Deleted, Skipped, Failed, NotSent int
 	// BookedMinutes is the sum of minutes of created, updated and recovered items.
 	BookedMinutes int
 	CapExceeded   bool
@@ -34,17 +37,18 @@ type Digest struct {
 	CapMinutes    int
 }
 
-// Changed reports whether the run created, updated or recovered anything, so
-// that "ticktack undo" has something to revert.
-func (d Digest) Changed() bool { return d.Created+d.Updated+d.Recovered > 0 }
+// Changed reports whether the run created, updated, recovered or deleted
+// anything, so that "ticktack undo" has something to revert.
+func (d Digest) Changed() bool { return d.Created+d.Updated+d.Recovered+d.Deleted > 0 }
 
 // BuildDigest merges the selection with the ledger report. Every ledger
 // outcome becomes an entry with the tier of its item; every item the
-// selection skipped is listed with its reason.
+// selection skipped is listed with its reason. A booking the run deleted has
+// no item any more, so its entry carries the ticket of its key and no tier.
 func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun bool) Digest {
 	d := Digest{
 		Day: day, DryRun: dryRun,
-		Created: report.Created, Updated: report.Updated, Recovered: report.Recovered,
+		Created: report.Created, Updated: report.Updated, Recovered: report.Recovered, Deleted: report.Deleted,
 		Skipped: report.Skipped + len(sel.Skipped), Failed: report.Failed, NotSent: report.NotSent,
 		CapExceeded: sel.CapExceeded, TotalMinutes: sel.TotalMinutes, CapMinutes: sel.CapMinutes,
 	}
@@ -53,8 +57,13 @@ func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun boo
 		booked[key(e.Item)] = e
 	}
 	for _, r := range report.Items {
-		e := booked[r.Key]
-		entry := DigestEntry{Ticket: e.Item.Ticket, Date: e.Item.Date, Minutes: r.Minutes, Tier: e.Tier, Status: string(r.Action), Reason: r.Reason}
+		entry := DigestEntry{Minutes: r.Minutes, Status: string(r.Action), Reason: r.Reason}
+		if e, ok := booked[r.Key]; ok {
+			entry.Ticket, entry.Date, entry.Tier = e.Item.Ticket, e.Item.Date, e.Tier
+		} else {
+			entry.Ticket, _, _ = strings.Cut(r.Key, ":"+day.String()+":")
+			entry.Date = day
+		}
 		if r.Error != "" {
 			entry.Reason = r.Error
 		}

@@ -227,3 +227,142 @@ func TestNewYouTrackSinkErrors(t *testing.T) {
 		t.Fatalf("missing token error = %v", err)
 	}
 }
+
+// overrideSeededHour stores a user correction that covers the seeded hour.
+func overrideSeededHour(t *testing.T, deps syncDeps, ticket string, discard bool) {
+	t.Helper()
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	start := time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
+	o := event.Override{Start: start, End: start.Add(61 * time.Minute), Ticket: ticket, Discard: discard}
+	if err := st.AddOverride(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// bookSeededDay confirms and books the seeded hour of ABC-1.
+func bookSeededDay(t *testing.T, deps syncDeps, rec *recordingSink) {
+	t.Helper()
+	confirmDay(t, deps)
+	if _, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.items["ABC-1/1"].Minutes; got != 60 || len(rec.items) != 1 {
+		t.Fatalf("seeded booking = %v", rec.items)
+	}
+}
+
+func TestSyncDeletesBookingOfReassignedBlockAndUndoRestoresIt(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	bookSeededDay(t, deps, rec)
+	overrideSeededHour(t, deps, "ABC-2", false)
+	confirmDay(t, deps)
+
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.items["ABC-2/1"].Minutes; got != 60 || len(rec.items) != 1 {
+		t.Fatalf("items after reassign = %v\n%s", rec.items, out)
+	}
+	if !strings.Contains(out, "ABC-1:2026-01-05:Development") || !strings.Contains(out, "deleted 1") {
+		t.Fatalf("deletion not reported:\n%s", out)
+	}
+
+	out, _, err = execCommand(t, deps, "undo")
+	if err != nil || !strings.Contains(out, "re-created 1") {
+		t.Fatalf("undo: %q err=%v", out, err)
+	}
+	if got := rec.items["ABC-1/1"].Minutes; got != 60 || len(rec.items) != 1 {
+		t.Fatalf("items after undo = %v", rec.items)
+	}
+}
+
+func TestSyncDeletesBookingOfDiscardedDay(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	bookSeededDay(t, deps, rec)
+	overrideSeededHour(t, deps, "", true)
+
+	rec.calls = nil
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ABC-1:2026-01-05:Development") || !strings.Contains(out, "dry-run-would-delete") {
+		t.Fatalf("plan missing the deletion:\n%s", out)
+	}
+	for _, c := range rec.calls {
+		if c != "find" {
+			t.Fatalf("mutating call in dry run: %v", rec.calls)
+		}
+	}
+	if len(rec.items) != 1 {
+		t.Fatalf("dry run changed the sink: %v", rec.items)
+	}
+
+	out, _, err = execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 0 || !strings.Contains(out, "deleted 1") {
+		t.Fatalf("items = %v\n%s", rec.items, out)
+	}
+	// A second run finds nothing left to reconcile.
+	rec.calls = nil
+	if _, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05"); err != nil || len(rec.calls) != 0 {
+		t.Fatalf("second run: err=%v calls=%v", err, rec.calls)
+	}
+}
+
+func TestSyncKeepsBookingOfItemAwaitingConfirmation(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	bookSeededDay(t, deps, rec)
+	// The ticket gets more time after the booking, so its confirmation is stale.
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 61; i <= 90; i++ {
+		e := event.Event{At: time.Date(2026, 1, 5, 9, i, 0, 0, time.UTC), Source: "test", Kind: event.KindPresence}
+		if err := st.Append(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rec.calls = nil
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ticktack review") || len(rec.calls) != 0 {
+		t.Fatalf("calls=%v\n%s", rec.calls, out)
+	}
+	if got := rec.items["ABC-1/1"].Minutes; got != 60 || len(rec.items) != 1 {
+		t.Fatalf("booking of an item that still exists was touched: %v", rec.items)
+	}
+}
+
+func TestSyncDeletesBookingOfItemRoundedToZero(t *testing.T) {
+	deps, rec := syncTestDeps(t)
+	bookSeededDay(t, deps, rec)
+	// With a coarser rounding step the seeded hour rounds to zero minutes.
+	load := deps.LoadConfig
+	deps.LoadConfig = func() (config.Config, string, error) {
+		cfg, path, err := load()
+		cfg.Rounding = 4 * time.Hour
+		return cfg, path, err
+	}
+	out, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 0 || !strings.Contains(out, "deleted 1") {
+		t.Fatalf("items = %v\n%s", rec.items, out)
+	}
+}

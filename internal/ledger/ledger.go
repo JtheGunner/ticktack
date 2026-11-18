@@ -23,8 +23,10 @@ import (
 // Repository is the persistence the ledger needs. *store.Store implements it.
 type Repository interface {
 	LedgerGet(ctx context.Context, issue, date, typ string) (store.LedgerRow, bool, error)
+	LedgerRowsForDate(ctx context.Context, date string) ([]store.LedgerRow, error)
 	BeginSyncRun(ctx context.Context, startedAt time.Time) (int64, error)
 	RecordBooking(ctx context.Context, runID int64, row store.LedgerRow, e store.SyncEntry) error
+	RecordDeletion(ctx context.Context, runID int64, row store.LedgerRow, e store.SyncEntry) error
 	LastSyncRun(ctx context.Context) (store.SyncRun, bool, error)
 	RevertEntry(ctx context.Context, runID int64, e store.SyncEntry, restore *store.LedgerRow) error
 }
@@ -38,18 +40,26 @@ const (
 	ActionUpdated        Action = "updated"
 	ActionSkipped        Action = "skipped"
 	ActionRecovered      Action = "recovered"
+	ActionDeleted        Action = "deleted"
 	ActionFailed         Action = "failed"
 	ActionNotSent        Action = "not-sent"
 	ActionWouldCreate    Action = "dry-run-would-create"
 	ActionWouldUpdate    Action = "dry-run-would-update"
 	ActionWouldRecover   Action = "dry-run-would-recover"
+	ActionWouldDelete    Action = "dry-run-would-delete"
 	skipReasonNoTicket          = "no ticket"
 	skipReasonUnchanged         = "unchanged"
 	entryActionCreated          = "created"
 	entryActionUpdated          = "updated"
 	entryActionRecovered        = "recovered"
+	entryActionDeleted          = "deleted"
 	notSentReason               = "not sent: run stopped"
 	markerPrefix                = "[ticktack:"
+	// DeletedReason explains why a booked item was removed.
+	DeletedReason = "no longer part of the day"
+	// restoredDescription is the text of an item undo books again: the
+	// original description of a deleted item is not kept.
+	restoredDescription = "restored by ticktack undo"
 )
 
 // SyncOptions configures Sync.
@@ -60,6 +70,13 @@ type SyncOptions struct {
 	DryRun bool
 	// Now returns the current time; it defaults to time.Now.
 	Now func() time.Time
+	// Reconcile lists the days whose booked state must match the items: a
+	// ledger row of such a day whose key is neither among the items nor in
+	// Keep is deleted from the sink and the ledger. Other days are untouched.
+	Reconcile []civil.Date
+	// Keep holds the keys of rows that stay booked without an item, for
+	// example items the day still has but that may not be booked right now.
+	Keep []string
 }
 
 // ItemResult is the outcome for one item.
@@ -78,9 +95,11 @@ type Report struct {
 	Created   int
 	Updated   int
 	Recovered int
-	Skipped   int
-	Failed    int
-	NotSent   int
+	// Deleted counts booked items that were removed by reconciliation.
+	Deleted int
+	Skipped int
+	Failed  int
+	NotSent int
 	// Planned counts items a dry run would change.
 	Planned int
 }
@@ -94,13 +113,15 @@ func (r *Report) add(res ItemResult) {
 		r.Updated++
 	case ActionRecovered:
 		r.Recovered++
+	case ActionDeleted:
+		r.Deleted++
 	case ActionSkipped:
 		r.Skipped++
 	case ActionFailed:
 		r.Failed++
 	case ActionNotSent:
 		r.NotSent++
-	case ActionWouldCreate, ActionWouldUpdate, ActionWouldRecover:
+	case ActionWouldCreate, ActionWouldUpdate, ActionWouldRecover, ActionWouldDelete:
 		r.Planned++
 	}
 }
@@ -115,6 +136,10 @@ func Marker(key string) string { return markerPrefix + key + "]" }
 // Unauthorized and rate-limit errors stop the run: the remaining items are
 // reported as not sent and Sync returns the report together with the error.
 // Other failures are recorded per item and the run continues.
+//
+// After the items, the days in opts.Reconcile are reconciled: booked rows the
+// items no longer cover are deleted. A run that stopped early reconciles
+// nothing, because its items were not all processed.
 func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opts SyncOptions) (Report, error) {
 	if opts.Repo == nil {
 		return Report{}, errors.New("ledger: no repository configured")
@@ -148,7 +173,118 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 			return report, err
 		}
 	}
+	if err := run.reconcile(ctx, sorted, &report); err != nil {
+		return report, err
+	}
 	return report, nil
+}
+
+// reconcile deletes the booked rows of the reconciled days that no item and
+// no kept key covers. A failed deletion is reported and the others continue;
+// a stop error ends the run with the remaining rows reported as not sent.
+func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, report *Report) error {
+	if len(r.opts.Reconcile) == 0 {
+		return nil
+	}
+	covered := make(map[string]bool, len(items)+len(r.opts.Keep))
+	for _, it := range items {
+		if it.Ticket != "" {
+			covered[itemKey(it)] = true
+		}
+	}
+	for _, key := range r.opts.Keep {
+		covered[key] = true
+	}
+	var stale []store.LedgerRow
+	for _, date := range uniqueDates(r.opts.Reconcile) {
+		rows, err := r.opts.Repo.LedgerRowsForDate(ctx, date.String())
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if !covered[Key(row.Issue, row.Date, row.Type)] {
+				stale = append(stale, row)
+			}
+		}
+	}
+	for i, row := range stale {
+		if err := ctx.Err(); err != nil {
+			markRowsNotSent(report, stale[i:])
+			return err
+		}
+		res, err := r.deleteRow(ctx, row)
+		report.add(res)
+		if isStopError(err) {
+			markRowsNotSent(report, stale[i+1:])
+			return err
+		}
+	}
+	return nil
+}
+
+func uniqueDates(dates []civil.Date) []civil.Date {
+	out := append([]civil.Date(nil), dates...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Before(out[j]) })
+	kept := out[:0]
+	for i, d := range out {
+		if i == 0 || d != out[i-1] {
+			kept = append(kept, d)
+		}
+	}
+	return kept
+}
+
+func markRowsNotSent(r *Report, rest []store.LedgerRow) {
+	for _, row := range rest {
+		r.add(ItemResult{Key: Key(row.Issue, row.Date, row.Type), Action: ActionNotSent, Minutes: row.Minutes, Reason: notSentReason})
+	}
+}
+
+// deleteRow removes one stale row. Only a stop error is returned; any other
+// failure is carried by the result. A work item that is already gone counts
+// as deleted.
+func (r *syncRun) deleteRow(ctx context.Context, row store.LedgerRow) (ItemResult, error) {
+	key := Key(row.Issue, row.Date, row.Type)
+	res := ItemResult{Key: key, Minutes: row.Minutes, Reason: DeletedReason}
+	if r.opts.DryRun {
+		res.Action = ActionWouldDelete
+		return res, nil
+	}
+	fail := func(err error) (ItemResult, error) {
+		res.Action, res.Reason, res.Error = ActionFailed, "", err.Error()
+		if isStopError(err) {
+			return res, err
+		}
+		return res, nil
+	}
+	if err := r.sink.Delete(ctx, row.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
+		return fail(err)
+	}
+	runID, err := r.ensureRun(ctx, r.opts.Now())
+	if err != nil {
+		return fail(err)
+	}
+	entry := store.SyncEntry{
+		Issue: row.Issue, Date: row.Date, Type: row.Type, Action: entryActionDeleted, WorkItemID: row.WorkItemID,
+		PreviousMinutes: row.Minutes, Text: restoredDescription + " " + Marker(key),
+	}
+	if err := r.opts.Repo.RecordDeletion(ctx, runID, row, entry); err != nil {
+		return fail(err)
+	}
+	res.Action = ActionDeleted
+	return res, nil
+}
+
+// ensureRun starts the sync run on the first change and returns its id.
+func (r *syncRun) ensureRun(ctx context.Context, now time.Time) (int64, error) {
+	if r.runID == 0 {
+		runID, err := r.opts.Repo.BeginSyncRun(ctx, now)
+		if err != nil {
+			return 0, err
+		}
+		r.runID = runID
+	}
+	return r.runID, nil
 }
 
 func markNotSent(r *Report, rest []sessionizer.DayItem) {
@@ -302,12 +438,9 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 // record writes the ledger row and the run entry after a successful sink call.
 func (r *syncRun) record(ctx context.Context, w sink.WorkItem, key, id, entryAction string, previous int) error {
 	now := r.opts.Now()
-	if r.runID == 0 {
-		runID, err := r.opts.Repo.BeginSyncRun(ctx, now)
-		if err != nil {
-			return err
-		}
-		r.runID = runID
+	runID, err := r.ensureRun(ctx, now)
+	if err != nil {
+		return err
 	}
 	date := w.Date.String()
 	row := store.LedgerRow{
@@ -318,7 +451,7 @@ func (r *syncRun) record(ctx context.Context, w sink.WorkItem, key, id, entryAct
 		Issue: w.Issue, Date: date, Type: w.Type, Action: entryAction, WorkItemID: id,
 		PreviousMinutes: previous, NewMinutes: w.Minutes, Text: w.Text,
 	}
-	return r.opts.Repo.RecordBooking(ctx, r.runID, row, entry)
+	return r.opts.Repo.RecordBooking(ctx, runID, row, entry)
 }
 
 func contentHash(key string, minutes int, text string) string {
@@ -329,14 +462,17 @@ func contentHash(key string, minutes int, text string) string {
 // UndoResult reports what Undo did.
 type UndoResult struct {
 	// Found is false when there was no sync run to undo.
-	Found     bool
-	Deleted   int
-	Restored  int
+	Found    bool
+	Deleted  int
+	Restored int
+	// Recreated counts items the run had deleted that were booked again.
+	Recreated int
 	Forgotten int
 }
 
 // Undo reverts the last sync run only: created items are deleted from the
 // sink and removed from the ledger, updated items are restored to their
+// previous minutes, and items the run deleted are booked again with their
 // previous minutes. Recovered items stay in the sink (their earlier state is
 // unknown) and are only dropped from the ledger. An entry is cleared only after
 // its sink call succeeded, so a failed undo can be retried.
@@ -383,6 +519,23 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 				BookedAt:    now(),
 			}
 			result.Restored++
+		case entryActionDeleted:
+			w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
+			id, err := recreate(ctx, s, w, Marker(Key(e.Issue, e.Date, e.Type)))
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
+				if isStopError(err) {
+					return result, errors.Join(errs...)
+				}
+				continue
+			}
+			restore = &store.LedgerRow{
+				Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: id,
+				Minutes:     e.PreviousMinutes,
+				ContentHash: contentHash(Key(e.Issue, e.Date, e.Type), e.PreviousMinutes, e.Text),
+				BookedAt:    now(),
+			}
+			result.Recreated++
 		default:
 			result.Forgotten++
 		}
@@ -391,4 +544,21 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 		}
 	}
 	return result, errors.Join(errs...)
+}
+
+// recreate books w again and returns its id. An item that already carries the
+// marker, left by an undo that failed halfway, is reused instead of
+// duplicated.
+func recreate(ctx context.Context, s sink.TimeSink, w sink.WorkItem, marker string) (string, error) {
+	id, found, err := s.FindByMarker(ctx, w.Issue, marker)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return s.Create(ctx, w)
+	}
+	if err := s.Update(ctx, id, w); err != nil {
+		return "", err
+	}
+	return id, nil
 }

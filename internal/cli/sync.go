@@ -146,7 +146,11 @@ func newSyncCommandWith(deps syncDeps) *cobra.Command {
 		Long: `Book the items confirmed in "ticktack review" for one day in YouTrack, one
 work item per ticket, day and type. Repeated runs update instead of
 duplicating. Unconfirmed items are never booked; a day above the daily cap is
-only booked after the cap warning was acknowledged in review.`,
+only booked after the cap warning was acknowledged in review.
+
+A work item booked earlier is deleted when the day no longer has time for its
+ticket, for example after the block was reassigned or discarded in review.
+"ticktack undo" books it again.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSync(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
@@ -185,7 +189,17 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 {
+	// Bookings of time the day no longer has are removed even when nothing
+	// is confirmed, for example after every block was discarded.
+	d, err := review.LoadDay(ctx, st, cfg, day)
+	if err != nil {
+		return err
+	}
+	keep, stale, err := reconciliation(ctx, st, d.Items, day)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 && !stale {
 		_, err = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgNothingConfirmed, day)))
 		return err
 	}
@@ -197,12 +211,15 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 && len(provisioned.WouldBook) > 0 {
+	if len(items) == 0 && len(provisioned.WouldBook) > 0 && !stale {
 		// A dry run left out time that waits for a new standard task; the
 		// lines above name it, so "No time to book" would be wrong.
 		return nil
 	}
-	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
+	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{
+		Repo: st, DryRun: dryRun, Now: deps.Now,
+		Reconcile: []civil.Date{day}, Keep: keep,
+	})
 	printReport(out, deps.Render, report, dryRun)
 	return syncErr
 }
@@ -239,7 +256,7 @@ func printReport(out io.Writer, r render.Renderer, report ledger.Report, planOnl
 	}
 	title := msgSyncSummaryTitle
 	summary := []string{
-		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered),
+		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered, report.Deleted),
 		fmt.Sprintf(msgSyncTotalsOutcome, report.Skipped, report.Failed, report.NotSent),
 	}
 	if planOnly {

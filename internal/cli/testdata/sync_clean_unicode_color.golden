@@ -1,6 +1,6 @@
   [32m✓[0m  ABC-1:2026-01-05:Development   60 min  created
 
 [32m╭─────────────────────────────[0m[1m Summary [0m[32m──────────────────────────────╮[0m
-[32m│[0m [32mCreated 1, updated 0, recovered 0.[0m                                 [32m│[0m
+[32m│[0m [32mCreated 1, updated 0, recovered 0, deleted 0.[0m                      [32m│[0m
 [32m│[0m [32mSkipped 0, failed 0, not sent 0.[0m                                   [32m│[0m
 [32m╰────────────────────────────────────────────────────────────────────╯[0m

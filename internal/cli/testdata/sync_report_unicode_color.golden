@@ -3,8 +3,9 @@
   [2m–[0m  ABC-3:2026-01-05:Development   15 min  skipped (unchanged)
   [31m✗[0m  ABC-4:2026-01-05:Development   45 min  failed: HTTP 500
   [33m⚠[0m  ABC-5:2026-01-05:Development   15 min  not-sent (run stopped)
+  [32m✓[0m  ABC-6:2026-01-05:Development   30 min  deleted (no longer part of the day)
 
 [31m╭─────────────────────────────[0m[1m Summary [0m[31m──────────────────────────────╮[0m
-[31m│[0m [31mCreated 1, updated 1, recovered 0.[0m                                 [31m│[0m
+[31m│[0m [31mCreated 1, updated 1, recovered 0, deleted 1.[0m                      [31m│[0m
 [31m│[0m [31mSkipped 1, failed 1, not sent 1.[0m                                   [31m│[0m
 [31m╰────────────────────────────────────────────────────────────────────╯[0m

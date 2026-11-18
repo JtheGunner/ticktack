@@ -24,9 +24,10 @@ type SyncEntry struct {
 	Issue      string
 	Date       string // yyyy-mm-dd
 	Type       string
-	Action     string // created, updated or recovered
+	Action     string // created, updated, recovered or deleted
 	WorkItemID string
-	// PreviousMinutes is the booked minutes before an update; zero otherwise.
+	// PreviousMinutes is the booked minutes before an update or a deletion;
+	// zero otherwise.
 	PreviousMinutes int
 	NewMinutes      int
 	// Text is the work item text that was sent.
@@ -58,6 +59,32 @@ func (s *Store) LedgerGet(ctx context.Context, issue, date, typ string) (LedgerR
 	return r, true, nil
 }
 
+// LedgerRowsForDate returns every ledger row of one day, ordered by issue and
+// type.
+func (s *Store) LedgerRowsForDate(ctx context.Context, date string) ([]LedgerRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT issue, date, type, work_item_id, minutes, content_hash, booked_at
+		 FROM ledger WHERE date = ? ORDER BY issue, type`, date)
+	if err != nil {
+		return nil, fmt.Errorf("read ledger rows: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []LedgerRow
+	for rows.Next() {
+		var r LedgerRow
+		var booked int64
+		if err := rows.Scan(&r.Issue, &r.Date, &r.Type, &r.WorkItemID, &r.Minutes, &r.ContentHash, &booked); err != nil {
+			return nil, fmt.Errorf("scan ledger row: %w", err)
+		}
+		r.BookedAt = time.Unix(0, booked).UTC()
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate ledger rows: %w", err)
+	}
+	return out, nil
+}
+
 // BeginSyncRun starts a new sync run and returns its id.
 func (s *Store) BeginSyncRun(ctx context.Context, startedAt time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO sync_runs (started_at) VALUES (?)`, startedAt.UTC().UnixNano())
@@ -82,15 +109,44 @@ func (s *Store) RecordBooking(ctx context.Context, runID int64, row LedgerRow, e
 	if err := upsertLedger(ctx, tx, row); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO sync_entries
-		 (run_id, issue, date, type, action, work_item_id, previous_minutes, new_minutes, text)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		runID, e.Issue, e.Date, e.Type, e.Action, e.WorkItemID, e.PreviousMinutes, e.NewMinutes, e.Text); err != nil {
-		return fmt.Errorf("record sync entry: %w", err)
+	if err := insertSyncEntry(ctx, tx, runID, e); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit record booking: %w", err)
+	}
+	return nil
+}
+
+// RecordDeletion removes the ledger row and stores the run entry in one
+// transaction, so the deletion can be undone.
+func (s *Store) RecordDeletion(ctx context.Context, runID int64, row LedgerRow, e SyncEntry) error {
+	tx, err := s.root.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin record deletion: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM ledger WHERE issue = ? AND date = ? AND type = ?`, row.Issue, row.Date, row.Type); err != nil {
+		return fmt.Errorf("remove ledger row: %w", err)
+	}
+	if err := insertSyncEntry(ctx, tx, runID, e); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record deletion: %w", err)
+	}
+	return nil
+}
+
+func insertSyncEntry(ctx context.Context, tx *sql.Tx, runID int64, e SyncEntry) error {
+	_, err := tx.ExecContext(ctx,
+		`INSERT OR REPLACE INTO sync_entries
+		 (run_id, issue, date, type, action, work_item_id, previous_minutes, new_minutes, text)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		runID, e.Issue, e.Date, e.Type, e.Action, e.WorkItemID, e.PreviousMinutes, e.NewMinutes, e.Text)
+	if err != nil {
+		return fmt.Errorf("record sync entry: %w", err)
 	}
 	return nil
 }

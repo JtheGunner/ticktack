@@ -205,7 +205,7 @@ func TestUndoOutput(t *testing.T) {
 			if err := runUndo(ctx, &out, deps); err != nil {
 				t.Fatal(err)
 			}
-			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgUndoResult(1, 0, 0)), m.colour)
+			assertSmallOutput(t, out.String(), wantLine(m.colour, render.StatusOK, msgUndoResult(1, 0, 0, 0)), m.colour)
 		})
 	}
 }
@@ -253,7 +253,7 @@ func TestUndoFailureWarnsAndReturnsTheError(t *testing.T) {
 			if m.colour {
 				want = "  ⚠ "
 			}
-			want += " Deleted 0, restored 0, forgotten 0.\n"
+			want += " Deleted 0, restored 0, re-created 0, forgotten 0.\n"
 			if got := stripANSI(out.String()); got != want {
 				t.Errorf("output = %q, want %q", got, want)
 			}

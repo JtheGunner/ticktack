@@ -19,9 +19,9 @@ func newUndoCommandWith(deps syncDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "undo",
 		Short: "Revert the last sync",
-		Long: `Revert the last booking run: items it created are deleted from YouTrack and
-items it updated are restored to their previous minutes. Running undo again
-reverts the run before it.`,
+		Long: `Revert the last booking run: items it created are deleted from YouTrack,
+items it updated are restored to their previous minutes and items it deleted
+are booked again. Running undo again reverts the run before it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
@@ -54,7 +54,7 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	if err != nil {
 		status = render.StatusWarn
 	}
-	line := msgUndoResult(res.Deleted, res.Restored, res.Forgotten)
+	line := msgUndoResult(res.Deleted, res.Restored, res.Recreated, res.Forgotten)
 	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
 	return err
 }

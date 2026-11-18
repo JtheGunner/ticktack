@@ -109,6 +109,7 @@ func TestEventsAreImmutable(t *testing.T) {
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
+		"LedgerRowsForDate": true, "RecordDeletion": true,
 		// Review state (confirmations and cap acknowledgements) lives in its
 		// own tables and never touches events.
 		"Confirm": true, "Confirmations": true,
