@@ -88,6 +88,9 @@ type doctorDeps struct {
 	HTTP       *http.Client
 	OpenStore  func(path string) (eventReader, error)
 	LookPath   func(file string) (string, error)
+	// Binary returns the path of the running executable; the agent check
+	// compares the program of the launchd plist with it.
+	Binary func() (string, error)
 	// NewActivityWatch builds the bucket lister for the optional ActivityWatch
 	// check; tests inject a client bound to an httptest server.
 	NewActivityWatch func(url string) (bucketLister, error)
@@ -133,6 +136,7 @@ func defaultDoctorDeps(cmd *cobra.Command) doctorDeps {
 			return st, nil
 		},
 		LookPath:    exec.LookPath,
+		Binary:      currentBinary,
 		TitleSource: title.NewSource,
 		NewActivityWatch: func(url string) (bucketLister, error) {
 			return activitywatch.New(url)
@@ -317,6 +321,9 @@ func checkAgent(ctx context.Context, deps doctorDeps) checkResult {
 	if !fileExists(plist) {
 		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentNoPlist, plist), msgAgentNoPlistFix)
 	}
+	if problem, bad := checkAgentProgram(deps, plist); bad {
+		return problem
+	}
 	window := 2 * installedAgentInterval(plist)
 	at, found, err := newestEvent(ctx, deps, "presence", window)
 	if err != nil {
@@ -327,6 +334,31 @@ func checkAgent(ctx context.Context, deps doctorDeps) checkResult {
 			fmt.Sprintf(msgAgentNoSampleFix, deps.UID, plist))
 	}
 	return okResult(msgCheckAgent, fmt.Sprintf(msgAgentOK, deps.Now().Sub(at).Round(time.Second)))
+}
+
+// checkAgentProgram verifies that the program the launchd plist runs exists
+// and is the running binary, meaning both paths lead to the same file. It
+// reports true together with the failure when it is not.
+func checkAgentProgram(deps doctorDeps, plist string) (checkResult, bool) {
+	data, err := os.ReadFile(plist)
+	if err != nil {
+		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentPlistBad, plist, err), msgAgentProgramFix), true
+	}
+	program, err := launchd.ProgramPath(data)
+	if err != nil {
+		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentPlistBad, plist, err), msgAgentProgramFix), true
+	}
+	if _, err := os.Stat(program); err != nil {
+		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentProgramMissing, program), msgAgentProgramFix), true
+	}
+	current, err := deps.Binary()
+	if err != nil {
+		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentBinaryUnknown, err), msgAgentProgramFix), true
+	}
+	if !sameFile(program, current) {
+		return failResult(msgCheckAgent, fmt.Sprintf(msgAgentProgramDiffers, program, current), msgAgentProgramFix), true
+	}
+	return checkResult{}, false
 }
 
 // installedAgentInterval returns the sampling interval the installed launchd

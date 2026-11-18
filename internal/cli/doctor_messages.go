@@ -18,10 +18,17 @@ const (
 	msgHookStoreErr     = "installed in %s, but the event store cannot be read: %v"
 	msgHookStoreFix     = "see the database check below"
 
-	msgCheckAgent       = "agent"
-	msgAgentOK          = "plist present and last presence sample %s ago"
-	msgAgentNoPlist     = "launchd plist missing: %s"
-	msgAgentNoPlistFix  = "run `ticktack init` and keep the agent step"
+	msgCheckAgent      = "agent"
+	msgAgentOK         = "plist runs this binary and last presence sample %s ago"
+	msgAgentNoPlist    = "launchd plist missing: %s"
+	msgAgentNoPlistFix = "run `ticktack init` and keep the agent step"
+
+	msgAgentPlistBad       = "launchd plist %s cannot be read: %v"
+	msgAgentProgramMissing = "plist runs %s, which does not exist"
+	msgAgentProgramDiffers = "plist runs %s, which is not the binary you are running (%s)"
+	msgAgentBinaryUnknown  = "plist present, but the running binary cannot be determined: %v"
+	msgAgentProgramFix     = "rerun `ticktack init` and keep the agent step to point the agent at this binary"
+
 	msgAgentNoSample    = "plist present, but no presence sample in the last %s"
 	msgAgentNoSampleFix = "load the agent with `launchctl bootstrap gui/%d %s` or rerun `ticktack init`; check the log file"
 	msgAgentStoreErr    = "plist present, but the event store cannot be read: %v"

@@ -100,6 +100,8 @@ func searchWords(marker string) string {
 // CreateIssue creates an issue in project assigned to the token owner, tagged
 // "manual", and returns its readable key. The tag is resolved (and created when
 // missing) before the issue, so a failure leaves no untagged issue behind.
+// Neither create request is repeated after a server or transport error; such
+// a failure is returned as ErrOutcomeUnclear.
 func (c *Client) CreateIssue(ctx context.Context, project, summary, description string) (string, error) {
 	var proj struct {
 		ID string `json:"id"`
@@ -133,7 +135,7 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 	var out struct {
 		ID string `json:"idReadable"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/api/issues", url.Values{"fields": {"idReadable"}}, body, &out); err != nil {
+	if err := c.doCreate(ctx, "/api/issues", url.Values{"fields": {"idReadable"}}, body, &out); err != nil {
 		return "", err
 	}
 	if out.ID == "" {
@@ -162,7 +164,7 @@ func (c *Client) ensureTag(ctx context.Context, name string) (string, error) {
 		ID string `json:"id"`
 	}
 	body := map[string]any{"name": name}
-	if err := c.do(ctx, http.MethodPost, "/api/tags", url.Values{"fields": {"id"}}, body, &created); err != nil {
+	if err := c.doCreate(ctx, "/api/tags", url.Values{"fields": {"id"}}, body, &created); err != nil {
 		return "", err
 	}
 	if created.ID == "" {
