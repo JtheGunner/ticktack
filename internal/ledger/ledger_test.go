@@ -243,7 +243,7 @@ func TestSyncSkipsUnchanged(t *testing.T) {
 	mustSync(t, items, s, opts(repo))
 	s.calls = nil
 	rep := mustSync(t, items, s, opts(repo))
-	if rep.Skipped != 1 || len(s.calls) != 0 {
+	if rep.Skipped != 1 || len(s.mutating()) != 0 {
 		t.Fatalf("report=%+v calls=%v", rep, s.calls)
 	}
 }

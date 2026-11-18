@@ -134,6 +134,24 @@ func TestBuildDigestListsBookedAndSkippedWithTiers(t *testing.T) {
 	}
 }
 
+func TestBuildDigestCountsRepairedBookings(t *testing.T) {
+	blocks := []sessionizer.Block{block("EXP-1", resolver.TierExplicit)}
+	sel := Select([]sessionizer.DayItem{item("EXP-1", 30)}, LowestTiers(blocks), 600)
+	report := ledger.Report{
+		Items: []ledger.ItemResult{
+			{Key: "EXP-1:2026-01-05:Development", Action: ledger.ActionRepaired, Minutes: 30, Reason: ledger.RepairedReason},
+		},
+		Repaired: 1,
+	}
+	d := BuildDigest(day, sel, report, false)
+	if d.Repaired != 1 || d.BookedMinutes != 30 || !d.Changed() {
+		t.Fatalf("digest = %+v", d)
+	}
+	if got := d.Entries[0]; got.Status != "repaired" || got.Reason != ledger.RepairedReason || got.Tier != resolver.TierExplicit {
+		t.Errorf("repaired entry = %+v", got)
+	}
+}
+
 func TestBuildDigestListsDeletedBookings(t *testing.T) {
 	blocks := []sessionizer.Block{block("EXP-1", resolver.TierExplicit)}
 	sel := Select([]sessionizer.DayItem{item("EXP-1", 30)}, LowestTiers(blocks), 600)

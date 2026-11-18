@@ -72,8 +72,8 @@ func msgDigestCap(d auto.Digest) string {
 }
 
 func msgDigestTotals(d auto.Digest) string {
-	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
-		d.Created, d.Updated, d.Recovered, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
+	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
+		d.Created, d.Updated, d.Recovered, d.Repaired, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 
 // renderDigest formats the digest text that is printed (with the run's

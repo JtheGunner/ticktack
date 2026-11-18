@@ -40,12 +40,14 @@ const (
 	ActionUpdated        Action = "updated"
 	ActionSkipped        Action = "skipped"
 	ActionRecovered      Action = "recovered"
+	ActionRepaired       Action = "repaired"
 	ActionDeleted        Action = "deleted"
 	ActionFailed         Action = "failed"
 	ActionNotSent        Action = "not-sent"
 	ActionWouldCreate    Action = "dry-run-would-create"
 	ActionWouldUpdate    Action = "dry-run-would-update"
 	ActionWouldRecover   Action = "dry-run-would-recover"
+	ActionWouldRepair    Action = "dry-run-would-repair"
 	ActionWouldDelete    Action = "dry-run-would-delete"
 	skipReasonNoTicket          = "no ticket"
 	skipReasonUnchanged         = "unchanged"
@@ -57,6 +59,8 @@ const (
 	markerPrefix                = "[ticktack:"
 	// DeletedReason explains why a booked item was removed.
 	DeletedReason = "no longer part of the day"
+	// RepairedReason explains why a booked item was booked again.
+	RepairedReason = "booked work item was missing"
 	// restoredDescription is the text of an item undo books again: the
 	// original description of a deleted item is not kept.
 	restoredDescription = "restored by ticktack undo"
@@ -95,6 +99,9 @@ type Report struct {
 	Created   int
 	Updated   int
 	Recovered int
+	// Repaired counts booked items that were missing in the sink and were
+	// booked again.
+	Repaired int
 	// Deleted counts booked items that were removed by reconciliation.
 	Deleted int
 	Skipped int
@@ -113,6 +120,8 @@ func (r *Report) add(res ItemResult) {
 		r.Updated++
 	case ActionRecovered:
 		r.Recovered++
+	case ActionRepaired:
+		r.Repaired++
 	case ActionDeleted:
 		r.Deleted++
 	case ActionSkipped:
@@ -121,7 +130,7 @@ func (r *Report) add(res ItemResult) {
 		r.Failed++
 	case ActionNotSent:
 		r.NotSent++
-	case ActionWouldCreate, ActionWouldUpdate, ActionWouldRecover, ActionWouldDelete:
+	case ActionWouldCreate, ActionWouldUpdate, ActionWouldRecover, ActionWouldRepair, ActionWouldDelete:
 		r.Planned++
 	}
 }
@@ -136,6 +145,10 @@ func Marker(key string) string { return markerPrefix + key + "]" }
 // Unauthorized and rate-limit errors stop the run: the remaining items are
 // reported as not sent and Sync returns the report together with the error.
 // Other failures are recorded per item and the run continues.
+//
+// A booked item that is missing in the sink is repaired: an item carrying the
+// marker is adopted, otherwise the item is created again, and the ledger row
+// is replaced. Finding out costs one marker lookup per unchanged item.
 //
 // After the items, the days in opts.Reconcile are reconciled: booked rows the
 // items no longer cover are deleted. A run that stopped early reconciles
@@ -369,8 +382,7 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 
 	if inLedger {
 		if row.Minutes == it.Minutes {
-			res.Action, res.Reason = ActionSkipped, skipReasonUnchanged
-			return res, nil
+			return r.verifyBooked(ctx, work, row, res)
 		}
 		return r.update(ctx, work, row, res, ActionUpdated, ActionWouldUpdate, entryActionUpdated, row.Minutes)
 	}
@@ -396,8 +408,9 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 		if isClientError(err) {
 			return failItem(err)
 		}
-		// The client retries POSTs on 5xx, so the server may have stored the
-		// item despite the error: look it up before giving up.
+		// A create is never repeated, so its failure leaves the outcome
+		// unclear: the server may have stored the item despite the error.
+		// Look it up before giving up.
 		recovered, ok, findErr := r.sink.FindByMarker(ctx, it.Ticket, Marker(key))
 		if findErr != nil || !ok {
 			return failItem(err)
@@ -421,17 +434,88 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 		return res, nil
 	}
 	if err := r.sink.Update(ctx, row.WorkItemID, work); err != nil {
-		res.Action, res.Error = ActionFailed, err.Error()
-		if isStopError(err) {
-			return res, err
+		// Only a row of the ledger can point to an item that is gone; an item
+		// found by marker a moment ago is not looked up a second time.
+		if entryAction == entryActionUpdated && errors.Is(err, youtrack.ErrIssueNotFound) {
+			return r.replaceMissing(ctx, work, row, res, err)
 		}
-		return res, nil
+		return failed(res, err)
 	}
 	if err := r.record(ctx, work, res.Key, row.WorkItemID, entryAction, previous); err != nil {
 		res.Action, res.Error = ActionFailed, err.Error()
 		return res, nil
 	}
 	res.Action = done
+	return res, nil
+}
+
+// failed marks res as failed. Only a stop error is returned.
+func failed(res ItemResult, err error) (ItemResult, error) {
+	res.Action, res.Error = ActionFailed, err.Error()
+	if isStopError(err) {
+		return res, err
+	}
+	return res, nil
+}
+
+// verifyBooked checks that the work item of an unchanged row still exists,
+// with one marker lookup, and repairs the row when it does not. Without the
+// check a row whose item was deleted in the sink would be reported as
+// unchanged forever although nothing is booked.
+func (r *syncRun) verifyBooked(ctx context.Context, work sink.WorkItem, row store.LedgerRow, res ItemResult) (ItemResult, error) {
+	id, found, err := r.sink.FindByMarker(ctx, work.Issue, Marker(res.Key))
+	if err != nil {
+		return failed(res, err)
+	}
+	if found && id == row.WorkItemID {
+		res.Action, res.Reason = ActionSkipped, skipReasonUnchanged
+		return res, nil
+	}
+	return r.repair(ctx, work, res, id, found)
+}
+
+// replaceMissing repairs a row whose update reported the work item as not
+// found. The sink reports a missing issue the same way, so the marker lookup
+// decides: when it fails, or still lists the item, the update failure stands.
+func (r *syncRun) replaceMissing(ctx context.Context, work sink.WorkItem, row store.LedgerRow, res ItemResult, updateErr error) (ItemResult, error) {
+	id, found, err := r.sink.FindByMarker(ctx, work.Issue, Marker(res.Key))
+	if err != nil {
+		return failed(res, err)
+	}
+	if found && id == row.WorkItemID {
+		return failed(res, updateErr)
+	}
+	return r.repair(ctx, work, res, id, found)
+}
+
+// repair books an item again whose ledger row points to a work item that is
+// gone. An item that carries the marker (id, found) is adopted and rewritten,
+// otherwise a new one is created; either way the ledger row is replaced. An
+// adopted item is recorded as recovered, so undo never deletes an item that
+// may predate this run. A failed create is not looked up here: the row stays
+// as it is and the next sync adopts the item if the create did land.
+func (r *syncRun) repair(ctx context.Context, work sink.WorkItem, res ItemResult, id string, found bool) (ItemResult, error) {
+	res.Reason = RepairedReason
+	if r.opts.DryRun {
+		res.Action = ActionWouldRepair
+		return res, nil
+	}
+	entryAction := entryActionRecovered
+	var err error
+	if found {
+		err = r.sink.Update(ctx, id, work)
+	} else {
+		entryAction = entryActionCreated
+		id, err = r.sink.Create(ctx, work)
+	}
+	if err == nil {
+		err = r.record(ctx, work, res.Key, id, entryAction, 0)
+	}
+	if err != nil {
+		res.Reason = ""
+		return failed(res, err)
+	}
+	res.Action = ActionRepaired
 	return res, nil
 }
 
@@ -474,8 +558,10 @@ type UndoResult struct {
 // sink and removed from the ledger, updated items are restored to their
 // previous minutes, and items the run deleted are booked again with their
 // previous minutes. Recovered items stay in the sink (their earlier state is
-// unknown) and are only dropped from the ledger. An entry is cleared only after
-// its sink call succeeded, so a failed undo can be retried.
+// unknown) and are only dropped from the ledger, and so is an updated item
+// that no longer exists in the sink: there is nothing left to restore. An
+// entry is cleared only after its sink call succeeded, so a failed undo can be
+// retried.
 func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time.Time) (UndoResult, error) {
 	run, found, err := repo.LastSyncRun(ctx)
 	if err != nil {
@@ -505,7 +591,14 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 			result.Deleted++
 		case entryActionUpdated:
 			w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
-			if err := s.Update(ctx, e.WorkItemID, w); err != nil {
+			err := s.Update(ctx, e.WorkItemID, w)
+			if errors.Is(err, youtrack.ErrIssueNotFound) {
+				// The item is gone, so the entry is done: drop the row, or
+				// this run would stay the last one forever.
+				result.Forgotten++
+				break
+			}
+			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
 				if isStopError(err) {
 					return result, errors.Join(errs...)

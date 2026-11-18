@@ -74,8 +74,9 @@ func sampleReport() ledger.Report {
 			{Key: "ABC-4:2026-01-05:Development", Action: ledger.ActionFailed, Minutes: 45, Error: "HTTP 500"},
 			{Key: "ABC-5:2026-01-05:Development", Action: ledger.ActionNotSent, Minutes: 15, Reason: "run stopped"},
 			{Key: "ABC-6:2026-01-05:Development", Action: ledger.ActionDeleted, Minutes: 30, Reason: ledger.DeletedReason},
+			{Key: "ABC-7:2026-01-05:Development", Action: ledger.ActionRepaired, Minutes: 20, Reason: ledger.RepairedReason},
 		},
-		Created: 1, Updated: 1, Deleted: 1, Skipped: 1, Failed: 1, NotSent: 1,
+		Created: 1, Updated: 1, Repaired: 1, Deleted: 1, Skipped: 1, Failed: 1, NotSent: 1,
 	}
 }
 
