@@ -10,10 +10,13 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
-// statusLookback bounds how far back status looks for the latest signals.
+// statusLookback bounds how far back status reads events. Older context still
+// counts: the lookback starts with the carried context, like a day in today
+// and review.
 const statusLookback = 14 * 24 * time.Hour
 
 func newStatusCommand() *cobra.Command {
@@ -41,7 +44,7 @@ func runStatus(ctx context.Context, deps dailyDeps) error {
 	defer func() { _ = st.Close() }()
 
 	now := deps.Now()
-	events, err := st.Events(ctx, now.Add(-statusLookback), now.Add(time.Minute))
+	events, err := review.EventsWithCarriedContext(ctx, st, now.Add(-statusLookback), now.Add(time.Minute))
 	if err != nil {
 		return err
 	}
