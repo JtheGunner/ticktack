@@ -35,8 +35,18 @@ func (g *gate) at(day civil.Date, hour int) time.Time {
 
 // work seeds minutes of presence on day from the local hour, attributed to
 // ticket (empty: unassigned).
+//
+// Context is carried over from earlier days, so unassigned work starts with a
+// context event that names a branch without a ticket. Without it the ticket of
+// an earlier day would claim the time.
 func (g *gate) work(day civil.Date, hour, minutes int, ticket string) {
 	g.t.Helper()
+	if ticket == "" {
+		e := event.Event{At: g.at(day, hour), Source: "test", Kind: event.KindContext, Repo: "/repo", Branch: "main"}
+		if err := g.st.Append(context.Background(), e); err != nil {
+			g.t.Fatal(err)
+		}
+	}
 	seed(g.t, g.st, g.at(day, hour), minutes, ticket)
 }
 
