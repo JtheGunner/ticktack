@@ -6,5 +6,5 @@
     [2mtier learned is below rule: needs review[0m
   [31mfailed[0m   ABC-3   2026-01-05  30 min  [32mrule[0m      HTTP 500
 
-  [36mℹ[0m  Totals: created 1, updated 0, recovered 0, skipped 1, failed 1, not sent 0; 1h booked.
+  [36mℹ[0m  Totals: created 1, updated 0, recovered 0, deleted 0, skipped 1, failed 1, not sent 0; 1h booked.
   [36m→[0m  Undo: run `ticktack undo` to revert this run.

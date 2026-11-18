@@ -133,3 +133,28 @@ func TestBuildDigestListsBookedAndSkippedWithTiers(t *testing.T) {
 		t.Errorf("skipped entry = %+v", last)
 	}
 }
+
+func TestBuildDigestListsDeletedBookings(t *testing.T) {
+	blocks := []sessionizer.Block{block("EXP-1", resolver.TierExplicit)}
+	sel := Select([]sessionizer.DayItem{item("EXP-1", 30)}, LowestTiers(blocks), 600)
+	report := ledger.Report{
+		Items: []ledger.ItemResult{
+			{Key: "EXP-1:2026-01-05:Development", Action: ledger.ActionCreated, Minutes: 30},
+			{Key: "OLD-1:2026-01-05:Development", Action: ledger.ActionDeleted, Minutes: 45, Reason: ledger.DeletedReason},
+		},
+		Created: 1, Deleted: 1,
+	}
+	d := BuildDigest(day, sel, report, false)
+	if len(d.Entries) != 2 || d.Deleted != 1 || d.BookedMinutes != 30 {
+		t.Fatalf("digest = %+v", d)
+	}
+	got := d.Entries[1]
+	if got.Ticket != "OLD-1" || got.Date != day || got.Minutes != 45 || got.Status != "deleted" || got.Reason == "" || got.Tier != "" {
+		t.Errorf("deleted entry = %+v", got)
+	}
+	// A run that only deleted something can still be undone.
+	only := BuildDigest(day, Selection{}, ledger.Report{Items: report.Items[1:], Deleted: 1}, false)
+	if !only.Changed() {
+		t.Error("a deletion must count as a change")
+	}
+}

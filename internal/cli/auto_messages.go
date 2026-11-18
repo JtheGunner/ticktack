@@ -27,12 +27,15 @@ skipped as a whole, and a day above the cap is not booked at all: both need a
 human in "ticktack review". Bookings use the same idempotent ledger as
 "ticktack sync", so "ticktack undo" reverts the last auto run.
 
+A work item booked earlier is deleted when the day no longer has any time for
+its ticket. Bookings of items auto mode merely skips are left alone.
+
 There is no background scheduler: run this command by hand or schedule it
 yourself (for example from cron or launchd). After every run a digest lists
 every item, and "ticktack digest" shows it again.`
 
-	msgDigestLong = `Show the digest of the most recent auto run: every booked, updated and
-skipped item with ticket, date, minutes, tier and reason.`
+	msgDigestLong = `Show the digest of the most recent auto run: every booked, updated, deleted
+and skipped item with ticket, date, minutes, tier and reason.`
 
 	msgAutoLockedDisabled = "Auto mode is disabled: set \"enabled = true\" in the [auto] section of %s to opt in."
 	msgAutoLockedStreak   = "Auto mode is locked: %d of %d required consecutive reviewed days without a correction."
@@ -69,8 +72,8 @@ func msgDigestCap(d auto.Digest) string {
 }
 
 func msgDigestTotals(d auto.Digest) string {
-	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, skipped %d, failed %d, not sent %d; %s booked.",
-		d.Created, d.Updated, d.Recovered, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
+	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
+		d.Created, d.Updated, d.Recovered, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 
 // renderDigest formats the digest text that is printed (with the run's

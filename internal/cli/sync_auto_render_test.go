@@ -73,8 +73,9 @@ func sampleReport() ledger.Report {
 			{Key: "ABC-3:2026-01-05:Development", Action: ledger.ActionSkipped, Minutes: 15, Reason: "unchanged"},
 			{Key: "ABC-4:2026-01-05:Development", Action: ledger.ActionFailed, Minutes: 45, Error: "HTTP 500"},
 			{Key: "ABC-5:2026-01-05:Development", Action: ledger.ActionNotSent, Minutes: 15, Reason: "run stopped"},
+			{Key: "ABC-6:2026-01-05:Development", Action: ledger.ActionDeleted, Minutes: 30, Reason: ledger.DeletedReason},
 		},
-		Created: 1, Updated: 1, Skipped: 1, Failed: 1, NotSent: 1,
+		Created: 1, Updated: 1, Deleted: 1, Skipped: 1, Failed: 1, NotSent: 1,
 	}
 }
 
@@ -83,8 +84,9 @@ func samplePlan() ledger.Report {
 		Items: []ledger.ItemResult{
 			{Key: "ABC-1:2026-01-05:Development", Action: ledger.ActionWouldCreate, Minutes: 60},
 			{Key: "ABC-3:2026-01-05:Development", Action: ledger.ActionSkipped, Minutes: 15, Reason: "unchanged"},
+			{Key: "ABC-6:2026-01-05:Development", Action: ledger.ActionWouldDelete, Minutes: 30, Reason: ledger.DeletedReason},
 		},
-		Skipped: 1, Planned: 1,
+		Skipped: 1, Planned: 2,
 	}
 }
 
@@ -104,7 +106,7 @@ func TestSyncReportGolden(t *testing.T) {
 		{"sync_plan_plain", samplePlan(), true, render.Plain(), ""},
 		{"sync_report_unicode_color", sampleReport(), false, unicodeColorRenderer(), "\x1b[31mSkipped 1, failed 1"},
 		{"sync_clean_unicode_color", clean, false, unicodeColorRenderer(), "\x1b[32mSkipped 0, failed 0"},
-		{"sync_plan_unicode_color", samplePlan(), true, unicodeColorRenderer(), "\x1b[32mPlan: 1 to change"},
+		{"sync_plan_unicode_color", samplePlan(), true, unicodeColorRenderer(), "\x1b[32mPlan: 2 to change"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

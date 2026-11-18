@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
@@ -91,10 +92,21 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	}
 	sel := auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes)
 
+	// A capped day needs a human, so nothing of it is changed, deletions included.
+	var keep []string
+	stale := false
+	if !sel.CapExceeded {
+		keep, stale, err = reconciliation(ctx, st, d.Items, day)
+		if err != nil {
+			return err
+		}
+	}
+
 	var report ledger.Report
 	var syncErr error
-	if len(sel.Book) > 0 {
-		// The sink is built only now: the gate passed and there is something to book.
+	if len(sel.Book) > 0 || stale {
+		// The sink is built only now: the gate passed and there is something
+		// to book or a stale booking to remove.
 		target, err := deps.NewSink(cfg, cfgPath)
 		if err != nil {
 			return err
@@ -103,7 +115,10 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		if err != nil {
 			return err
 		}
-		report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{Repo: st, DryRun: dryRun, Now: deps.Now})
+		report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
+			Repo: st, DryRun: dryRun, Now: deps.Now,
+			Reconcile: []civil.Date{day}, Keep: keep,
+		})
 	}
 	digest := auto.BuildDigest(day, sel, report, dryRun)
 	text := renderDigest(digest, storedDigestRenderer())
@@ -112,7 +127,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 			return err
 		}
 	}
-	if len(sel.Book) == 0 && len(sel.Skipped) == 0 {
+	if len(sel.Book) == 0 && len(sel.Skipped) == 0 && len(report.Items) == 0 {
 		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgAutoNothingToBook, day)))
 		return syncErr
 	}

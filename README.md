@@ -114,6 +114,8 @@ ticktack sync
 ticktack undo
 ```
 
+`ticktack sync` keeps YouTrack in step with the day. A work item booked earlier is deleted when its block was later reassigned, discarded or rounded to zero; `--dry-run` shows the deletion first and `ticktack undo` books the item again. A booking whose item still exists but waits for a new confirmation is left untouched.
+
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
 Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.

@@ -58,3 +58,64 @@ func TestSyncHistoryRevertsLastRunOnly(t *testing.T) {
 		t.Fatal("run survived after all entries were reverted")
 	}
 }
+
+func TestLedgerRowsForDateListsOnlyThatDay(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	run, err := s.BeginSyncRun(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []LedgerRow{
+		{Issue: "B-2", Date: "2026-01-05", Type: "Development", WorkItemID: "B-2/1", Minutes: 15, ContentHash: "h", BookedAt: base},
+		{Issue: "A-1", Date: "2026-01-05", Type: "Development", WorkItemID: "A-1/1", Minutes: 30, ContentHash: "h", BookedAt: base},
+		{Issue: "A-1", Date: "2026-01-06", Type: "Development", WorkItemID: "A-1/2", Minutes: 45, ContentHash: "h", BookedAt: base},
+	} {
+		e := SyncEntry{Issue: r.Issue, Date: r.Date, Type: r.Type, Action: "created", WorkItemID: r.WorkItemID, NewMinutes: r.Minutes}
+		if err := s.RecordBooking(ctx, run, r, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := s.LedgerRowsForDate(ctx, "2026-01-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Issue != "A-1" || rows[0].Minutes != 30 || rows[0].WorkItemID != "A-1/1" || !rows[0].BookedAt.Equal(base) || rows[1].Issue != "B-2" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows, err := s.LedgerRowsForDate(ctx, "2026-01-07"); err != nil || len(rows) != 0 {
+		t.Fatalf("empty day: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestRecordDeletionRemovesRowAndKeepsUndoEntry(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	row := LedgerRow{Issue: "A-1", Date: "2026-01-05", Type: "Development", WorkItemID: "A-1/1", Minutes: 30, ContentHash: "h", BookedAt: base}
+	first, err := s.BeginSyncRun(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := SyncEntry{Issue: "A-1", Date: "2026-01-05", Type: "Development", Action: "created", WorkItemID: "A-1/1", NewMinutes: 30}
+	if err := s.RecordBooking(ctx, first, row, created); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.BeginSyncRun(ctx, base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted := SyncEntry{Issue: "A-1", Date: "2026-01-05", Type: "Development", Action: "deleted", WorkItemID: "A-1/1", PreviousMinutes: 30, Text: "restored"}
+	if err := s.RecordDeletion(ctx, second, row, deleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.LedgerGet(ctx, "A-1", "2026-01-05", "Development"); err != nil || ok {
+		t.Fatalf("ledger row survived deletion: ok=%v err=%v", ok, err)
+	}
+	last, ok, err := s.LastSyncRun(ctx)
+	if err != nil || !ok || last.ID != second || len(last.Entries) != 1 {
+		t.Fatalf("last run = %+v ok=%v err=%v", last, ok, err)
+	}
+	if got := last.Entries[0]; got != deleted {
+		t.Fatalf("entry = %+v, want %+v", got, deleted)
+	}
+}

@@ -369,6 +369,103 @@ func TestAutoUndoRevertsLastAutoRun(t *testing.T) {
 	}
 }
 
+func TestAutoModeDeletesBookingOfVanishedItemAndUndoRestoresIt(t *testing.T) {
+	deps, rec := autoTestDeps(t, true, 1)
+	seedCleanDays(t, deps, 1)
+	if _, err := runAutoFor(t, deps); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 1 {
+		t.Fatalf("items = %v", rec.items)
+	}
+	overrideSeededHour(t, deps, "", true)
+
+	rec.calls = nil
+	out, err := runAutoFor(t, deps, "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "dry-run-would-delete") || !strings.Contains(out, "ABC-1") || len(rec.items) != 1 {
+		t.Fatalf("dry run: items=%v\n%s", rec.items, out)
+	}
+
+	out, err = runAutoFor(t, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 0 {
+		t.Fatalf("vanished item is still booked: %v\n%s", rec.items, out)
+	}
+	var row string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "deleted") && strings.Contains(line, "ABC-1") {
+			row = line
+		}
+	}
+	if row == "" || !strings.Contains(row, "2026-01-05") || !strings.Contains(row, "60 min") {
+		t.Fatalf("digest must list the deletion with ticket, date and minutes:\n%s", out)
+	}
+	if !strings.Contains(out, "deleted 1") || !strings.Contains(out, "ticktack undo") {
+		t.Fatalf("digest totals or undo hint missing:\n%s", out)
+	}
+
+	var undoOut bytes.Buffer
+	if err := runUndo(context.Background(), &undoOut, deps); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.items["ABC-1/1"].Minutes; got != 60 || len(rec.items) != 1 {
+		t.Fatalf("undo did not restore the booking: %v", rec.items)
+	}
+}
+
+func TestAutoModeKeepsManualBookingOfSkippedItem(t *testing.T) {
+	deps, rec := seedLowTierDeps(t)
+	// ABC-1 contains learned time: auto mode skips it, a person books it.
+	confirmDay(t, deps)
+	if _, _, err := execCommand(t, deps, "sync", "--day", "2026-01-05"); err != nil {
+		t.Fatal(err)
+	}
+	before := len(rec.items)
+	if _, ok := rec.items["ABC-1/1"]; !ok {
+		t.Fatalf("manual booking missing: %v", rec.items)
+	}
+	rec.calls = nil
+	out, err := runAutoFor(t, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rec.calls {
+		if c == "delete" {
+			t.Fatalf("auto mode deleted a booking it only skips:\n%s", out)
+		}
+	}
+	if len(rec.items) != before {
+		t.Fatalf("items = %v", rec.items)
+	}
+}
+
+func TestAutoModeDoesNotReconcileCappedDay(t *testing.T) {
+	deps, rec := autoTestDeps(t, true, 1)
+	seedCleanDays(t, deps, 1)
+	if _, err := runAutoFor(t, deps); err != nil {
+		t.Fatal(err)
+	}
+	overrideSeededHour(t, deps, "ABC-2", false)
+	load := deps.LoadConfig
+	deps.LoadConfig = func() (config.Config, string, error) {
+		cfg, path, err := load()
+		cfg.DailyCap = 30 * time.Minute
+		return cfg, path, err
+	}
+	failOnSink(t, &deps)
+	if _, err := runAutoFor(t, deps); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 1 {
+		t.Fatalf("a capped day needs a human, nothing may be deleted: %v", rec.items)
+	}
+}
+
 func TestAutoCommandIsRegisteredAndNeedsConfig(t *testing.T) {
 	root := NewRootCommand()
 	for _, name := range []string{"auto", "digest"} {

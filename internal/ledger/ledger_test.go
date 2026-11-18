@@ -31,11 +31,12 @@ type fakeSink struct {
 	next       int
 	createErr  map[string]error // by issue
 	updateErr  map[string]error
-	createLand bool // Create stores the item but still returns an error
+	deleteErr  map[string]error // by work item id
+	createLand bool             // Create stores the item but still returns an error
 }
 
 func newFakeSink() *fakeSink {
-	return &fakeSink{items: map[string]fakeItem{}, createErr: map[string]error{}, updateErr: map[string]error{}}
+	return &fakeSink{items: map[string]fakeItem{}, createErr: map[string]error{}, updateErr: map[string]error{}, deleteErr: map[string]error{}}
 }
 
 func (f *fakeSink) Create(_ context.Context, w sink.WorkItem) (string, error) {
@@ -67,6 +68,9 @@ func (f *fakeSink) Update(_ context.Context, id string, w sink.WorkItem) error {
 
 func (f *fakeSink) Delete(_ context.Context, id string) error {
 	f.calls = append(f.calls, "delete:"+id)
+	if err := f.deleteErr[id]; err != nil {
+		return err
+	}
 	delete(f.items, id)
 	return nil
 }
@@ -122,6 +126,25 @@ func (r *fakeRepo) BeginSyncRun(_ context.Context, at time.Time) (int64, error) 
 
 func (r *fakeRepo) RecordBooking(_ context.Context, runID int64, row store.LedgerRow, e store.SyncEntry) error {
 	r.rows[rowKey(row.Issue, row.Date, row.Type)] = row
+	r.runs[runID].Entries = append(r.runs[runID].Entries, e)
+	return nil
+}
+
+func (r *fakeRepo) LedgerRowsForDate(_ context.Context, date string) ([]store.LedgerRow, error) {
+	var out []store.LedgerRow
+	for _, row := range r.rows {
+		if row.Date == date {
+			out = append(out, row)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return rowKey(out[i].Issue, out[i].Date, out[i].Type) < rowKey(out[j].Issue, out[j].Date, out[j].Type)
+	})
+	return out, nil
+}
+
+func (r *fakeRepo) RecordDeletion(_ context.Context, runID int64, row store.LedgerRow, e store.SyncEntry) error {
+	delete(r.rows, rowKey(row.Issue, row.Date, row.Type))
 	r.runs[runID].Entries = append(r.runs[runID].Entries, e)
 	return nil
 }
@@ -410,5 +433,215 @@ func TestUndoRevertsLastSyncOnly(t *testing.T) {
 	res, err = Undo(ctx, s, repo, o.Now)
 	if err != nil || res.Found {
 		t.Fatalf("third undo = %+v err=%v", res, err)
+	}
+}
+
+// reconciling returns options that reconcile the test day.
+func reconciling(repo Repository) SyncOptions {
+	o := opts(repo)
+	o.Reconcile = []civil.Date{day}
+	return o
+}
+
+func sinkMinutes(s *fakeSink) map[string]int {
+	out := map[string]int{}
+	for _, it := range s.items {
+		out[it.item.Issue] += it.item.Minutes
+	}
+	return out
+}
+
+func TestSyncReconcilesBookedRowsOfTheDay(t *testing.T) {
+	tests := []struct {
+		name        string
+		second      []sessionizer.DayItem
+		wantDeleted int
+		wantUpdated int
+		wantSink    map[string]int
+	}{
+		{"reassigned to another ticket", []sessionizer.DayItem{dayItem("ABC-2", 60)}, 1, 0, map[string]int{"ABC-2": 60}},
+		{"discarded", nil, 1, 0, map[string]int{}},
+		// An item that rounds to zero is omitted by the sessionizer.
+		{"rounded to zero next to a remaining item", []sessionizer.DayItem{dayItem("ABC-3", 15)}, 1, 0, map[string]int{"ABC-3": 15}},
+		{"partly reassigned", []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30)}, 0, 1, map[string]int{"ABC-1": 30, "ABC-2": 30}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, repo := newFakeSink(), newFakeRepo()
+			mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+			rep := mustSync(t, tt.second, s, reconciling(repo))
+			if rep.Deleted != tt.wantDeleted || rep.Updated != tt.wantUpdated || rep.Failed != 0 {
+				t.Fatalf("report = %+v", rep)
+			}
+			got := sinkMinutes(s)
+			if len(got) != len(tt.wantSink) {
+				t.Fatalf("sink = %v, want %v", got, tt.wantSink)
+			}
+			for issue, minutes := range tt.wantSink {
+				if got[issue] != minutes {
+					t.Fatalf("sink = %v, want %v", got, tt.wantSink)
+				}
+			}
+			if len(repo.rows) != len(tt.wantSink) {
+				t.Fatalf("ledger rows = %+v, want one per booked item", repo.rows)
+			}
+		})
+	}
+}
+
+func TestSyncReportsDeletedRowWithItsMinutes(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-2", 60)}, s, reconciling(repo))
+	last := rep.Items[len(rep.Items)-1]
+	if last.Key != "ABC-1:2026-01-05:Development" || last.Action != ActionDeleted || last.Minutes != 60 {
+		t.Fatalf("deleted entry = %+v", last)
+	}
+}
+
+func TestSyncKeepsRowsOfOtherDaysAndKeptKeys(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	other := dayItem("OLD-1", 30)
+	other.Date = civil.Date{Year: 2026, Month: 1, Day: 4}
+	mustSync(t, []sessionizer.DayItem{other, dayItem("ABC-1", 60), dayItem("ABC-2", 15)}, s, opts(repo))
+	o := reconciling(repo)
+	o.Keep = []string{Key("ABC-2", "2026-01-05", "Development")}
+	rep := mustSync(t, nil, s, o)
+	if rep.Deleted != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	got := sinkMinutes(s)
+	if got["OLD-1"] != 30 || got["ABC-2"] != 15 || len(got) != 2 {
+		t.Fatalf("sink = %v, want OLD-1 and ABC-2 untouched", got)
+	}
+}
+
+func TestSyncWithoutReconcileDeletesNothing(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, opts(repo))
+	rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-2", 60)}, s, opts(repo))
+	if rep.Deleted != 0 || len(s.items) != 2 {
+		t.Fatalf("report=%+v items=%d", rep, len(s.items))
+	}
+}
+
+func TestSyncDryRunPlansDeletionWithoutMutating(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	runs := len(repo.runs)
+	s.calls = nil
+	o := reconciling(repo)
+	o.DryRun = true
+	rep := mustSync(t, nil, s, o)
+	if got := s.mutating(); len(got) != 0 {
+		t.Fatalf("mutating sink calls in dry run: %v", got)
+	}
+	if len(repo.rows) != 1 || len(repo.runs) != runs {
+		t.Fatalf("dry run wrote ledger state: %+v %+v", repo.rows, repo.runs)
+	}
+	if rep.Planned != 1 || rep.Deleted != 0 || len(rep.Items) != 1 || rep.Items[0].Action != ActionWouldDelete {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestSyncContinuesAfterFailedDeletion(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("ABC-2", 30), dayItem("ABC-3", 15)}, s, reconciling(repo))
+	failing := repo.rows[Key("ABC-2", "2026-01-05", "Development")].WorkItemID
+	s.deleteErr[failing] = errors.New("youtrack: server error 500")
+	rep := mustSync(t, nil, s, reconciling(repo))
+	if rep.Deleted != 2 || rep.Failed != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if rep.Items[1].Action != ActionFailed || !strings.Contains(rep.Items[1].Error, "server error 500") {
+		t.Fatalf("failure not listed: %+v", rep.Items[1])
+	}
+	if len(repo.rows) != 1 || len(s.items) != 1 {
+		t.Fatalf("rows=%+v items=%d, want only the failed one left", repo.rows, len(s.items))
+	}
+}
+
+func TestSyncTreatsAlreadyMissingWorkItemAsDeleted(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = youtrack.ErrIssueNotFound
+	rep := mustSync(t, nil, s, reconciling(repo))
+	if rep.Deleted != 1 || rep.Failed != 0 || len(repo.rows) != 0 {
+		t.Fatalf("report=%+v rows=%+v", rep, repo.rows)
+	}
+}
+
+func TestSyncDoesNotReconcileAfterStopError(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	s.createErr["ABC-2"] = youtrack.ErrUnauthorized
+	s.calls = nil
+	_, err := Sync(context.Background(), []sessionizer.DayItem{dayItem("ABC-2", 60)}, s, reconciling(repo))
+	if !errors.Is(err, youtrack.ErrUnauthorized) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(repo.rows) != 1 || len(s.items) != 1 {
+		t.Fatalf("a stopped run reconciled: rows=%+v calls=%v", repo.rows, s.calls)
+	}
+}
+
+func TestSyncStopsReconcilingOnStopError(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("ABC-2", 30)}, s, reconciling(repo))
+	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = youtrack.ErrRateLimited
+	rep, err := Sync(context.Background(), nil, s, reconciling(repo))
+	if !errors.Is(err, youtrack.ErrRateLimited) {
+		t.Fatalf("err = %v", err)
+	}
+	if rep.Failed != 1 || rep.NotSent != 1 || len(repo.rows) != 2 {
+		t.Fatalf("report=%+v rows=%+v", rep, repo.rows)
+	}
+}
+
+func TestUndoRecreatesDeletedItems(t *testing.T) {
+	ctx := context.Background()
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-2", 60)}, s, reconciling(repo))
+
+	res, err := Undo(ctx, s, repo, opts(repo).Now)
+	if err != nil || res.Deleted != 1 || res.Recreated != 1 {
+		t.Fatalf("undo = %+v err=%v", res, err)
+	}
+	got := sinkMinutes(s)
+	if len(got) != 1 || got["ABC-1"] != 60 {
+		t.Fatalf("sink = %v, want ABC-1 back at 60", got)
+	}
+	key := Key("ABC-1", "2026-01-05", "Development")
+	row, ok := repo.rows[key]
+	if !ok || row.Minutes != 60 || len(repo.rows) != 1 {
+		t.Fatalf("ledger rows = %+v", repo.rows)
+	}
+	item, ok := s.items[row.WorkItemID]
+	if !ok || !strings.HasSuffix(item.item.Text, Marker(key)) || item.item.Date != day || item.item.Type != "Development" {
+		t.Fatalf("ledger row %+v does not point at the re-created item %+v", row, item)
+	}
+	// The restored state is stable: the next sync of the original day changes nothing.
+	rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	if rep.Skipped != 1 || rep.Deleted != 0 || rep.Created != 0 {
+		t.Fatalf("sync after undo = %+v", rep)
+	}
+}
+
+func TestUndoReusesItemAlreadyRecreated(t *testing.T) {
+	ctx := context.Background()
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
+	mustSync(t, nil, s, reconciling(repo))
+	// An earlier undo attempt created the item but failed before clearing the entry.
+	key := Key("ABC-1", "2026-01-05", "Development")
+	s.items["ABC-1/earlier"] = fakeItem{item: sink.WorkItem{Issue: "ABC-1", Date: day, Minutes: 60, Type: "Development", Text: "x " + Marker(key)}}
+
+	res, err := Undo(ctx, s, repo, opts(repo).Now)
+	if err != nil || res.Recreated != 1 || len(s.items) != 1 {
+		t.Fatalf("undo = %+v err=%v items=%d", res, err, len(s.items))
+	}
+	if repo.rows[key].WorkItemID != "ABC-1/earlier" {
+		t.Fatalf("ledger row = %+v", repo.rows[key])
 	}
 }
