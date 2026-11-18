@@ -124,6 +124,7 @@ func TestEventsAreImmutable(t *testing.T) {
 		// runs live in their own tables and never touch events.
 		"SaveReviewRecord": true, "ReviewRecords": true,
 		"AddDigest": true, "LastDigest": true,
+		"RecordRuleChange": true, "RuleChanges": true,
 		// The project cache, standard task keys and consent live in their own
 		// tables; renaming a confirmation only edits review state.
 		"ReplaceProjects": true, "Projects": true,

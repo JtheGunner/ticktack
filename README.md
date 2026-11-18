@@ -263,7 +263,21 @@ All of these are **off by default** and can be enabled independently.
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
 
 > [!IMPORTANT]
-> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive days were reviewed **without a single correction**. A later correction in `ticktack review` locks it again. A day counts only if its review session took place on that same calendar day or the next one (in your configured time zone); catch-up reviews with `ticktack review --day` stay valid for booking but do not add to the streak. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
+> **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive reviewed days were confirmed **without a single correction**. A later correction locks it again. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
+
+What the trust gate counts:
+
+| | Case | Effect on the streak |
+|:--|:--|:--|
+| ✅ | Every item with a ticket is confirmed with the minutes it has now, on that calendar day or the next one (in your configured time zone). | The day counts. |
+| ⏭️ | An item is unconfirmed, or its minutes changed after you confirmed it. | The day does not count until you confirm it again in time. |
+| ⏭️ | The day was confirmed later with `ticktack review --day`. | Valid for booking, but the day does not count. |
+| ⏭️ | Unassigned time stays open, or you give it a ticket, split it or discard it. | No correction: the day still counts once its items are confirmed. |
+| ⏭️ | `ticktack switch`. | No correction: it is information given in advance. |
+| ❌ | Time that already had a ticket is reassigned, discarded, marked as a break or split. | Correction: the streak ends at that day. |
+| ❌ | `ticktack map add`, `edit` or `rm`. | Correction on the day of the change: the streak ends there. |
+
+Days without a review and days booked by auto mode are skipped: they neither count nor end the streak.
 
 ---
 

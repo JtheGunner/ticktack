@@ -77,7 +77,8 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	}
 	defer func() { _ = st.Close() }()
 
-	streak, err := review.TrackRecord(ctx, st, now)
+	// The gate needs no more than the required days, so the walk stops there.
+	streak, err := review.TrackRecord(ctx, st, cfg, now, auto.RequiredDays(cfg.Auto))
 	if err != nil {
 		return err
 	}
