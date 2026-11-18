@@ -33,6 +33,7 @@ type fakeSink struct {
 	updateErr  map[string]error
 	deleteErr  map[string]error // by work item id
 	createLand bool             // Create stores the item but still returns an error
+	findErrs   []error          // consumed one per FindByMarker call; nil looks up normally
 }
 
 func newFakeSink() *fakeSink {
@@ -77,6 +78,13 @@ func (f *fakeSink) Delete(_ context.Context, id string) error {
 
 func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string, bool, error) {
 	f.calls = append(f.calls, "find:"+issue)
+	if len(f.findErrs) > 0 {
+		err := f.findErrs[0]
+		f.findErrs = f.findErrs[1:]
+		if err != nil {
+			return "", false, err
+		}
+	}
 	ids := make([]string, 0, len(f.items))
 	for id := range f.items {
 		ids = append(ids, id)
@@ -352,6 +360,32 @@ func TestSyncRecoversAfterAmbiguousCreateFailure(t *testing.T) {
 	}
 	if len(s.items) != 1 || len(repo.rows) != 0 {
 		t.Fatalf("items=%d rows=%d", len(s.items), len(repo.rows))
+	}
+}
+
+func TestSyncReportsUnclearCreateAndNextSyncFindsTheItem(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	s.createErr["ABC-1"] = fmt.Errorf("POST /api/issues/ABC-1/timeTracking/workItems: %w: status 504", youtrack.ErrOutcomeUnclear)
+	s.createLand = true
+	// The lookup before the create works, the one right after it fails too.
+	s.findErrs = []error{nil, errors.New("youtrack: unexpected status 504")}
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30)}
+
+	rep := mustSync(t, items, s, opts(repo))
+	if rep.Failed != 1 || rep.Created != 0 || len(repo.rows) != 0 {
+		t.Fatalf("report=%+v rows=%d", rep, len(repo.rows))
+	}
+	if got := rep.Items[0]; got.Action != ActionFailed || !strings.Contains(got.Error, "outcome unclear") {
+		t.Fatalf("item = %+v, want a failure reported as unclear outcome", got)
+	}
+
+	s.createErr = map[string]error{}
+	rep = mustSync(t, items, s, opts(repo))
+	if rep.Recovered != 1 || rep.Created != 0 || rep.Failed != 0 {
+		t.Fatalf("second report = %+v", rep)
+	}
+	if len(s.items) != 1 || len(repo.rows) != 1 {
+		t.Fatalf("items=%d rows=%d, want one work item adopted by the ledger", len(s.items), len(repo.rows))
 	}
 }
 
