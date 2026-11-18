@@ -215,7 +215,7 @@ func describeDecodeError(err error) error {
 func build(raw fileConfig) (Config, error) {
 	cfg := Config{YouTrackURL: raw.YouTrackURL, RepoPaths: raw.RepoPaths}
 
-	if err := checkYouTrackURL(raw.YouTrackURL); err != nil {
+	if err := CheckYouTrackURL(raw.YouTrackURL); err != nil {
 		return Config{}, err
 	}
 

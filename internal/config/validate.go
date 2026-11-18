@@ -28,10 +28,12 @@ const (
 	msgRuleTicket     = "rules[%d].ticket %q does not match ticket_pattern %q: use a ticket id such as \"ABC-1\" or adjust ticket_pattern"
 )
 
-// checkYouTrackURL verifies that the YouTrack URL is absolute and uses https.
+// CheckYouTrackURL verifies that the YouTrack URL is absolute and uses https.
 // Plain http is accepted for a loopback host only, because the bearer token
 // would otherwise travel in clear text. An empty URL means "not configured".
-func checkYouTrackURL(raw string) error {
+// The scheme error does not echo the URL, which may carry credentials.
+// Callers that write a config use it to refuse a value Load would reject.
+func CheckYouTrackURL(raw string) error {
 	if raw == "" {
 		return nil
 	}

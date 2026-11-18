@@ -220,6 +220,11 @@ func (r *initRun) configStep() {
 			r.say(render.StatusFail, msgInitConfigBadURL, SanitizeForTerminal(address))
 			return
 		}
+		// Same rule as the loader: a config it rejects must not be written.
+		if err := config.CheckYouTrackURL(address); err != nil {
+			r.say(render.StatusFail, msgInitConfigNoHTTPS, SanitizeForTerminal(err.Error()))
+			return
+		}
 	}
 	if err := writeNewConfig(path, config.DefaultTOML(address)); err != nil {
 		r.say(render.StatusFail, msgInitConfigFailed, SanitizeForTerminal(err.Error()))

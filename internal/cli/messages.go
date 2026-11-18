@@ -8,6 +8,7 @@ const (
 	msgInitConfigWritten = "config written: %s"
 	msgInitConfigURL     = "YouTrack base URL (empty to set it later): "
 	msgInitConfigBadURL  = "config not written: %q is not an absolute URL"
+	msgInitConfigNoHTTPS = "config not written: %v"
 	msgInitConfigFailed  = "config failed: %v"
 
 	msgInitTokenIntro    = "Step 2/4 - token: store the YouTrack permanent token in the OS keychain"
