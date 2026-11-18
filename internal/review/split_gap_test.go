@@ -40,8 +40,9 @@ func TestSplitUnassignedGap(t *testing.T) {
 			if len(entries) != 2 || entries[0].Ticket != "" || entries[1].Ticket != "XYZ-2" {
 				t.Errorf("entries = %+v, want unassigned then XYZ-2", entries)
 			}
-			if len(records) != 1 || records[0].Corrections != 1 {
-				t.Errorf("records = %+v, want one correction", records)
+			// Giving unassigned time a ticket is logged, but not as a correction.
+			if len(records) != 1 || records[0].Corrections != 0 {
+				t.Errorf("records = %+v, want one record without a correction", records)
 			}
 		})
 	}

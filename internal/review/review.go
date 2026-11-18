@@ -490,7 +490,7 @@ func (s *Session) Reassign(ctx context.Context, n int, ticket string) error {
 	if err != nil {
 		return err
 	}
-	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+	err = s.apply(ctx, e.Kind != KindGap, nil, func(tx store.Tx) error {
 		return tx.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Ticket: t})
 	})
 	if err != nil {
@@ -510,7 +510,7 @@ func (s *Session) Discard(ctx context.Context, n int) error {
 	if err != nil {
 		return err
 	}
-	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+	err = s.apply(ctx, e.Kind != KindGap, nil, func(tx store.Tx) error {
 		return tx.AddOverride(ctx, event.Override{Start: e.Start, End: e.End, Discard: true})
 	})
 	if err != nil {
@@ -564,7 +564,7 @@ func (s *Session) Split(ctx context.Context, n int, clock, ticket string) error 
 		// halves; storing that as a correction would only break the streak.
 		return ErrSplitNeedsTicket
 	}
-	return s.apply(ctx, true, nil, func(tx store.Tx) error {
+	return s.apply(ctx, e.Kind != KindGap, nil, func(tx store.Tx) error {
 		return tx.AddOverride(ctx, event.Override{Start: at, End: e.End, Ticket: target})
 	})
 }
@@ -580,8 +580,9 @@ func (s *Session) AcknowledgeCap(ctx context.Context) error {
 }
 
 // apply runs write and the session's review log entry in one transaction,
-// then re-derives the day. A correction is any change to the attribution;
-// confirmations (newly the keys given) and cap acknowledgements are not.
+// then re-derives the day. A correction is a change to time that already had
+// a ticket; filling or dropping unassigned time, confirmations (newly the
+// keys given) and cap acknowledgements are not.
 // Recording with every action means an aborted session still leaves what it
 // did, and the single transaction means the log never lags behind the stored
 // correction. The session's counters change only after the commit.

@@ -30,6 +30,9 @@ type dailyStore interface {
 	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
 	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
 	DeleteLearnedRule(ctx context.Context, id int64) error
+	// InTx stores a rule write of the map command together with its rule
+	// change record.
+	InTx(ctx context.Context, fn func(tx store.Tx) error) error
 	Purge(ctx context.Context) error
 	Close() error
 }

@@ -15,8 +15,9 @@ type ReviewRecord struct {
 	Day          string // yyyy-mm-dd
 	SessionStart time.Time
 	FinishedAt   time.Time
-	// Corrections counts changes to the day's attribution; plain
-	// confirmations are not corrections.
+	// Corrections counts changes to time that already had a ticket
+	// (reassign, discard, break, split). Confirmations and filling or
+	// dropping unassigned time are not corrections.
 	Corrections int
 	// Confirmed is the number of items this session confirmed; items
 	// confirmed in earlier sessions do not count.

@@ -55,6 +55,8 @@ func (s *Session) Remembering() (RememberOffer, bool) {
 // exact branch, or for the whole repository when wholeRepo is set or the entry
 // had no branch. A rule with the same repo and branch is updated instead of
 // duplicated. The corrected time itself is already covered by the override.
+// Remembering is not a correction of its own: the reassignment before it
+// already counted as one when it changed time that had a ticket.
 func (s *Session) Remember(ctx context.Context, wholeRepo bool) (store.LearnedRule, error) {
 	if s.pending == nil {
 		return store.LearnedRule{}, ErrNothingToRemember
@@ -76,7 +78,7 @@ func (s *Session) Remember(ctx context.Context, wholeRepo bool) (store.LearnedRu
 			break
 		}
 	}
-	err = s.apply(ctx, true, nil, func(tx store.Tx) error {
+	err = s.apply(ctx, false, nil, func(tx store.Tx) error {
 		if update {
 			return tx.UpdateLearnedRule(ctx, rule)
 		}
