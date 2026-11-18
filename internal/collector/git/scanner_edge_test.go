@@ -75,11 +75,18 @@ func TestScanAfterUnfinishedRebase(t *testing.T) {
 			end:  []string{"rebase", "--abort"},
 			want: []string{"05/10 feature/ABC-7 ABC-7", "06/09 feature/ABC-8 ABC-8", "06/10 feature/ABC-8 ABC-8"},
 		},
+		{
+			name: "still stopped",
+			end:  nil,
+			want: []string{"06/09 feature/ABC-8 ABC-8", "06/10 feature/ABC-8 ABC-8"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := conflictingRebase(t)
-			run(t, repo, at(5, 10), tt.end...)
+			if tt.end != nil {
+				run(t, repo, at(5, 10), tt.end...)
+			}
 			run(t, repo, at(6, 9), "checkout", "-q", "-f", "-b", "feature/ABC-8", "main")
 			commit(t, repo, at(6, 10), "b.txt")
 
@@ -89,6 +96,55 @@ func TestScanAfterUnfinishedRebase(t *testing.T) {
 			}
 		})
 	}
+}
+
+// headReflog returns the action text of every HEAD reflog line, oldest first.
+func headReflog(t *testing.T, repo string) []string {
+	t.Helper()
+	lines := strings.Split(run(t, repo, at(1, 9), "reflog", "show", "--format=%gs", "HEAD"), "\n")
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return lines
+}
+
+// TestScanIgnoresBranchReturnInReplayedSubject replays a commit whose subject
+// reads like the closing line of a rebase. Only the real closing line may move
+// the tracked branch.
+func TestScanIgnoresBranchReturnInReplayedSubject(t *testing.T) {
+	repo := newRepo(t)
+	commit(t, repo, at(1, 9), "a.txt")
+	run(t, repo, at(2, 9), "checkout", "-q", "-b", "feature/ABC-9")
+	writeFile(t, repo, "b.txt", "b")
+	run(t, repo, at(2, 10), "add", "b.txt")
+	run(t, repo, at(2, 10), "commit", "-q", "-m", "returning to refs/heads/feature/XYZ-1")
+	commit(t, repo, at(2, 11), "c.txt")
+	run(t, repo, at(3, 9), "checkout", "-q", "main")
+	commit(t, repo, at(3, 10), "d.txt")
+	run(t, repo, at(4, 9), "checkout", "-q", "feature/ABC-9")
+	run(t, repo, at(5, 9), "rebase", "-q", "main")
+	commit(t, repo, at(5, 10), "e.txt")
+
+	reflog := headReflog(t, repo)
+	replayed := "rebase (pick): returning to refs/heads/feature/XYZ-1"
+	if !containsLine(reflog, replayed) {
+		t.Fatalf("reflog holds no line %q:\n%s", replayed, strings.Join(reflog, "\n"))
+	}
+
+	got := eventsFrom(scan(t, repo), at(4, 9))
+	want := []string{"04/09 feature/ABC-9 ABC-9", "05/09 feature/ABC-9 ABC-9", "05/10 feature/ABC-9 ABC-9"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func containsLine(lines []string, line string) bool {
+	for _, l := range lines {
+		if l == line {
+			return true
+		}
+	}
+	return false
 }
 
 func TestScanFollowsBranchRename(t *testing.T) {
@@ -164,6 +220,8 @@ func TestScanTreatsRefExpressionCheckoutAsDetached(t *testing.T) {
 		{"parent", "feature/ABC-5^"},
 		{"reflog selector", "feature/ABC-5@{1}"},
 		{"peeled", "feature/ABC-5^{commit}"},
+		{"dated reflog selector with spaces", "feature/ABC-5@{1 day ago}"},
+		{"commit message search with spaces", ":/add b.txt"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,6 +233,12 @@ func TestScanTreatsRefExpressionCheckoutAsDetached(t *testing.T) {
 			run(t, repo, at(3, 9), "checkout", "-q", "main")
 			run(t, repo, at(4, 9), "checkout", "-q", tt.target)
 			commit(t, repo, at(4, 10), "d.txt")
+
+			// Git records the target exactly as it was typed.
+			recorded := "checkout: moving from main to " + tt.target
+			if reflog := headReflog(t, repo); !containsLine(reflog, recorded) {
+				t.Fatalf("reflog holds no line %q:\n%s", recorded, strings.Join(reflog, "\n"))
+			}
 
 			got := eventsFrom(scan(t, repo), at(4, 9))
 			want := []string{"04/09  ", "04/10  "}
@@ -318,6 +382,30 @@ func TestBuildEventsEdgeCases(t *testing.T) {
 			want:    []string{"5 feat"},
 		},
 		{
+			name: "replayed subject that reads like a branch return is ignored",
+			entries: []reflogEntry{
+				entry(1, "checkout: moving from main to feat"),
+				entry(2, "rebase (start): checkout main"),
+				entry(3, "rebase (pick): returning to refs/heads/foo"),
+				entry(4, "rebase -i (reword): returning to refs/heads/foo"),
+				entry(5, "rebase (continue): returning to refs/heads/foo"),
+				entry(6, "rebase: returning to refs/heads/foo"),
+				entry(7, "rebase (finish): returning to refs/heads/feat"),
+				entry(8, "commit: x"),
+			},
+			current: "feat",
+			want:    []string{"1 feat", "7 feat", "8 feat"},
+		},
+		{
+			name: "interactive rebase finish and abort return to the branch",
+			entries: []reflogEntry{
+				entry(1, "rebase -i (finish): returning to refs/heads/feat"),
+				entry(2, "rebase -i (abort): returning to refs/heads/other"),
+			},
+			current: "other",
+			want:    []string{"1 feat", "2 other"},
+		},
+		{
 			name: "legacy rebase finish returns to the branch",
 			entries: []reflogEntry{
 				entry(1, "rebase: checkout main"),
@@ -371,6 +459,28 @@ func TestBuildEventsEdgeCases(t *testing.T) {
 			},
 			current: "feat",
 			want:    []string{"1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 feat"},
+		},
+		{
+			name: "ref expressions with spaces are detached",
+			entries: []reflogEntry{
+				entry(1, "checkout: moving from main to main@{1 day ago}"),
+				entry(2, "commit: x"),
+				entry(3, "checkout: moving from deadbeef1 to :/some text"),
+				entry(4, "checkout: moving from deadbeef1 to :/back to main"),
+				entry(5, "checkout: moving from deadbeef1 to feat"),
+			},
+			current: "feat",
+			want:    []string{"1 ", "2 ", "3 ", "4 ", "5 feat"},
+		},
+		{
+			name: "commit before a checkout of a spaced ref expression uses the origin branch",
+			entries: []reflogEntry{
+				entry(1, "commit: x"),
+				entry(2, "checkout: moving from main to :/back to feat"),
+				entry(3, "commit: y"),
+			},
+			current: "",
+			want:    []string{"1 main", "2 ", "3 "},
 		},
 		{
 			name: "commit before a ref expression checkout uses the origin branch",
