@@ -8,7 +8,8 @@
 # The YouTrack token is NOT stored here. It lives in the OS keychain; store it
 # with `ticktack init`.
 
-# Base URL of your YouTrack instance. Replace the placeholder.
+# Base URL of your YouTrack instance. Replace the placeholder. Must use https
+# (http only for localhost).
 youtrack_url = "https://example.youtrack.cloud"
 
 # Presence gaps longer than this end a work block.
@@ -20,7 +21,8 @@ idle_threshold = "3m0s"
 # Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.
 min_block_duration = "10m0s"
 
-# Booked durations are rounded to a multiple of this.
+# Booked durations are rounded to a multiple of this. Must be whole minutes;
+# "1m" books exact minutes.
 rounding = "15m0s"
 
 # Maximum time booked per day. A day above the cap needs an explicit
@@ -44,6 +46,12 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # YouTrack project of the same name (see "Standard tasks" in the README).
 # repo_roots = ["~/Projects", "~/StudioProjects"]
 
+# Time zone for day boundaries (default: the system zone).
+# time_zone = "Europe/Zurich"
+
+# Tables follow. Top-level keys such as the ones above must stay before the
+# first table.
+
 # Standard task for time without a ticket: one catch-all issue in this project,
 # and per matching project when repo_roots is set. Created by `ticktack sync`
 # after one confirmation.
@@ -56,10 +64,9 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # [scan]
 # interval = "0"
 
-# Time zone for day boundaries (default: the system zone).
-# time_zone = "Europe/Zurich"
-
-# Fixed repository to ticket mappings. Repeat the table for more rules.
+# Fixed repository to ticket mappings. Repeat the table for more rules. The
+# repo is an absolute path or starts with ~/; the ticket must match
+# ticket_pattern.
 # [[rules]]
 # repo = "/path/to/repo"
 # ticket = "ABC-1"
