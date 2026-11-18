@@ -1,14 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/render"
 )
 
@@ -34,34 +31,30 @@ func newResumeCommand() *cobra.Command {
 	}
 }
 
-// runPause creates the pause flag file. It is idempotent.
+// runPause starts a pause now. It is idempotent: a running pause keeps its
+// start.
 func runPause(deps dailyDeps) error {
 	path, err := deps.PausePath()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("create pause flag: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("create pause flag: %w", err)
+	if err := pause.Begin(path, deps.Now()); err != nil {
+		return err
 	}
 	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, msgPaused))
 	return err
 }
 
-// runResume removes the pause flag file. A missing file is fine.
+// runResume ends the running pause now and keeps its interval, so the git
+// scan and the ActivityWatch import leave that time out later. Without a
+// running pause it changes nothing.
 func runResume(deps dailyDeps) error {
 	path, err := deps.PausePath()
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove pause flag: %w", err)
+	if err := pause.End(path, deps.Now()); err != nil {
+		return err
 	}
 	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgResumed))
 	return err

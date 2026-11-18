@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/review"
@@ -120,4 +121,25 @@ func isPaused(deps dailyDeps) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("check pause flag: %w", err)
+}
+
+// loadPauses returns the pauses known at now; a running pause lasts until now.
+func loadPauses(deps dailyDeps, now time.Time) (pause.Intervals, error) {
+	path, err := deps.PausePath()
+	if err != nil {
+		return nil, err
+	}
+	return pause.Load(path, now)
+}
+
+// outsidePauses returns the events that do not lie inside a pause. Sources
+// that read the past use it, so paused time is never stored afterwards.
+func outsidePauses(events []event.Event, paused pause.Intervals) []event.Event {
+	kept := make([]event.Event, 0, len(events))
+	for _, e := range events {
+		if !paused.Contains(e.At) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }

@@ -130,7 +130,7 @@ The config file is optional; every key has a default.
 |----------------|-------------------------------------------------------------------|
 | 📄 Config      | `$XDG_CONFIG_HOME/ticktack/config.toml` (default `~/.config/ticktack/config.toml`) |
 | 🗄️ Database    | `$XDG_DATA_HOME/ticktack/events.db` (default `~/.local/share/ticktack/events.db`)  |
-| 📝 Log + pause flag | `$XDG_STATE_HOME/ticktack/` (default `~/.local/state/ticktack/`)  |
+| 📝 Log + pause state | `$XDG_STATE_HOME/ticktack/` (default `~/.local/state/ticktack/`)  |
 
 A complete, commented example lives in [`examples/config.toml`](examples/config.toml). Unknown keys are rejected so typos do not go unnoticed.
 
@@ -194,7 +194,7 @@ Resolution order for a block:
 | 👀 | `ticktack status`               | Show what ticktack currently detects.                                                |
 | 📋 | `ticktack today`                | List today's blocks and totals (`--day YYYY-MM-DD`).                                 |
 | 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
-| ⏸️ | `ticktack pause`                | Pause all capture.                                                                   |
+| ⏸️ | `ticktack pause`                | Pause all capture. Time inside a pause is never stored, also not by a later scan or import. |
 | ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
 | 🗑️ | `ticktack purge`                | Delete all local data: events, overrides, ledger (`--yes` skips the prompt).         |
 | ✅ | `ticktack review`               | Review the day's blocks and confirm what may be booked (`--day`).                    |
@@ -269,7 +269,11 @@ All of these are **off by default** and can be enabled independently.
 - The only network call is the YouTrack sync. The optional ActivityWatch import talks to a loopback address only. There is no telemetry.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
-- `ticktack pause` stops all capture; `ticktack purge` deletes all local data.
+- `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now.
+- `ticktack purge` deletes all local data in the database.
+
+> [!NOTE]
+> To leave paused time out later, ticktack keeps the start and end of every pause in `pause-intervals` in the state directory. The file holds timestamps only. `ticktack purge` does not delete it, so a scan after a purge cannot read paused time back from the git reflog. Events stored before a pause began are not removed by it.
 
 ---
 

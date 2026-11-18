@@ -326,18 +326,51 @@ func (fakeSampler) Sample(context.Context) (time.Duration, string, error) {
 func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	deps, st, out := newDailyEnv(t, "")
 	ctx := context.Background()
+	// The pause lasts from 08:30 to 09:30; capture continues right after it.
+	pausedAt := dailyNow.Add(-90 * time.Minute)
+	duringPause := dailyNow.Add(-time.Hour)
+	resumedAt := dailyNow.Add(-30 * time.Minute)
+	clock := pausedAt
+	now := func() time.Time { return clock }
+	deps.Now = now
 
 	hook := defaultHookDeps()
 	hook.OpenStore = func() (eventSink, error) { return nopCloseStore{st}, nil }
 	hook.Git = func(context.Context, string) (string, error) { return "/work/api\nABC-7-fix\n", nil }
-	hook.Now = func() time.Time { return dailyNow }
+	hook.Now = now
 	pausePath, err := paths.PausePath()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Production wiring of the agent; only the clock is replaced.
 	agent := newPresenceAgent(fakeSampler{}, st, presence.DefaultInterval, pausePath, nil)
-	agent.Now = func() time.Time { return dailyNow }
+	agent.Now = now
+
+	// The sources that read the past: a git scan that finds a checkout made
+	// during the pause, and an ActivityWatch server whose events (09:00 to
+	// 09:01:30) all lie inside it.
+	repo := fakeRepoDir(t)
+	enableActivityWatch(&deps)
+	load := deps.LoadConfig
+	deps.LoadConfig = func() (config.Config, error) {
+		cfg, err := load()
+		cfg.RepoPaths = []string{repo}
+		return cfg, err
+	}
+	scanner := func(_ context.Context, path string, _, _ time.Time, _ *regexp.Regexp) ([]event.Event, error) {
+		return []event.Event{{At: duringPause, Source: "git", Kind: event.KindContext, Repo: path, Branch: "ABC-7-fix", Key: "paused-checkout"}}, nil
+	}
+	awServer, _ := awTestServer(t)
+	var awCalled bool
+	scanAndImport := func() {
+		t.Helper()
+		if err := runScan(ctx, deps, t.TempDir(), scanner, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := runImportActivityWatch(ctx, deps, awSourceFor(awServer, &awCalled), "2026-03-02"); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if err := runPause(deps); err != nil {
 		t.Fatal(err)
@@ -348,14 +381,22 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	if !strings.Contains(out.String(), "paused") {
 		t.Errorf("pause output = %q", out)
 	}
+	clock = duringPause
 	if err := runHook(ctx, hook, "/work/api"); err != nil {
 		t.Fatal(err)
 	}
 	agent.Tick(ctx)
+	scanAndImport()
 	if n := countEvents(t, st); n != 0 {
 		t.Fatalf("%d events written while paused", n)
 	}
 
+	// The agent keeps ticking while paused, up to the resume.
+	clock = resumedAt
+	agent.Tick(ctx)
+	if n := countEvents(t, st); n != 0 {
+		t.Fatalf("%d events written while paused", n)
+	}
 	out.Reset()
 	if err := runResume(deps); err != nil {
 		t.Fatal(err)
@@ -366,6 +407,17 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	if !strings.Contains(out.String(), "resumed") {
 		t.Errorf("resume output = %q", out)
 	}
+
+	// After the resume the scan and the import run again and read the past.
+	clock = resumedAt.Add(presence.DefaultInterval)
+	scanAndImport()
+	if !awCalled {
+		t.Fatal("the import did not contact the ActivityWatch server")
+	}
+	if n := countEvents(t, st); n != 0 {
+		t.Fatalf("%d events from the paused time stored after resume", n)
+	}
+
 	if err := runHook(ctx, hook, "/work/api"); err != nil {
 		t.Fatal(err)
 	}

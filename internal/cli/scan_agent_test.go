@@ -81,11 +81,11 @@ func fakeRepoDir(t *testing.T) string {
 func TestNewScanJobIsOffWithoutIntervalOrRepos(t *testing.T) {
 	now := func() time.Time { return dailyNow }
 	cfg := config.Config{RepoPaths: []string{"/work/a"}, Location: time.UTC}
-	if newScanJob(cfg, "/home/u", &syncSink{}, nil, func() bool { return false }, 0, now, t.Logf) != nil {
+	if newScanJob(cfg, "/home/u", &syncSink{}, nil, func() bool { return false }, noPauses, 0, now, t.Logf) != nil {
 		t.Error("interval 0 must not start a scan")
 	}
 	cfg.RepoPaths = nil
-	if newScanJob(cfg, "/home/u", &syncSink{}, nil, func() bool { return false }, time.Minute, now, t.Logf) != nil {
+	if newScanJob(cfg, "/home/u", &syncSink{}, nil, func() bool { return false }, noPauses, time.Minute, now, t.Logf) != nil {
 		t.Error("no repo_paths must not start a scan")
 	}
 }
@@ -99,7 +99,7 @@ func TestScanJobScansAtStartAndOnEveryTick(t *testing.T) {
 	}
 	sink := &syncSink{}
 	cfg := config.Config{RepoPaths: []string{repo}, Location: time.UTC}
-	job := newScanJob(cfg, "/home/u", sink, scan, func() bool { return false }, 10*time.Millisecond,
+	job := newScanJob(cfg, "/home/u", sink, scan, func() bool { return false }, noPauses, 10*time.Millisecond,
 		func() time.Time { return dailyNow }, t.Logf)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -127,7 +127,7 @@ func TestScanJobDoesNothingWhilePaused(t *testing.T) {
 	paused.Store(true)
 	sink := &syncSink{}
 	cfg := config.Config{RepoPaths: []string{repo}, Location: time.UTC}
-	job := newScanJob(cfg, "/home/u", sink, scan, paused.Load, 10*time.Millisecond,
+	job := newScanJob(cfg, "/home/u", sink, scan, paused.Load, noPauses, 10*time.Millisecond,
 		func() time.Time { return dailyNow }, t.Logf)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -157,7 +157,7 @@ func TestScanJobKeepsRunningWhenOneRepositoryFails(t *testing.T) {
 	}
 	sink := &syncSink{}
 	cfg := config.Config{RepoPaths: []string{"/does/not/exist", good}, Location: time.UTC}
-	job := newScanJob(cfg, "/home/u", sink, scan, func() bool { return false }, time.Hour,
+	job := newScanJob(cfg, "/home/u", sink, scan, func() bool { return false }, noPauses, time.Hour,
 		func() time.Time { return dailyNow }, t.Logf)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
