@@ -46,6 +46,9 @@ type DayInput struct {
 // then, and the automatic context applies. A window-title hint bound to an
 // app is not carried either, because it only applies while that app is
 // frontmost; the git or shell context beneath it is.
+// Callers must therefore start the range at the day they report on: status
+// reads the current day rather than a longer window, in which a hint of an
+// earlier day would still apply once its app is frontmost again.
 //
 // Carried context has no age limit here: a branch or pin from any earlier
 // day keeps its normal tier (a pin stays explicit). A separate change
