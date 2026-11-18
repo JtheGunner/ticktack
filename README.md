@@ -84,7 +84,12 @@ go install github.com/JtheGunner/ticktack/cmd/ticktack@latest
 
 Check the install with `ticktack version`.
 
-`ticktack init` writes the resolved path of the running binary into the launchd agent definition. After moving or upgrading the binary, rerun `ticktack init` (it is safe to repeat) and run `ticktack doctor` to confirm the agent still points at it.
+`ticktack init` writes two things into the launchd agent definition:
+
+- **The path of the binary, in a form that survives upgrades.** A Homebrew install is referenced through its `opt` link (`<prefix>/opt/ticktack/bin/ticktack`), not the versioned Cellar directory. Any other install is referenced through the path it was started from, without following symlinks.
+- **The directories in use at that moment** (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, or their defaults). launchd does not inherit your shell environment, so this keeps the agent on the same config file, database and pause flag as the CLI.
+
+Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing one of those variables. `ticktack doctor` checks that the program named in the agent definition exists and is the binary you are running, and that the agent stored a presence sample recently. It does not compare the directories in the agent definition with your current environment.
 
 > [!NOTE]
 > The capture agents (presence sampling, launchd) are macOS-only and rely on the system tools `ioreg` and `lsappinfo`. The review and sync commands are plain Go.
