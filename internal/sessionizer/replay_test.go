@@ -64,6 +64,10 @@ func parseDuration(t *testing.T, s string) time.Duration {
 //     after the context event; the part before stays explicit.
 //     ticket_switches.json: no context is older than two hours, so nothing
 //     changes.
+//   - fold_short_block.json (minBlock 10m): an 8 min look at another branch
+//     between two stretches of APP-2 is folded into one APP-2 block that lists
+//     the folded time; a 6 min block of APP-5 between APP-2 and APP-6 has no
+//     enclosing ticket and stays unknown.
 func TestReplayFixtures(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "*.json"))
 	if err != nil {
