@@ -76,15 +76,43 @@ func removeManagedBlock(content string) (string, bool, error) {
 	return before + after, true, nil
 }
 
-// rcFileCandidates lists every shell startup file `init` may have written the
-// managed block to, whatever shell and platform it ran with.
-func rcFileCandidates(home string) []string {
-	return []string{
-		filepath.Join(home, ".zshrc"),
-		filepath.Join(home, ".bashrc"),
-		filepath.Join(home, ".bash_profile"),
-		filepath.Join(home, ".config", "fish", "config.fish"),
+// zshDir returns the directory zsh reads its startup files from: ZDOTDIR when
+// it is an absolute path, the home directory otherwise.
+func zshDir(home, zdotdir string) string {
+	if filepath.IsAbs(zdotdir) {
+		return zdotdir
 	}
+	return home
+}
+
+// bashLoginFiles are the startup files a bash login shell reads, in the order
+// bash tries them: it uses the first one that exists and ignores the rest.
+var bashLoginFiles = []string{".bash_profile", ".bash_login", ".profile"}
+
+// rcFileCandidates lists every shell startup file `init` may have written the
+// managed block to, whatever shell, platform and ZDOTDIR it ran with.
+func rcFileCandidates(home, zdotdir string) []string {
+	candidates := []string{filepath.Join(zshDir(home, zdotdir), ".zshrc")}
+	candidates = append(candidates, filepath.Join(home, ".zshrc"), filepath.Join(home, ".bashrc"))
+	for _, name := range bashLoginFiles {
+		candidates = append(candidates, filepath.Join(home, name))
+	}
+	candidates = append(candidates, filepath.Join(home, ".config", "fish", "config.fish"))
+	return uniqueStrings(candidates)
+}
+
+// uniqueStrings drops repeated entries and keeps the order of the first
+// occurrences.
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	unique := values[:0:0]
+	for _, v := range values {
+		if !seen[v] {
+			seen[v] = true
+			unique = append(unique, v)
+		}
+	}
+	return unique
 }
 
 // writeFileAtomic writes data to path through a temp file and a rename. An
@@ -127,18 +155,24 @@ func writeFileAtomic(path string, data []byte, defaultMode os.FileMode) error {
 	return nil
 }
 
-// rcFileFor returns the rc file the hook of the given shell goes into.
-func rcFileFor(home, goos, shell string) (string, error) {
+// rcFileFor returns the rc file the hook of the given shell goes into. zdotdir
+// is the value of $ZDOTDIR. Terminal.app and iTerm2 start bash as a login
+// shell, which does not read .bashrc, so on macOS the hook goes into the first
+// login file that exists (.bash_profile when none does).
+func rcFileFor(home, goos, shell, zdotdir string) (string, error) {
 	switch shell {
 	case "zsh":
-		return filepath.Join(home, ".zshrc"), nil
+		return filepath.Join(zshDir(home, zdotdir), ".zshrc"), nil
 	case "bash":
-		bashrc := filepath.Join(home, ".bashrc")
-		profile := filepath.Join(home, ".bash_profile")
-		if goos == "darwin" && fileExists(profile) && !fileExists(bashrc) {
-			return profile, nil
+		if goos != "darwin" {
+			return filepath.Join(home, ".bashrc"), nil
 		}
-		return bashrc, nil
+		for _, name := range bashLoginFiles {
+			if path := filepath.Join(home, name); fileExists(path) {
+				return path, nil
+			}
+		}
+		return filepath.Join(home, bashLoginFiles[0]), nil
 	case "fish":
 		return filepath.Join(home, ".config", "fish", "config.fish"), nil
 	}

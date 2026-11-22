@@ -1,0 +1,8 @@
+  +  config: valid: /home/u/.config/ticktack/config.toml
+  !  shell hook: installed in /home/u/.zshrc, but no shell event in the last 24h
+     >  fix: open a new shell, cd into a git repository and press enter
+  -  activitywatch: disabled
+
++--------------------------------- Summary ----------------------------------+
+| No check failed; 1 of 3 with a warning.                                    |
++----------------------------------------------------------------------------+

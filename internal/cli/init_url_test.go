@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -48,8 +49,12 @@ func TestInitAppliesLoaderURLRule(t *testing.T) {
 			}
 
 			var out bytes.Buffer
-			if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+			err = runInit(context.Background(), env.deps, opts, &out)
+			if tc.written && err != nil {
 				t.Fatal(err)
+			}
+			if !tc.written && !errors.Is(err, ErrInitIncomplete) {
+				t.Fatalf("a rejected URL must fail init, got %v", err)
 			}
 
 			if tc.written {
@@ -87,8 +92,8 @@ func TestInitURLRejectionDoesNotEchoCredentials(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 
 	if strings.Contains(out.String(), "sekrit") {

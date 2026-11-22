@@ -197,14 +197,14 @@ func TestCheckHookNamesTheMissingHalf(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := checkHook(context.Background(), env.deps.Doctor)
-	if res.Status != statusFail || !strings.Contains(res.Detail, "no shell event") {
+	if res.Status != statusWarn || !strings.Contains(res.Detail, "no shell event") || res.Hint == "" {
 		t.Errorf("block present, no event: %+v", res)
 	}
 
 	dbPath, _ := paths.DBPath()
 	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-48 * time.Hour), Source: "shell", Kind: event.KindPresence})
-	if res := checkHook(context.Background(), env.deps.Doctor); res.Status != statusFail {
-		t.Errorf("stale event accepted: %+v", res)
+	if res := checkHook(context.Background(), env.deps.Doctor); res.Status != statusWarn {
+		t.Errorf("a quiet day must warn, not fail: %+v", res)
 	}
 
 	if err := os.Remove(filepath.Join(env.home, ".zshrc")); err != nil {
@@ -367,6 +367,60 @@ func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
 	}
 }
 
+func TestDoctorTreatsPausedTrackingAsNoFailure(t *testing.T) {
+	tests := []struct {
+		name  string
+		check func(context.Context, doctorDeps) checkResult
+		setup func(t *testing.T, env *testEnv)
+	}{
+		{
+			name:  "agent",
+			check: checkAgent,
+			setup: func(t *testing.T, env *testEnv) { installTestAgent(t, env) },
+		},
+		{
+			name:  "hook",
+			check: checkHook,
+			setup: func(t *testing.T, env *testEnv) {
+				script, _ := shellhook.Script("zsh")
+				if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			tt.setup(t, env)
+			// Without the flag the missing events are a problem ...
+			if res := tt.check(context.Background(), env.deps.Doctor); res.Status == statusOK {
+				t.Fatalf("not paused, no events: %+v", res)
+			}
+			// ... and with the flag they are expected.
+			pausePath, _ := paths.PausePath()
+			if err := os.MkdirAll(filepath.Dir(pausePath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(pausePath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res := tt.check(context.Background(), env.deps.Doctor)
+			if res.Status != statusOK || !strings.Contains(res.Detail, "paused") {
+				t.Errorf("paused: %+v", res)
+			}
+		})
+	}
+}
+
+func TestCheckAgentStillFailsWithoutSamplesWhenNotPaused(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	installTestAgent(t, env)
+	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusFail {
+		t.Errorf("%+v", res)
+	}
+}
+
 func TestCheckToolsAndAgentAreSkippedOffMac(t *testing.T) {
 	env := newTestEnv(t, "", "")
 	doc := env.deps.Doctor
@@ -411,7 +465,10 @@ func writeTitleHintConfig(t *testing.T, enabled bool) {
 func TestCheckTitleHintIsSkippedWhenDisabled(t *testing.T) {
 	env := newTestEnv(t, "", "")
 	doc := env.deps.Doctor
-	doc.TitleSource = func() title.Source { t.Fatal("source must not be read when disabled"); return nil }
+	statusPath, _ := paths.TitleStatusPath()
+	if err := (&title.StatusFile{Path: statusPath}).Record(title.ProbeDenied, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	if res := checkTitleHint(context.Background(), doc); res.Status != statusSkip {
 		t.Errorf("no config file: %+v", res)
@@ -422,32 +479,58 @@ func TestCheckTitleHintIsSkippedWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestCheckTitleHintReportsPermissionState(t *testing.T) {
-	env := newTestEnv(t, "", "")
-	writeTitleHintConfig(t, true)
-	doc := env.deps.Doctor
-
-	granted := &title.Fake{}
-	granted.Push("com.jetbrains.goland", "SECRET-TITLE – main.go")
-	doc.TitleSource = func() title.Source { return granted }
-	res := checkTitleHint(context.Background(), doc)
-	if res.Status != statusOK || strings.Contains(res.Detail, "SECRET") {
-		t.Errorf("granted: %+v", res)
+func TestCheckTitleHintReportsTheAgentsLastProbe(t *testing.T) {
+	now := time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		// state and age describe the status file; an empty state means no file.
+		state      title.ProbeState
+		age        time.Duration
+		paused     bool
+		garbage    bool
+		wantStatus checkStatus
+		wantDetail string
+		wantHint   string
+	}{
+		{name: "no status file yet", wantStatus: statusSkip, wantDetail: "not checked yet"},
+		{name: "probe worked", state: title.ProbeOK, age: time.Minute, wantStatus: statusOK, wantDetail: "could read window titles 1m0s ago"},
+		{name: "probe denied", state: title.ProbeDenied, age: time.Minute, wantStatus: statusFail, wantDetail: "denied the agent", wantHint: "Accessibility"},
+		{name: "probe failed", state: title.ProbeFailed, age: time.Minute, wantStatus: statusFail, wantDetail: "read failed", wantHint: "osascript"},
+		{name: "stale probe means the agent is not running", state: title.ProbeOK, age: time.Hour, wantStatus: statusWarn, wantDetail: "may not be running", wantHint: "agent"},
+		{name: "stale probe while paused is still reported", state: title.ProbeOK, age: time.Hour, paused: true, wantStatus: statusOK, wantDetail: "could read window titles"},
+		{name: "unreadable status file", garbage: true, wantStatus: statusWarn, wantDetail: "unreadable", wantHint: "delete"},
 	}
-
-	denied := &title.Fake{}
-	denied.PushError(title.ErrPermission)
-	doc.TitleSource = func() title.Source { return denied }
-	res = checkTitleHint(context.Background(), doc)
-	if res.Status != statusFail || !strings.Contains(res.Hint, "Accessibility") {
-		t.Errorf("denied: %+v", res)
-	}
-
-	broken := &title.Fake{}
-	broken.PushError(errors.New("osascript could not run"))
-	doc.TitleSource = func() title.Source { return broken }
-	if res = checkTitleHint(context.Background(), doc); res.Status != statusFail || res.Hint == "" {
-		t.Errorf("broken: %+v", res)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			writeTitleHintConfig(t, true)
+			doc := env.deps.Doctor
+			doc.Now = func() time.Time { return now }
+			statusPath, _ := paths.TitleStatusPath()
+			switch {
+			case tt.garbage:
+				if err := os.MkdirAll(filepath.Dir(statusPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(statusPath, []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case tt.state != "":
+				if err := (&title.StatusFile{Path: statusPath}).Record(tt.state, now.Add(-tt.age)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.paused {
+				pausePath, _ := paths.PausePath()
+				if err := os.WriteFile(pausePath, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			res := checkTitleHint(context.Background(), doc)
+			if res.Status != tt.wantStatus || !strings.Contains(res.Detail, tt.wantDetail) || !strings.Contains(res.Hint, tt.wantHint) {
+				t.Errorf("result = %+v, want status %v, detail %q, hint %q", res, tt.wantStatus, tt.wantDetail, tt.wantHint)
+			}
+		})
 	}
 }
 

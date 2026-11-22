@@ -42,8 +42,8 @@ func TestInitSanitizesExternallyDerivedText(t *testing.T) {
 	env.deps.ReadSecret = func() (string, error) { return "secret", nil }
 	env.deps.Binary = func() (string, error) { return "", hostile }
 	var out bytes.Buffer
-	if err := runInit(context.Background(), env.deps, initOptions{Yes: true, URL: "https://x.example/" + escape + "[2J"}, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, initOptions{Yes: true, URL: "https://x.example/" + escape + "[2J"}, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "denied") {
 		t.Fatalf("test setup: the error text is not shown:\n%q", out.String())
@@ -61,8 +61,8 @@ func TestInitSanitizesLaunchctlOutput(t *testing.T) {
 	}
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true, SkipHook: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "badout") && !strings.Contains(out.String(), "bad[2Jout") {
 		t.Fatalf("test setup: launchctl output is not shown:\n%q", out.String())

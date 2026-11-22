@@ -69,6 +69,24 @@ func TestInitInterruptedAtAConfirmationDoesNotConsentOrExitZero(t *testing.T) {
 	}
 }
 
+func TestInitCancellationWinsOverAFailedStep(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	env.deps.Launchctl = func(context.Context, ...string) (string, error) {
+		cancel()
+		return "boom", errors.New("exit status 5")
+	}
+
+	var out bytes.Buffer
+	err := runInit(ctx, env.deps, initOptions{Yes: true, SkipToken: true, SkipConfig: true}, &out)
+
+	assertInterrupted(t, err, out.String())
+	if errors.Is(err, ErrInitIncomplete) || IsSilent(err) {
+		t.Fatalf("err = %v; the cancellation must not be hidden behind ErrInitIncomplete", err)
+	}
+}
+
 func TestInitInterruptedAtTheURLPromptWritesNothingAndExitsInterrupted(t *testing.T) {
 	env := newTestEnv(t, "", "")
 	ctx, cancel := context.WithCancel(context.Background())

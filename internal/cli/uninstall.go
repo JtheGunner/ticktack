@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/render"
@@ -24,16 +25,20 @@ var ErrUninstallIncomplete = errors.New("uninstall incomplete")
 // uninstallDeps holds everything uninstall touches outside of pure logic.
 type uninstallDeps struct {
 	Home string
-	GOOS string
-	UID  int
+	// ZDotDir is the value of $ZDOTDIR, where `init` put the zsh hook.
+	ZDotDir string
+	GOOS    string
+	UID     int
 	// Launchctl runs launchctl with args and returns its combined output.
 	Launchctl func(ctx context.Context, args ...string) (string, error)
 	// DeleteToken removes the token from the keychain; token.ErrNotSet means
 	// there was none.
 	DeleteToken func() error
 	LogPath     func() (string, error)
-	In          io.Reader
-	Out         io.Writer
+	// TitleStatusPath returns the path of the title probe status file.
+	TitleStatusPath func() (string, error)
+	In              io.Reader
+	Out             io.Writer
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
 }
@@ -60,14 +65,17 @@ func defaultUninstallDeps(cmd *cobra.Command) uninstallDeps {
 	doctor := defaultDoctorDeps(cmd)
 	return uninstallDeps{
 		Home:        doctor.Home,
+		ZDotDir:     doctor.ZDotDir,
 		GOOS:        doctor.GOOS,
 		UID:         doctor.UID,
 		Launchctl:   runLaunchctl,
 		DeleteToken: token.Delete,
 		LogPath:     paths.LogPath,
-		In:          cmd.InOrStdin(),
-		Out:         cmd.OutOrStdout(),
-		Render:      doctor.Render,
+
+		TitleStatusPath: paths.TitleStatusPath,
+		In:              cmd.InOrStdin(),
+		Out:             cmd.OutOrStdout(),
+		Render:          doctor.Render,
 	}
 }
 
@@ -109,6 +117,7 @@ func runUninstall(ctx context.Context, deps uninstallDeps, yes bool) error {
 	r.hookStep()
 	r.tokenStep()
 	r.logStep()
+	r.titleStatusStep()
 	if r.failed {
 		r.say(render.StatusWarn, "%s", msgUninstallIncomplete)
 		return ErrUninstallIncomplete
@@ -124,7 +133,7 @@ func uninstallPrompt(deps uninstallDeps) string {
 	if plist := agentPlistPath(deps.Home); fileExists(plist) {
 		lines = append(lines, fmt.Sprintf(msgUninstallPromptAgent, SanitizeForTerminal(plist)))
 	}
-	for _, rc := range rcFileCandidates(deps.Home) {
+	for _, rc := range rcFileCandidates(deps.Home, deps.ZDotDir) {
 		if data, err := os.ReadFile(rc); err == nil && strings.Contains(string(data), rcBlockBegin) {
 			lines = append(lines, fmt.Sprintf(msgUninstallPromptHook, SanitizeForTerminal(rc)))
 		}
@@ -134,6 +143,13 @@ func uninstallPrompt(deps uninstallDeps) string {
 		for _, path := range logfile.Files(logPath) {
 			if fileExists(path) {
 				lines = append(lines, fmt.Sprintf(msgUninstallPromptLog, SanitizeForTerminal(path)))
+			}
+		}
+	}
+	if statusPath, err := deps.TitleStatusPath(); err == nil {
+		for _, path := range title.StatusFiles(statusPath) {
+			if fileExists(path) {
+				lines = append(lines, fmt.Sprintf(msgUninstallPromptStatus, SanitizeForTerminal(path)))
 			}
 		}
 	}
@@ -180,7 +196,7 @@ func isServiceNotFound(output string) bool {
 // one.
 func (r *uninstallRun) hookStep() {
 	found := false
-	for _, rc := range rcFileCandidates(r.deps.Home) {
+	for _, rc := range rcFileCandidates(r.deps.Home, r.deps.ZDotDir) {
 		removed, err := removeHook(rc)
 		if err != nil {
 			found = true
@@ -248,6 +264,22 @@ func (r *uninstallRun) logStep() {
 			continue
 		}
 		r.removeFile(path, msgUninstallLogRemoved, msgUninstallLogMissing, msgUninstallLogFailed)
+	}
+}
+
+// titleStatusStep removes the title probe status file. Stray temp files of an
+// interrupted write are reported only when they exist.
+func (r *uninstallRun) titleStatusStep() {
+	statusPath, err := r.deps.TitleStatusPath()
+	if err != nil {
+		r.say(render.StatusFail, msgUninstallStatusFailed, SanitizeForTerminal(err.Error()))
+		return
+	}
+	for _, path := range title.StatusFiles(statusPath) {
+		if path != statusPath && !fileExists(path) {
+			continue
+		}
+		r.removeFile(path, msgUninstallStatusRemoved, msgUninstallStatusMissing, msgUninstallStatusFailed)
 	}
 }
 

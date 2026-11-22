@@ -203,10 +203,12 @@ func (r *initRun) confirm(question string) bool {
 }
 
 // runInit performs the four setup steps. Step failures are reported and do
-// not stop the remaining steps. A cancelled ctx (SIGINT, SIGTERM) ends the run
-// after the step in progress with the cancellation as the error, so the exit
-// code is 130 and never 0; an answer cut short by the cancellation is never
-// taken as input or consent.
+// not stop the remaining steps; they make the command return
+// ErrInitIncomplete, so the exit code is non-zero. A cancelled ctx (SIGINT,
+// SIGTERM) ends the run after the step in progress with the cancellation as
+// the error, so the exit code is 130 and never 0; the cancellation wins over a
+// failed step, and an answer cut short by it is never taken as input or
+// consent.
 func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer) error {
 	r := &initRun{deps: deps, opts: opts, out: out}
 	steps := []func(){
@@ -227,7 +229,7 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 	_, _ = fmt.Fprintln(out)
 	if r.failed {
 		r.say(render.StatusWarn, "%s", msgInitFinishedWithFailures)
-		return nil
+		return ErrInitIncomplete
 	}
 	r.say(render.StatusOK, "%s", msgInitFinished)
 	return nil
@@ -348,7 +350,7 @@ func (r *initRun) hookStep() {
 		r.say(render.StatusFail, msgInitHookUnsupported, SanitizeForTerminal(shell))
 		return
 	}
-	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell)
+	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell, r.deps.Doctor.ZDotDir)
 	if err != nil {
 		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return

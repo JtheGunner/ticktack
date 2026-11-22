@@ -37,6 +37,11 @@ func TestDoctorReportGolden(t *testing.T) {
 		skipResult("activitywatch", "disabled"),
 		skipResult("window title hints", "disabled (set enabled = true under [titlehint] to turn on)"),
 	}
+	warns := []checkResult{
+		okResult("config", "valid: /home/u/.config/ticktack/config.toml"),
+		warnResult("shell hook", "installed in /home/u/.zshrc, but no shell event in the last 24h", "open a new shell, cd into a git repository and press enter"),
+		skipResult("activitywatch", "disabled"),
+	}
 	tests := []struct {
 		name       string
 		results    []checkResult
@@ -47,6 +52,7 @@ func TestDoctorReportGolden(t *testing.T) {
 		{"doctor_all_pass_plain", allPass, render.Plain(), 0, ""},
 		{"doctor_partial_fail_plain", partial, render.Plain(), 2, ""},
 		{"doctor_skips_plain", skips, render.Plain(), 0, ""},
+		{"doctor_warnings_plain", warns, render.Plain(), 0, ""},
 		{"doctor_all_pass_unicode_color", allPass, unicodeColorRenderer(), 0, "\x1b[32mAll 3 checks passed."},
 		{"doctor_partial_fail_unicode_color", partial, unicodeColorRenderer(), 2, "\x1b[31m2 of 4 checks failed."},
 	}

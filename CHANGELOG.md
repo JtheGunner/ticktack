@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `ticktack uninstall` reverses `ticktack init`: after one confirmation (`--yes` skips it) it unloads and removes the launchd agent, removes the managed block from the shell startup files, deletes the YouTrack token from the OS keychain and deletes the log file. Config file, database and binary stay.
+- `ticktack uninstall` reverses `ticktack init`: after one confirmation (`--yes` skips it) it unloads and removes the launchd agent, removes the managed block from the shell startup files, deletes the YouTrack token from the OS keychain and deletes the log file and the title probe status file (`title-status.json`, with any temporary file of an interrupted write). Config file, database and binary stay.
 - New setting `context_max_age` (default `"2h"`; `"0"` turns the age limit for repository and branch context off, a pin from an earlier day stays `suggested`).
 
 ### Changed

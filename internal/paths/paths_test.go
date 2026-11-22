@@ -20,6 +20,7 @@ func TestPaths(t *testing.T) {
 		{"booking lock", map[string]string{"XDG_DATA_HOME": "/x/data"}, BookingLockPath, "/x/data/ticktack/booking.lock"},
 		{"pause", map[string]string{"XDG_STATE_HOME": "/x/state"}, PausePath, "/x/state/ticktack/paused"},
 		{"log", map[string]string{"XDG_STATE_HOME": "/x/state"}, LogPath, "/x/state/ticktack/ticktack.log"},
+		{"title status", map[string]string{"XDG_STATE_HOME": "/x/state"}, TitleStatusPath, "/x/state/ticktack/title-status.json"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,7 +43,7 @@ func TestPathsFailWithoutHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	for name, fn := range map[string]func() (string, error){
-		"DataDir": DataDir, "StateDir": StateDir, "DBPath": DBPath, "BookingLockPath": BookingLockPath, "PausePath": PausePath, "LogPath": LogPath,
+		"DataDir": DataDir, "StateDir": StateDir, "DBPath": DBPath, "BookingLockPath": BookingLockPath, "PausePath": PausePath, "LogPath": LogPath, "TitleStatusPath": TitleStatusPath,
 	} {
 		if _, err := fn(); err == nil {
 			t.Errorf("%s: expected error without home directory", name)
