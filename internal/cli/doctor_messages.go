@@ -18,6 +18,14 @@ const (
 	msgHookStoreErr     = "installed in %s, but the event store cannot be read: %v"
 	msgHookStoreFix     = "see the database check below"
 
+	// The tt alias is optional: these lines are hints, never failures.
+	msgCheckAlias           = "alias tt"
+	msgAliasNoBlock         = "not set (no managed block; `ticktack init` adds it with the shell hook)"
+	msgAliasUnreadable      = "cannot read %s"
+	msgAliasSet             = "%s is set in the managed block of %s"
+	msgAliasSkippedConflict = "%s not set: skipped because tt already exists (%s)"
+	msgAliasNotSet          = "%s is not set (optional; rerun `ticktack init` without --skip-alias to add it)"
+
 	msgCheckAgent      = "agent"
 	msgAgentOK         = "plist runs this binary and last presence sample %s ago"
 	msgAgentNoPlist    = "launchd plist missing: %s"

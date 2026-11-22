@@ -72,7 +72,12 @@ func newTestEnv(t *testing.T, secret, answers string) *testEnv {
 	doc.Home = home
 	doc.GOOS = "darwin"
 	doc.UID = 501
-	doc.LookPath = func(string) (string, error) { return "/usr/bin/x", nil }
+	doc.LookPath = func(name string) (string, error) {
+		if name == "tt" {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/x", nil
+	}
 	env.deps = initDeps{
 		Doctor:     doc,
 		In:         bufio.NewReader(strings.NewReader(answers)),

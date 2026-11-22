@@ -42,6 +42,9 @@ const (
 	statusOK checkStatus = iota
 	statusFail
 	statusSkip
+	// statusInfo marks an informational hint: printed, but not counted as a
+	// check and never a failure.
+	statusInfo
 )
 
 // checkResult is what a single check reports. Hint is set on failure only.
@@ -62,6 +65,10 @@ func failResult(name, detail, hint string) checkResult {
 
 func skipResult(name, detail string) checkResult {
 	return checkResult{Name: name, Status: statusSkip, Detail: detail}
+}
+
+func infoResult(name, detail string) checkResult {
+	return checkResult{Name: name, Status: statusInfo, Detail: detail}
 }
 
 // meClient is the part of the YouTrack client the token check needs.
@@ -171,6 +178,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkRepositories,
 		checkRepoRoots,
 		checkStandardTasks,
+		checkAlias,
 	}
 	results := make([]checkResult, 0, len(checks))
 	for _, check := range checks {
@@ -187,17 +195,21 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 // the outcome, so it reads without colour. It returns the number of failed
 // checks.
 func writeDoctorReport(out io.Writer, r render.Renderer, results []checkResult) int {
-	failed := 0
+	failed, checks := 0, 0
 	for _, res := range results {
 		printResult(out, r, res)
+		if res.Status == statusInfo {
+			continue
+		}
+		checks++
 		if res.Status == statusFail {
 			failed++
 		}
 	}
-	summary := fmt.Sprintf(msgDoctorSummaryOK, len(results))
+	summary := fmt.Sprintf(msgDoctorSummaryOK, checks)
 	status, paint := render.StatusOK, r.Colors.OK
 	if failed > 0 {
-		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, len(results))
+		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, checks)
 		status, paint = render.StatusFail, r.Colors.Fail
 	}
 	_, _ = fmt.Fprintln(out)
@@ -215,6 +227,8 @@ func printResult(out io.Writer, r render.Renderer, res checkResult) {
 		status = render.StatusFail
 	case statusSkip:
 		status = render.StatusSkip
+	case statusInfo:
+		status = render.StatusInfo
 	}
 	detail := ": " + SanitizeForTerminal(res.Detail)
 	if res.Status != statusFail {

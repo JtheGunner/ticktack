@@ -28,6 +28,17 @@ const (
 	msgInitHookWritten       = "shell hook written: %s (open a new shell to activate it)"
 	msgInitHookFailed        = "shell hook failed: %v"
 
+	// The tt alias lives in the same managed block as the hook.
+	msgInitAliasExplain  = "The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)"
+	msgInitAliasSet      = "alias tt set (open a new shell to use it)"
+	msgInitAliasSkipped  = "alias tt skipped (--skip-alias)"
+	msgInitAliasConflict = "alias tt not set: tt already exists (%s)"
+
+	// msgAliasConflictCommand and msgAliasConflictRC say what already provides
+	// tt. Only a command on PATH and the rc file init edits are inspected.
+	msgAliasConflictCommand = "command %s"
+	msgAliasConflictRC      = "defined in your shell startup file"
+
 	msgInitAgentIntro   = "Step 4/4 - agent: install and load the launchd agent at %s"
 	msgInitAgentNotMac  = "launchd agent is macOS-only; skipped"
 	msgInitAgentWritten = "plist written: %s"

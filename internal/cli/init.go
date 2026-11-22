@@ -32,6 +32,7 @@ type initOptions struct {
 	SkipToken  bool
 	SkipHook   bool
 	SkipAgent  bool
+	SkipAlias  bool
 }
 
 // initDeps holds everything init touches outside of pure logic.
@@ -61,7 +62,8 @@ func newInitCommand() *cobra.Command {
 		Short: "Set up config, token, shell hook and launchd agent",
 		Long: "Walks through four steps: config file, YouTrack token (hidden input), " +
 			"shell hook and launchd agent. Every step is explained and can be skipped; " +
-			"rerunning is safe.",
+			"rerunning is safe. The shell hook block also defines the optional alias " +
+			"tt for ticktack unless tt already exists or --skip-alias is given.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if printSnippet != "" {
@@ -84,6 +86,7 @@ func newInitCommand() *cobra.Command {
 	f.BoolVar(&opts.SkipToken, "skip-token", false, "skip the token step")
 	f.BoolVar(&opts.SkipHook, "skip-hook", false, "skip the shell hook step")
 	f.BoolVar(&opts.SkipAgent, "skip-agent", false, "skip the launchd agent step")
+	f.BoolVar(&opts.SkipAlias, "skip-alias", false, "do not add the tt alias to the shell hook block")
 	f.StringVar(&printSnippet, "print-snippet", "", "print the hook script for a shell and exit")
 	return cmd
 }
@@ -290,20 +293,39 @@ func (r *initRun) hookStep() {
 		return
 	}
 	r.step(msgInitHookIntro, SanitizeForTerminal(rc))
+	r.say(render.StatusInfo, "%s", msgInitAliasExplain)
 	if r.opts.SkipHook || !r.confirm(msgInitConfirm) {
 		r.say(render.StatusSkip, "%s", msgInitSkipped)
 		return
 	}
-	changed, err := upsertHook(rc, script)
+	alias, err := planAlias(r.opts.SkipAlias, shell, rc, r.deps.Doctor.LookPath)
+	if err != nil {
+		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
+		return
+	}
+	changed, err := upsertHook(rc, alias.withAlias(script))
 	if err != nil {
 		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
 	if changed {
 		r.say(render.StatusOK, msgInitHookWritten, SanitizeForTerminal(rc))
-		return
+	} else {
+		r.say(render.StatusOK, msgInitHookUnchanged, SanitizeForTerminal(rc))
 	}
-	r.say(render.StatusOK, msgInitHookUnchanged, SanitizeForTerminal(rc))
+	r.sayAlias(alias)
+}
+
+// sayAlias reports what the hook step decided about the tt alias.
+func (r *initRun) sayAlias(p aliasPlan) {
+	switch {
+	case p.Skipped:
+		r.say(render.StatusSkip, "%s", msgInitAliasSkipped)
+	case p.Conflict != "":
+		r.say(render.StatusInfo, msgInitAliasConflict, SanitizeForTerminal(p.Conflict))
+	default:
+		r.say(render.StatusOK, "%s", msgInitAliasSet)
+	}
 }
 
 // upsertHook writes the managed block and reports whether the file changed.

@@ -8,6 +8,7 @@ Validate the token against YouTrack now? [Y/n]   x  token: YouTrack rejected the
      >  fix: create a new permanent token in your YouTrack profile and store it with `ticktack init`
 
   Step 3/4 - shell hook: add a managed block to <HOME>/.zshrc
+  i  The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)
 Proceed? [Y/n]   -  skipped
 
   Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
