@@ -120,6 +120,23 @@ Then remove the binary (`brew uninstall ticktack`, or delete it from your Go bin
 
 ---
 
+## ⌨️ The `tt` alias
+
+The binary is called `ticktack`. `tt` is an optional shell alias for it, not a second binary: the release archive and the Homebrew formula install no `tt` file, so they cannot collide with another package or with a tool of yours.
+
+`ticktack init` adds `alias tt=ticktack` (fish: `alias tt ticktack`) to the same managed block as the shell hook. Skip it with `--skip-alias`. Running `init` again keeps the block in sync: an older block without the alias gains it, `--skip-alias` takes it out, and the file never changes when nothing else did.
+
+`init` does not set the alias when `tt` already exists, and says so. It looks for:
+
+- a command named `tt` on your `PATH`;
+- an `alias tt` or a function `tt` in the shell startup file `init` edits, outside the managed block.
+
+An alias or function defined anywhere else cannot be seen, because `init` reads that one file and never runs your shell: a plugin, a file your rc sources, or something set only in the current session. If that applies, your own definition and the managed one both exist and the one loaded last wins; remove the alias line from the block or run `init --skip-alias`.
+
+`ticktack doctor` lists the state as an informational line (`alias tt`): set, not set, or skipped because `tt` already exists. It is never counted as a check and never changes the exit status. `ticktack uninstall` removes the alias with the rest of the block.
+
+---
+
 ## 🚀 Quick start
 
 ```sh
@@ -222,7 +239,7 @@ Resolution order for a block:
 |    | Command                         | What it does                                                                         |
 |:--:|---------------------------------|--------------------------------------------------------------------------------------|
 | ℹ️ | `ticktack version`              | Print the ticktack version.                                                          |
-| 🧰 | `ticktack init`                 | Set up config, token, shell hook and launchd agent (`--yes`, `--url`, `--shell`, `--skip-config`, `--skip-token`, `--skip-hook`, `--skip-agent`, `--print-snippet SHELL`). |
+| 🧰 | `ticktack init`                 | Set up config, token, shell hook and launchd agent (`--yes`, `--url`, `--shell`, `--skip-config`, `--skip-token`, `--skip-hook`, `--skip-agent`, `--skip-alias`, `--print-snippet SHELL`). |
 | 🩺 | `ticktack doctor`               | Check the setup and name the fix for each problem.                                   |
 | 🖥️ | `ticktack agent`                | Run the presence agent in the foreground (launchd runs it for you; `--interval`).    |
 | 🐚 | `ticktack hook`                 | Internal: reports the working directory from the shell prompt. Hidden from help.     |
@@ -287,7 +304,7 @@ All of these are **off by default** and can be enabled independently.
 
 | Integration         | How to enable                                                       | Notes                                                                 |
 |---------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------|
-| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | The source of repository and branch context: at each prompt it records the repository root and branch. Without it, context comes from `ticktack scan`, manual pins (`ticktack switch`), window-title hints or the ActivityWatch import. Managed block in your rc file. |
+| 🐚 Shell hook       | Keep the hook step in `ticktack init` (zsh, bash, fish).            | The source of repository and branch context: at each prompt it records the repository root and branch. Without it, context comes from `ticktack scan`, manual pins (`ticktack switch`), window-title hints or the ActivityWatch import. Managed block in your rc file. The same block holds the optional `tt` alias, see [The `tt` alias](#the-tt-alias). |
 | 🔭 Git reflog scan  | List repositories in `repo_paths`, then run `ticktack scan`. Set `[scan] interval` (for example `"30m"`) to let the agent scan at start and then at that interval. | Works for repositories used without a shell prompt, such as IDE git, and fills gaps afterwards. Reads only the HEAD reflog (read-only `git`, no hooks, no writes); stores repo, branch, ticket hint from the branch name and timestamp, never commit messages or file contents. Scanning again changes nothing; the agent skips scans while capture is paused. `ticktack doctor` checks each path. |
 | 🪟 Window-title hints | `[titlehint] enabled = true` plus a project-to-repository map.    | Needs the macOS Accessibility permission. Titles are parsed in memory for a project hint and never stored. |
 | 🔌 ActivityWatch import | `[activitywatch] enabled = true`, then `ticktack import activitywatch`. | Talks only to a loopback server.                                |
