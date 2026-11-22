@@ -17,7 +17,8 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/event"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite driver
+	"modernc.org/sqlite" // pure-Go SQLite driver
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 //go:embed migrations/*.sql
@@ -67,6 +68,25 @@ func Open(path string) (*Store, error) {
 	if strings.Contains(path, "?") {
 		return nil, fmt.Errorf("open database: path %q contains '?'", path)
 	}
+	deadline := time.Now().Add(openBudget)
+	for delay := time.Millisecond; ; delay = min(delay*2, 100*time.Millisecond) {
+		s, err := openOnce(path)
+		if err == nil {
+			return s, nil
+		}
+		if !isBusy(err) || time.Now().Add(delay).After(deadline) {
+			return nil, err
+		}
+		time.Sleep(delay)
+	}
+}
+
+// openBudget bounds how long Open retries while other processes hold the
+// database, matching the 5s busy_timeout.
+const openBudget = 5 * time.Second
+
+// openOnce opens the database and applies pending migrations.
+func openOnce(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path+dsnOptions)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -78,6 +98,22 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db, root: db}, nil
+}
+
+// isBusy reports whether err is SQLITE_BUSY or SQLITE_LOCKED (including their
+// extended codes). SQLite returns these at once, without consulting
+// busy_timeout, when a read races with another connection that is switching a
+// fresh file to WAL or creating its -shm file, so Open retries them.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code() & 0xff {
+	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+		return true
+	}
+	return false
 }
 
 // restrictFile creates the database file with mode 0600 when it is missing and

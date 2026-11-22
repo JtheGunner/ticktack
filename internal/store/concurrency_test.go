@@ -229,3 +229,38 @@ func TestConcurrentWritersLoseNoEvents(t *testing.T) {
 		t.Errorf("stored %d events, want %d", len(got), want)
 	}
 }
+
+// TestConcurrentFirstOpensNeverFail opens many fresh database files, each from
+// many goroutines at once. The first open of a file switches it to WAL and
+// creates the schema; none of the racing opens may fail with SQLITE_BUSY.
+func TestConcurrentFirstOpensNeverFail(t *testing.T) {
+	const files, openers = 25, 20
+	dir := t.TempDir()
+	for f := 0; f < files; f++ {
+		path := filepath.Join(dir, fmt.Sprintf("fresh-%d.db", f))
+		var wg sync.WaitGroup
+		errs := make(chan error, openers)
+		start := make(chan struct{})
+		for o := 0; o < openers; o++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				s, err := Open(path)
+				if err != nil {
+					errs <- fmt.Errorf("file %d opener %d: %w", f, o, err)
+					return
+				}
+				if err := s.Close(); err != nil {
+					errs <- fmt.Errorf("file %d opener %d close: %w", f, o, err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Error(err)
+		}
+	}
+}
