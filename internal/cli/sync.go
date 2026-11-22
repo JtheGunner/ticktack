@@ -219,18 +219,30 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if err != nil {
 		return err
 	}
+	confirmed := items
 	items, provisioned, err := provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
+	if ledger.IsStopError(err) {
+		// The run ends before anything is sent, so every item is listed as
+		// not sent, exactly as when booking itself is stopped.
+		printReport(out, deps.Render, ledger.NotSentReport(confirmed), dryRun)
+		return err
+	}
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 && len(provisioned.WouldBook) > 0 && !stale {
+	if len(items) == 0 && len(provisioned.WouldBook) > 0 && len(provisioned.Failed) == 0 && !stale {
 		// A dry run left out time that waits for a new standard task; the
 		// lines above name it, so "No time to book" would be wrong.
 		return nil
 	}
+	// Items whose standard task could not be provided are not booked; their
+	// failure is listed in the report next to the items that were. Which
+	// issue their time is booked on may be unknown, so no booking of their
+	// project is reconciled away in this run.
 	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{
 		Repo: st, DryRun: dryRun, Now: deps.Now,
 		Reconcile: []civil.Date{day}, Keep: keep,
+		HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
 	})
 	printReport(out, deps.Render, report, dryRun)
 	return syncErr

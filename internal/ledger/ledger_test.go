@@ -560,6 +560,56 @@ func TestSyncKeepsRowsOfOtherDaysAndKeptKeys(t *testing.T) {
 	}
 }
 
+func TestSyncDoesNotReconcileRowsOfHeldProjects(t *testing.T) {
+	tests := []struct {
+		name string
+		hold []string
+		// wantKept lists the issues whose booking survives a run without items.
+		wantKept []string
+	}{
+		{"nothing held", nil, nil},
+		{"one project held", []string{"GEN"}, []string{"GEN-5"}},
+		{"held project in another case", []string{"gen"}, []string{"GEN-5"}},
+		{"a longer project key is not a match", []string{"GE"}, nil},
+		{"a project key with a dash", []string{"GEN-X"}, []string{"GEN-X-2"}},
+		{"several projects held", []string{"GEN", "GEN-X"}, []string{"GEN-5", "GEN-X-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, repo := newFakeSink(), newFakeRepo()
+			mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("GEN-5", 30), dayItem("GEN-X-2", 15)}, s, opts(repo))
+			o := reconciling(repo)
+			o.HoldProjects = tt.hold
+			rep := mustSync(t, nil, s, o)
+
+			if want := 3 - len(tt.wantKept); rep.Deleted != want || rep.Failed != 0 {
+				t.Fatalf("report = %+v, want %d deleted", rep, want)
+			}
+			got := sinkMinutes(s)
+			if len(got) != len(tt.wantKept) || len(repo.rows) != len(tt.wantKept) {
+				t.Fatalf("sink = %v, ledger rows = %+v, want only %v", got, repo.rows, tt.wantKept)
+			}
+			for _, issue := range tt.wantKept {
+				if _, ok := repo.rows[Key(issue, "2026-01-05", "Development")]; !ok || got[issue] == 0 {
+					t.Errorf("%s was reconciled away: sink %v, ledger rows %+v", issue, got, repo.rows)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncDryRunPlansNoDeletionForHeldProjects(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("GEN-5", 30)}, s, opts(repo))
+	o := reconciling(repo)
+	o.HoldProjects = []string{"GEN"}
+	o.DryRun = true
+	rep := mustSync(t, nil, s, o)
+	if rep.Planned != 1 || len(rep.Items) != 1 || rep.Items[0].Key != Key("ABC-1", "2026-01-05", "Development") {
+		t.Fatalf("report = %+v, want only ABC-1 planned for deletion", rep)
+	}
+}
+
 func TestSyncWithoutReconcileDeletesNothing(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, opts(repo))
