@@ -135,6 +135,9 @@ type Day struct {
 	// CapMinutes is the configured daily cap; zero when disabled.
 	CapMinutes int
 	OverCap    bool
+	// Rounding reconciles the exact tracked time of the day with
+	// TotalMinutes and names the tickets that rounded away.
+	Rounding sessionizer.DaySummary
 }
 
 func location(cfg config.Config) *time.Location {
@@ -162,7 +165,13 @@ func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (
 			d.Blocks = append(d.Blocks, b)
 		}
 	}
-	for _, it := range sessionizer.Aggregate(blocks, rc, loc) {
+	rounded := sessionizer.AggregateReport(blocks, rc, loc)
+	for _, s := range rounded.Days {
+		if s.Date == day {
+			d.Rounding = s
+		}
+	}
+	for _, it := range rounded.Items {
 		if it.Date != day {
 			continue
 		}

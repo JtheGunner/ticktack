@@ -64,6 +64,9 @@ type DayItem struct {
 	// OverCap is set on every item of a day whose rounded total exceeds
 	// RoundingConfig.DailyCap. Time is never truncated silently.
 	OverCap bool
+	// Certainty splits Minutes by tier; it always adds up to Minutes. See
+	// apportionCertainty for how rounding distributes it.
+	Certainty Certainty
 }
 
 type dayKey struct {
@@ -74,16 +77,25 @@ type dayKey struct {
 type dayTotal struct {
 	duration time.Duration
 	blocks   int
+	// byBucket splits duration by certainty class.
+	byBucket [bucketCount]time.Duration
 }
 
 // Aggregate splits blocks at the local day boundary in loc, sums the time per
 // (local date, ticket), and rounds each day: the day total is rounded to the
 // configured granularity and distributed over the tickets by largest
-// remainder, so the rounded per-ticket totals add up to the rounded day
-// total. Boundaries come from localday, so 23 h and 25 h days and days
+// remainder, so the rounded per-ticket totals add up to the rounded total of
+// the assigned tickets; unassigned time is rounded separately (see roundDay).
+// Boundaries come from localday, so 23 h and 25 h days and days
 // without a local midnight work.
 // The result is ordered by date, then ticket (empty ticket first).
 func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem {
+	return AggregateReport(blocks, cfg, loc).Items
+}
+
+// AggregateReport is Aggregate plus, per day, what the rounding did to the
+// time: see Rounded.
+func AggregateReport(blocks []Block, cfg RoundingConfig, loc *time.Location) Rounded {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -105,6 +117,7 @@ func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem
 				totals[key] = t
 			}
 			t.duration += end.Sub(cur)
+			t.byBucket[bucketOf(b)] += end.Sub(cur)
 			t.blocks++
 			cur = end
 		}
@@ -120,41 +133,43 @@ func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem
 	}
 	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
 
-	var items []DayItem
+	var out Rounded
 	for _, date := range dates {
 		keys := byDay[date]
 		sort.Slice(keys, func(i, j int) bool { return keys[i].ticket < keys[j].ticket })
-		items = append(items, roundDay(date, keys, totals, cfg, step)...)
+		dayItems := roundDay(date, keys, totals, cfg, step)
+		out.Items = append(out.Items, dayItems...)
+		out.Days = append(out.Days, summarizeDay(date, keys, totals, dayItems))
 	}
-	return items
+	return out
 }
 
 // roundDay rounds one day with largest-remainder apportionment in units of step.
+//
+// "Unassigned" means time without a ticket (an empty Ticket, which is what
+// resolver tier unknown produces). It is rounded on its own, as a group of
+// one, and never competes with the tickets for remainder units: otherwise a
+// confirmed item could change, and lose its confirmation, just because the
+// unassigned time changed. The tickets are apportioned among themselves to the
+// rounded total of their own time.
 func roundDay(date civil.Date, keys []dayKey, totals map[dayKey]*dayTotal, cfg RoundingConfig, step time.Duration) []DayItem {
-	var sum time.Duration
+	var assignedKeys, unassignedKeys []dayKey
 	for _, k := range keys {
-		sum += totals[k].duration
+		if k.ticket == "" {
+			unassignedKeys = append(unassignedKeys, k)
+		} else {
+			assignedKeys = append(assignedKeys, k)
+		}
 	}
-	// Round the day total to the nearest unit, halves up.
-	dayUnits := int64((sum + step/2) / step)
-
+	unitsOf := map[dayKey]int64{}
+	for _, group := range [][]dayKey{assignedKeys, unassignedKeys} {
+		for k, u := range apportion(group, totals, step) {
+			unitsOf[k] = u
+		}
+	}
 	units := make([]int64, len(keys))
-	var assigned int64
 	for i, k := range keys {
-		units[i] = int64(totals[k].duration / step)
-		assigned += units[i]
-	}
-	order := make([]int, len(keys))
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		ra, rb := totals[keys[order[a]]].duration%step, totals[keys[order[b]]].duration%step
-		return ra > rb
-	})
-	for i := 0; assigned < dayUnits && len(order) > 0; i++ {
-		units[order[i%len(order)]]++
-		assigned++
+		units[i] = unitsOf[k]
 	}
 
 	var roundedTotal time.Duration
@@ -177,9 +192,44 @@ func roundDay(date civil.Date, keys []dayKey, totals map[dayKey]*dayTotal, cfg R
 			Description: describe(k.ticket, t.blocks),
 			RawMinutes:  int((t.duration + 30*time.Second) / time.Minute),
 			OverCap:     overCap,
+			Certainty:   apportionCertainty(t.byBucket, units[i], step),
 		})
 	}
 	return items
+}
+
+// apportion distributes the group's total, rounded to the nearest unit with
+// halves up, over its keys by largest remainder.
+func apportion(keys []dayKey, totals map[dayKey]*dayTotal, step time.Duration) map[dayKey]int64 {
+	var sum time.Duration
+	for _, k := range keys {
+		sum += totals[k].duration
+	}
+	groupUnits := int64((sum + step/2) / step)
+
+	units := make([]int64, len(keys))
+	var assigned int64
+	for i, k := range keys {
+		units[i] = int64(totals[k].duration / step)
+		assigned += units[i]
+	}
+	order := make([]int, len(keys))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ra, rb := totals[keys[order[a]]].duration%step, totals[keys[order[b]]].duration%step
+		return ra > rb
+	})
+	for i := 0; assigned < groupUnits && len(order) > 0; i++ {
+		units[order[i%len(order)]]++
+		assigned++
+	}
+	out := make(map[dayKey]int64, len(keys))
+	for i, k := range keys {
+		out[k] = units[i]
+	}
+	return out
 }
 
 func describe(ticket string, blocks int) string {
