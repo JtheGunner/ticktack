@@ -188,7 +188,9 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 			markNotSent(&report, sorted[i:])
 			return report, err
 		}
-		res, err := run.syncItem(ctx, it)
+		itemCtx, done := inFlight(ctx)
+		res, err := run.syncItem(itemCtx, it)
+		done()
 		report.add(res)
 		if IsStopError(err) {
 			markNotSent(&report, sorted[i+1:])
@@ -199,6 +201,22 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 		return report, err
 	}
 	return report, nil
+}
+
+// inFlightTimeout bounds one item that is finished after a cancellation.
+const inFlightTimeout = 2 * time.Minute
+
+// inFlight returns the context of one item's work: the sink call and the
+// ledger write that follows it. It is detached from ctx on purpose. A signal
+// cancels ctx, and an item whose sink call went through but whose ledger write
+// failed on the cancelled context would exist in YouTrack without a ledger row.
+// The loops check ctx between items instead, so a cancellation stops the run
+// before the next item starts, never inside one. The timeout keeps an item
+// that hangs on the network from holding the process forever; a second signal
+// ends it at once (the entrypoint restores the default handling after the
+// first one).
+func inFlight(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), inFlightTimeout)
 }
 
 // sortedItems returns a copy of items in date, issue, type order.
@@ -260,7 +278,9 @@ func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, re
 			markRowsNotSent(report, stale[i:])
 			return err
 		}
-		res, err := r.deleteRow(ctx, row)
+		rowCtx, done := inFlight(ctx)
+		res, err := r.deleteRow(rowCtx, row)
+		done()
 		report.add(res)
 		if IsStopError(err) {
 			markRowsNotSent(report, stale[i+1:])
@@ -644,70 +664,83 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 	result := UndoResult{Found: true}
 	var errs []error
 	for _, e := range run.Entries {
-		date, err := civil.ParseDate(e.Date)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: invalid date %q", Key(e.Issue, e.Date, e.Type), e.Date))
-			continue
+		// A cancellation stops the undo between entries, never inside one: the
+		// untouched entries stay in the run, so the next undo reverts them.
+		if err := ctx.Err(); err != nil {
+			return result, errors.Join(append(errs, err)...)
 		}
-		var restore *store.LedgerRow
-		switch e.Action {
-		case entryActionCreated:
-			if err := s.Delete(ctx, e.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
-				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if IsStopError(err) {
-					return result, errors.Join(errs...)
-				}
-				continue
-			}
-			result.Deleted++
-		case entryActionUpdated:
-			w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
-			err := s.Update(ctx, e.WorkItemID, w)
-			if errors.Is(err, youtrack.ErrIssueNotFound) {
-				// The item is gone, so the entry is done: drop the row, or
-				// this run would stay the last one forever.
-				result.Forgotten++
-				break
-			}
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if IsStopError(err) {
-					return result, errors.Join(errs...)
-				}
-				continue
-			}
-			restore = &store.LedgerRow{
-				Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: e.WorkItemID,
-				Minutes:     e.PreviousMinutes,
-				ContentHash: contentHash(Key(e.Issue, e.Date, e.Type), e.PreviousMinutes, e.Text),
-				BookedAt:    now(),
-			}
-			result.Restored++
-		case entryActionDeleted:
-			w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
-			id, err := recreate(ctx, s, w, Marker(Key(e.Issue, e.Date, e.Type)))
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if IsStopError(err) {
-					return result, errors.Join(errs...)
-				}
-				continue
-			}
-			restore = &store.LedgerRow{
-				Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: id,
-				Minutes:     e.PreviousMinutes,
-				ContentHash: contentHash(Key(e.Issue, e.Date, e.Type), e.PreviousMinutes, e.Text),
-				BookedAt:    now(),
-			}
-			result.Recreated++
-		default:
-			result.Forgotten++
+		entryCtx, done := inFlight(ctx)
+		stop, entryErr := undoEntry(entryCtx, s, repo, run.ID, e, now, &result)
+		done()
+		if entryErr != nil {
+			errs = append(errs, entryErr)
 		}
-		if err := repo.RevertEntry(ctx, run.ID, e, restore); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
+		if stop {
+			return result, errors.Join(errs...)
 		}
 	}
 	return result, errors.Join(errs...)
+}
+
+// undoEntry reverts one entry of a run: the sink call and the ledger write that
+// clears the entry. It reports the failure, if any, and whether the run ends
+// there (a stop error).
+func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int64, e store.SyncEntry,
+	now func() time.Time, result *UndoResult) (stop bool, err error) {
+	key := Key(e.Issue, e.Date, e.Type)
+	date, parseErr := civil.ParseDate(e.Date)
+	if parseErr != nil {
+		return false, fmt.Errorf("%s: invalid date %q", key, e.Date)
+	}
+	fail := func(err error) (bool, error) {
+		return IsStopError(err), fmt.Errorf("%s: %w", key, err)
+	}
+	var restore *store.LedgerRow
+	switch e.Action {
+	case entryActionCreated:
+		if err := s.Delete(ctx, e.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
+			return fail(err)
+		}
+		result.Deleted++
+	case entryActionUpdated:
+		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
+		err := s.Update(ctx, e.WorkItemID, w)
+		switch {
+		case errors.Is(err, youtrack.ErrIssueNotFound):
+			// The item is gone, so the entry is done: drop the row, or
+			// this run would stay the last one forever.
+			result.Forgotten++
+		case err != nil:
+			return fail(err)
+		default:
+			restore = &store.LedgerRow{
+				Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: e.WorkItemID,
+				Minutes:     e.PreviousMinutes,
+				ContentHash: contentHash(key, e.PreviousMinutes, e.Text),
+				BookedAt:    now(),
+			}
+			result.Restored++
+		}
+	case entryActionDeleted:
+		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
+		id, err := recreate(ctx, s, w, Marker(key))
+		if err != nil {
+			return fail(err)
+		}
+		restore = &store.LedgerRow{
+			Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: id,
+			Minutes:     e.PreviousMinutes,
+			ContentHash: contentHash(key, e.PreviousMinutes, e.Text),
+			BookedAt:    now(),
+		}
+		result.Recreated++
+	default:
+		result.Forgotten++
+	}
+	if err := repo.RevertEntry(ctx, runID, e, restore); err != nil {
+		return false, fmt.Errorf("%s: %w", key, err)
+	}
+	return false, nil
 }
 
 // recreate books w again and returns its id. An item that already carries the
