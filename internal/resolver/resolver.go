@@ -4,9 +4,15 @@
 // The resolver only judges one signal. Which signal is in effect is decided
 // by the sessionizer, in this precedence: an explicit pin (ticktack switch),
 // then a window-title hint while its app is frontmost, then git/shell
-// context. Within one signal the order is: ticket on the event, ticket in
-// the branch name, repo rule, learned rule, the standard task of the project
-// matching the repo's folder, the global standard task, unknown.
+// context. Within one signal the order is: ticket on the event (only when the
+// event has no branch), ticket in the branch name, repo rule, learned rule,
+// the standard task of the project matching the repo's folder, the global
+// standard task, unknown.
+//
+// A branch ticket is always extracted at derivation time with the current
+// ticket_pattern. The ticket that hook and scanner events store next to their
+// branch is a capture-time copy of that extraction and is ignored, so a
+// pattern change re-derives the history and no stored event has to change.
 package resolver
 
 import (
@@ -32,7 +38,9 @@ const (
 type ContextSignal struct {
 	Repo   string // absolute repository path
 	Branch string
-	Ticket string // explicit ticket ID already known, e.g. from an event
+	// Ticket is a ticket ID stored on the event. It only counts when Branch
+	// is empty (manual pin, window-title hint); see storedTicket.
+	Ticket string
 }
 
 // Attribution is the resolver's explainable verdict.
@@ -70,15 +78,30 @@ type Decision struct {
 	LearnedID int64
 }
 
-// Resolve attributes the signal to a ticket. Order: explicit ticket (event or
-// branch name), repo rule, learned rule, unknown.
+// storedTicket returns the ticket carried by the signal itself, or "" when
+// the signal has a branch. Hook and scanner events store the ticket that the
+// pattern of their capture time extracted from the branch; that copy is never
+// trusted, so a changed ticket_pattern re-derives the history without
+// touching stored events. The presence of a branch is what tells such events
+// apart: only they record one, while a manual pin or a window-title hint
+// carries a ticket without a branch.
+func storedTicket(signal ContextSignal) string {
+	if strings.TrimSpace(signal.Branch) != "" {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(signal.Ticket))
+}
+
+// Resolve attributes the signal to a ticket. Order: explicit ticket (stored
+// on a branchless event, or extracted from the branch name with the current
+// pattern), repo rule, learned rule, unknown.
 func Resolve(signal ContextSignal, rules Rules) Attribution {
 	return Decide(signal, rules).Attribution
 }
 
 // Decide is Resolve that also reports which rule decided.
 func Decide(signal ContextSignal, rules Rules) Decision {
-	if ticket := strings.ToUpper(strings.TrimSpace(signal.Ticket)); ticket != "" {
+	if ticket := storedTicket(signal); ticket != "" {
 		return Decision{
 			Attribution: Attribution{Ticket: ticket, Tier: TierExplicit, Reason: fmt.Sprintf("explicit ticket %s on event", ticket)},
 			Rule:        RuleEventTicket,

@@ -1,6 +1,9 @@
 package resolver
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
 
 var testRules = Rules{
 	Repos: []RepoRule{
@@ -15,9 +18,70 @@ func TestResolveExplicitBeatsRule(t *testing.T) {
 	if got.Ticket != "PROJ-123" || got.Tier != TierExplicit {
 		t.Errorf("got %+v", got)
 	}
-	got = Resolve(ContextSignal{Repo: "/work/app", Branch: "feature/PROJ-123", Ticket: "evt-9"}, testRules)
+	got = Resolve(ContextSignal{Repo: "/work/app", Ticket: "evt-9"}, testRules)
 	if got.Ticket != "EVT-9" || got.Tier != TierExplicit {
 		t.Errorf("event ticket should win: %+v", got)
+	}
+}
+
+// A signal with a branch gets its ticket from the branch and the current
+// pattern; the ticket stored on the event is a capture-time copy of that
+// extraction and must not outlive a pattern change.
+func TestResolveStoredTicketCountsOnlyWithoutBranch(t *testing.T) {
+	underscore := regexp.MustCompile(`[A-Z]+_\d+`)
+	tests := []struct {
+		name    string
+		signal  ContextSignal
+		pattern *regexp.Regexp
+		want    string
+		tier    Tier
+		rule    RuleKind
+	}{
+		{
+			"stored ticket agrees with the branch",
+			ContextSignal{Repo: "/work/app", Branch: "feature/PROJ-123", Ticket: "PROJ-123"}, nil,
+			"PROJ-123", TierExplicit, RuleBranchTicket,
+		},
+		{
+			"pattern changed: branch is extracted anew",
+			ContextSignal{Repo: "/work/app", Branch: "feature/PROJ-123-ABC_7", Ticket: "PROJ-123"}, underscore,
+			"ABC_7", TierExplicit, RuleBranchTicket,
+		},
+		{
+			"pattern changed: branch no longer matches, the repo rule decides",
+			ContextSignal{Repo: "/work/app", Branch: "feature/PROJ-123", Ticket: "PROJ-123"}, underscore,
+			"APP-1", TierRule, RuleRepo,
+		},
+		{
+			"pattern changed: branch matches now, the stored ticket was empty",
+			ContextSignal{Repo: "/work/app", Branch: "feature/ABC_7"}, underscore,
+			"ABC_7", TierExplicit, RuleBranchTicket,
+		},
+		{
+			"no rule and no match: unknown despite the stored ticket",
+			ContextSignal{Repo: "/zzz", Branch: "feature/PROJ-123", Ticket: "PROJ-123"}, underscore,
+			"", TierUnknown, RuleNone,
+		},
+		{
+			"ticket without a branch is kept whatever the pattern",
+			ContextSignal{Repo: "/work/app", Ticket: "PROJ-123"}, underscore,
+			"PROJ-123", TierExplicit, RuleEventTicket,
+		},
+		{
+			"blank branch counts as no branch",
+			ContextSignal{Repo: "/work/app", Branch: "  ", Ticket: "PROJ-123"}, underscore,
+			"PROJ-123", TierExplicit, RuleEventTicket,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := testRules
+			rules.TicketPattern = tt.pattern
+			got := Decide(tt.signal, rules)
+			if got.Ticket != tt.want || got.Tier != tt.tier || got.Rule != tt.rule {
+				t.Errorf("got %+v, want %s (%s, %s)", got, tt.want, tt.tier, tt.rule)
+			}
+		})
 	}
 }
 
