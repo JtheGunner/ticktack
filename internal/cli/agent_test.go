@@ -5,12 +5,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/logfile"
 )
 
 func TestAgentCommandFlags(t *testing.T) {
@@ -25,6 +27,58 @@ func TestAgentCommandFlags(t *testing.T) {
 	root.SetArgs([]string{"agent", "--interval", "0s"})
 	if err := root.Execute(); err == nil {
 		t.Fatal("expected error for non-positive interval")
+	}
+}
+
+// A log rotation that cannot write its backup must not keep the agent from
+// starting: the logger is returned regardless and still records the failure.
+func TestNewAgentLoggerSurvivesFailedRotation(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "ticktack.log")
+	oversized := strings.Repeat("x", int(logfile.DefaultMaxBytes)+1) + "\n"
+	if err := os.WriteFile(logPath, []byte(oversized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The backup path is a directory, so the rotation cannot replace it.
+	if err := os.Mkdir(logPath+".1", 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := newAgentLogger(logPath)
+	if logger == nil {
+		t.Fatal("no logger after a failed rotation")
+	}
+	logger.Printf("presence sample skipped: %v", "boom")
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appended := strings.TrimPrefix(string(data), oversized)
+	if appended == string(data) {
+		t.Fatal("failed rotation changed the existing log")
+	}
+	for _, want := range []string{"agent: ", "log rotation failed", "presence sample skipped: boom"} {
+		if !strings.Contains(appended, want) {
+			t.Fatalf("log after failed rotation lacks %q: %q", want, appended)
+		}
+	}
+}
+
+func TestNewAgentLoggerRotatesOversizedLog(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "ticktack.log")
+	oversized := strings.Repeat("x", int(logfile.DefaultMaxBytes)+1)
+	if err := os.WriteFile(logPath, []byte(oversized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newAgentLogger(logPath)
+	for path, wantSize := range map[string]int64{logPath: 0, logPath + ".1": logfile.DefaultMaxBytes} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Size() != wantSize {
+			t.Fatalf("%s is %d bytes, want %d", filepath.Base(path), info.Size(), wantSize)
+		}
 	}
 }
 

@@ -162,6 +162,8 @@ The config file is optional; every key has a default.
 | 🗄️ Database    | `$XDG_DATA_HOME/ticktack/events.db` (default `~/.local/share/ticktack/events.db`)  |
 | 📝 Log + pause flag | `$XDG_STATE_HOME/ticktack/` (default `~/.local/state/ticktack/`)  |
 
+The log file `ticktack.log` stays bounded: above 1 MiB it is rotated into a single `ticktack.log.1`, and an identical message is written at most once every 10 minutes.
+
 A complete, commented example lives in [`examples/config.toml`](examples/config.toml). Unknown keys are rejected so typos do not go unnoticed.
 
 | Key                  | Default                | Meaning                                                          |
