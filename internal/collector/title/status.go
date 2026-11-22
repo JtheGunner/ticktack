@@ -80,7 +80,7 @@ func ReadStatus(path string) (ProbeStatus, error) {
 	}
 	var status ProbeStatus
 	if err := json.Unmarshal(data, &status); err != nil {
-		return ProbeStatus{}, fmt.Errorf("%w: %v", ErrBadStatus, err)
+		return ProbeStatus{}, fmt.Errorf("%w: %w", ErrBadStatus, err)
 	}
 	switch status.State {
 	case ProbeOK, ProbeDenied, ProbeFailed:

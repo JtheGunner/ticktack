@@ -103,7 +103,7 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 | | Removed | Where |
 |:--|:--|:--|
 | 🖥️ | launchd agent, unloaded first | `~/Library/LaunchAgents/dev.ticktack.agent.plist` |
-| 🐚 | Managed shell hook block; the rest of the file stays | `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.config/fish/config.fish` |
+| 🐚 | Managed shell hook block; the rest of the file stays | `$ZDOTDIR/.zshrc` or `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.profile`, `~/.config/fish/config.fish` |
 | 🔑 | YouTrack token | OS keychain |
 | 📜 | Log file with its backup (`.1`), throttle state (`.throttle`) and temporary files | `~/.local/state/ticktack/ticktack.log` (or under `XDG_STATE_HOME`) |
 
