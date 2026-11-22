@@ -36,6 +36,39 @@ func readLines(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
 
+func TestFilesCoversEverythingTheLoggerCreates(t *testing.T) {
+	fx := newFixture(t)
+	fx.logger.MaxBytes = 64
+	for i := 0; i < 20; i++ {
+		fx.logger.Printf("message number %d with some padding", i)
+	}
+	owned := map[string]bool{}
+	for _, path := range Files(fx.logger.Path) {
+		owned[path] = true
+	}
+	entries, err := os.ReadDir(filepath.Dir(fx.logger.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 3 {
+		t.Fatalf("the logger created %d files, want log, backup and throttle state", len(entries))
+	}
+	for _, entry := range entries {
+		if path := filepath.Join(filepath.Dir(fx.logger.Path), entry.Name()); !owned[path] {
+			t.Errorf("%s is created by the logger but missing from Files", path)
+		}
+	}
+}
+
+func TestFilesListsLogBackupStateAndTempFiles(t *testing.T) {
+	log := filepath.Join("state", "ticktack.log")
+	want := []string{log, log + ".1", log + ".throttle", log + ".1.tmp", log + ".throttle.tmp"}
+	got := Files(log)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("Files = %v, want %v", got, want)
+	}
+}
+
 func TestPrintfWritesPrefixedTimestampedLine(t *testing.T) {
 	fx := newFixture(t)
 	fx.logger.Printf("append %s event failed: %v", "presence", "disk full")

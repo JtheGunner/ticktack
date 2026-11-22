@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ticktack uninstall` now deletes everything the log writer owns: the log file, its backup (`.1`), the throttle state (`.throttle`) and leftover temporary files, not only `ticktack.log`.
+- `ticktack uninstall` no longer treats every `launchctl print` error as "agent not loaded". Only launchctl's "service not found" result skips the unload; any other error is reported as a failure and the command exits non-zero (the plist is still removed).
 - `ticktack purge` now empties every table of the local database. The cached YouTrack project list, the remembered standard tasks and the consent to create them used to survive, so auto mode could create a standard task without asking again.
 
 - `ticktack sync` and `ticktack auto` no longer leave time booked on a ticket the day has no time for any more. A work item booked earlier is deleted when its block was reassigned, discarded or rounded to zero; `--dry-run` lists it as `dry-run-would-delete` and `ticktack undo` books it again. A booking whose item still exists but waits for a new confirmation is left as it is.

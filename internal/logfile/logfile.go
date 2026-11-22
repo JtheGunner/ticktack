@@ -42,6 +42,7 @@ const (
 
 	backupSuffix   = ".1"
 	throttleSuffix = ".throttle"
+	tempSuffix     = ".tmp"
 	timeLayout     = "2006/01/02 15:04:05"
 	filePerm       = 0o600
 	dirPerm        = 0o700
@@ -74,6 +75,16 @@ func New(path, prefix string) *Logger {
 		Throttle: DefaultThrottle,
 		Now:      time.Now,
 	}
+}
+
+// Files lists every path this package may create for the log file at path: the
+// log itself, its backup, the throttle state and the temporary files used while
+// replacing the last two. Callers that delete the log use it so no leftover
+// stays behind. The files need not exist.
+func Files(path string) []string {
+	backup := path + backupSuffix
+	state := path + throttleSuffix
+	return []string{path, backup, state, backup + tempSuffix, state + tempSuffix}
 }
 
 // Printf formats and appends one message. Logging is best effort: when the
@@ -179,7 +190,7 @@ func copyTail(src, dst string, limit int64) (copied bool, err error) {
 	if _, err := in.Seek(info.Size()-limit, io.SeekStart); err != nil {
 		return false, err
 	}
-	tmp := dst + ".tmp"
+	tmp := dst + tempSuffix
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)
 	if err != nil {
 		return false, err
@@ -291,7 +302,7 @@ func writeThrottleState(path string, entries map[string]throttleEntry) error {
 	if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
+	tmp := path + tempSuffix
 	if err := os.WriteFile(tmp, []byte(b.String()), filePerm); err != nil {
 		return err
 	}
