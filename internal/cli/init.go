@@ -162,7 +162,8 @@ func (r *initRun) confirm(question string) bool {
 }
 
 // runInit performs the four setup steps. Step failures are reported and do
-// not stop the remaining steps.
+// not stop the remaining steps; they make the command return
+// ErrInitIncomplete, so the exit code is non-zero.
 func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer) error {
 	r := &initRun{deps: deps, opts: opts, out: out}
 	r.configStep()
@@ -172,7 +173,7 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 	_, _ = fmt.Fprintln(out)
 	if r.failed {
 		r.say(render.StatusWarn, "%s", msgInitFinishedWithFailures)
-		return nil
+		return ErrInitIncomplete
 	}
 	r.say(render.StatusOK, "%s", msgInitFinished)
 	return nil

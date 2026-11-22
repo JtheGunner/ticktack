@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -151,13 +152,14 @@ func TestInitIsIdempotent(t *testing.T) {
 func TestInitNeverEchoesToken(t *testing.T) {
 	env := newTestEnv(t, testSecret+"\n", "")
 	// A failing token setter must not leak the secret through its error path.
+	env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{login: "jane"}, nil }
 	failing := env.deps
 	failing.SetToken = func(string) error { return errors.New("keychain locked") }
 
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, URL: "https://yt.example.com"}
-	if err := runInit(context.Background(), failing, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), failing, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
 		t.Fatal(err)
@@ -227,11 +229,25 @@ func TestInitReportsLaunchctlFailureWithHintAndContinues(t *testing.T) {
 	}
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatalf("launchctl failure must not be fatal: %v", err)
+	err := runInit(context.Background(), env.deps, opts, &out)
+	if !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "launchctl bootstrap gui/501") {
 		t.Errorf("missing hint:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "hook") {
+		t.Errorf("the failing step must not stop the others:\n%s", out.String())
+	}
+}
+
+func TestInitExitCodeNonZeroWhenAStepFails(t *testing.T) {
+	failing := fmt.Errorf("wrapped: %w", ErrInitIncomplete)
+	if ExitCode(failing) == 0 {
+		t.Error("exit code is 0 although a step failed")
+	}
+	if !IsSilent(failing) {
+		t.Error("main would print the failure a second time")
 	}
 }
 
@@ -289,8 +305,8 @@ func TestInitHookRefusesBrokenBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
-	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if readFile(t, rc) != broken {
 		t.Error("file with a broken block was modified")
@@ -352,8 +368,8 @@ func TestInitHookRefusesDanglingSymlink(t *testing.T) {
 	}
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "dangling symlink") {
 		t.Errorf("no clear error:\n%s", out.String())
