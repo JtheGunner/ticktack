@@ -1,0 +1,97 @@
+  Review for 2026-01-05
+
+  #  Time         Length  Ticket  Tier      Reason  State
+  1  09:00-10:00      1h  ABC-1   explicit
+    explicit ticket ABC-1 on event
+  2  10:00-11:00      1h  -                         idle gap
+    no activity: assign a ticket (t), break (b) or discard (d)
+  3  11:00-12:00      1h  DEF-2   explicit
+    explicit ticket DEF-2 on event
+
+  Totals
+  Ticket  Time  Certainty
+  ABC-1     1h  explicit 1h
+  DEF-2     1h  explicit 1h
+
+---------------------------------- Actions -----------------------------------
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
+review>   Review for 2026-01-05
+
+  #  Time         Length  Ticket  Tier      Reason           State
+  1  09:00-10:00      1h  ABC-1   explicit
+    explicit ticket ABC-1 on event
+  2  10:00-11:00      1h  MEET-1  explicit  manuell gefüllt
+  3  11:00-12:00      1h  DEF-2   explicit
+    explicit ticket DEF-2 on event
+
+  Totals
+  Ticket  Time  Certainty
+  ABC-1     1h  explicit 1h
+  DEF-2     1h  explicit 1h
+  MEET-1    1h  explicit 1h
+
+---------------------------------- Actions -----------------------------------
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
+  +  Entry 2 assigned to MEET-1.
+review>   Review for 2026-01-05
+
+  #  Time         Length  Ticket  Tier      Reason           State
+  1  09:00-10:00      1h  ABC-1   explicit
+    explicit ticket ABC-1 on event
+  2  10:00-11:00      1h  MEET-1  explicit  manuell gefüllt
+  3  11:00-12:00      1h  -                                  break
+    marked as break, never booked
+
+  Totals
+  Ticket  Time  Certainty
+  ABC-1     1h  explicit 1h
+  MEET-1    1h  explicit 1h
+  i  Breaks: 1h (never booked, not part of the totals).
+
+---------------------------------- Actions -----------------------------------
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
+  +  Entry 3 marked as break (not booked).
+review>   Review for 2026-01-05
+
+  #  Time         Length  Ticket  Tier      Reason           State
+  1  09:00-10:00      1h  ABC-1   explicit
+    explicit ticket ABC-1 on event
+  2  10:00-11:00      1h  MEET-1  explicit  manuell gefüllt
+  3  11:00-12:00      1h  DEF-2   explicit
+    explicit ticket DEF-2 on event
+
+  Totals
+  Ticket  Time  Certainty
+  ABC-1     1h  explicit 1h
+  DEF-2     1h  explicit 1h
+  MEET-1    1h  explicit 1h
+
+---------------------------------- Actions -----------------------------------
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
+  +  Undid the last action: break 11:00-12:00. The review log counts 0 correction(s) for this session.
+review>   Review for 2026-01-05
+
+  #  Time         Length  Ticket  Tier      Reason           State
+  1  09:00-10:00      1h  ABC-1   explicit
+    explicit ticket ABC-1 on event
+  2  10:00-11:00      1h  MEET-1  explicit  manuell gefüllt
+  3  11:00-12:00      1h  -                                  break
+    marked as break, never booked
+
+  Totals
+  Ticket  Time  Certainty
+  ABC-1     1h  explicit 1h
+  MEET-1    1h  explicit 1h
+  i  Breaks: 1h (never booked, not part of the totals).
+
+---------------------------------- Actions -----------------------------------
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
+  +  Entry 3 marked as break (not booked).
+review> 
+  i  Summary: 0 confirmed, 0 discarded, 2 unconfirmed, 0 unassigned, 1h of breaks (not booked).
+  i  Nothing confirmed yet: `ticktack sync` will book nothing.

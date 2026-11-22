@@ -28,6 +28,10 @@ type DayInput struct {
 	Rules     resolver.Rules
 	// Blocks is the derivation of Events, Overrides and Rules.
 	Blocks []sessionizer.Block
+	// Breaks is time marked as a break; it is never part of Blocks.
+	Breaks []sessionizer.Break
+	// IdleGaps are the idle gaps still open for filling.
+	IdleGaps []sessionizer.Interval
 }
 
 // EventsWithCarriedContext returns the events in [from, to) preceded by the
@@ -95,6 +99,6 @@ func LoadDayInput(ctx context.Context, r Reader, cfg config.Config, from, to tim
 	if err != nil {
 		return DayInput{}, err
 	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
-	return DayInput{Events: events, Overrides: overrides, Rules: rules, Blocks: blocks}, nil
+	res := sessionizer.DeriveDay(events, overrides, sessionizer.ConfigFrom(cfg), rules)
+	return DayInput{Events: events, Overrides: overrides, Rules: rules, Blocks: res.Blocks, Breaks: res.Breaks, IdleGaps: res.Gaps}, nil
 }

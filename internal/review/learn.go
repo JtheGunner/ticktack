@@ -78,7 +78,7 @@ func (s *Session) Remember(ctx context.Context, wholeRepo bool) (store.LearnedRu
 			break
 		}
 	}
-	err = s.apply(ctx, false, nil, func(tx store.Tx) error {
+	err = s.apply(ctx, false, nil, nil, func(tx store.Tx) error {
 		if update {
 			return tx.UpdateLearnedRule(ctx, rule)
 		}

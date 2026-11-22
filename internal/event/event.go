@@ -37,11 +37,55 @@ type Event struct {
 	Key string
 }
 
-// Override is a user correction for a time range. It either assigns a ticket
-// or discards the range.
+// OverrideKind says what a user correction does with its time range.
+type OverrideKind string
+
+// Override kinds.
+const (
+	// OverrideReassign attributes presence time to a ticket.
+	OverrideReassign OverrideKind = "reassign"
+	// OverrideDiscard drops the time from the day.
+	OverrideDiscard OverrideKind = "discard"
+	// OverrideBreak drops the time from the day like a discard, but is kept
+	// apart from it so the day summary can show breaks as their own sum.
+	OverrideBreak OverrideKind = "break"
+	// OverrideFill gives idle time (a gap between presence spans) to a ticket.
+	// It is created only by an explicit action in review.
+	OverrideFill OverrideKind = "fill"
+)
+
+// Override is a user correction for a time range. Depending on Kind it assigns
+// a ticket to presence time, drops the range (discard or break) or fills idle
+// time with a ticket.
 type Override struct {
-	Start   time.Time
-	End     time.Time
-	Ticket  string
+	// ID is the row id; zero until stored.
+	ID    int64
+	Start time.Time
+	End   time.Time
+	// Ticket is the target of a reassign or fill.
+	Ticket string
+	// Discard reports that the range is dropped (kinds discard and break). It
+	// is the legacy way to say "discard" when Kind is empty.
 	Discard bool
+	// Kind is the correction kind; empty derives it from Discard.
+	Kind OverrideKind
+}
+
+// EffectiveKind returns Kind, or the kind implied by Discard when Kind is
+// empty.
+func (o Override) EffectiveKind() OverrideKind {
+	switch {
+	case o.Kind != "":
+		return o.Kind
+	case o.Discard:
+		return OverrideDiscard
+	default:
+		return OverrideReassign
+	}
+}
+
+// Drops reports whether the override removes its range from the booked time.
+func (o Override) Drops() bool {
+	k := o.EffectiveKind()
+	return k == OverrideDiscard || k == OverrideBreak
 }

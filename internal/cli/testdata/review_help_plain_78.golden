@@ -1,10 +1,10 @@
 ---------------------------------- Actions -----------------------------------
-  c confirm   t assign   s split   d discard   b break   y confirm all
-  ? help   q quit
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
 
 ------------------------------------ Help ------------------------------------
   Assign
-    t <block> <ticket>           Assign a block to a ticket   t 3 ABC-12
+    t <block> <ticket>           Assign or fill idle time     t 3 ABC-12
     u <block> <n>                Take suggestion <n>          u 3 2
     r [repo]                     Remember last assignment     r
   Confirm
@@ -12,8 +12,9 @@
     y                            Confirm all assigned blocks  y
   Adjust
     s <block> <time> [<ticket>]  Split a block at a time      s 3 09:30 ABC-12
-    b <block>                    Mark a block as a break      b 3
+    b <block>                    Mark block or idle as break  b 3
     d <block>                    Discard a block              d 3
+    z                            Undo last action             z
   Other
     a                            Acknowledge daily cap        a
     q                            Quit                         q

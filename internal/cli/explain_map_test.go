@@ -78,6 +78,24 @@ func TestExplainNamesOverrideAndSanitizes(t *testing.T) {
 	}
 }
 
+func TestExplainNamesManualFill(t *testing.T) {
+	deps, st, out := newDailyEnv(t, "")
+	day := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	mustAppend(t, st, shellContext(day, "/work/api", "ABC-7"))
+	seedPresence(t, st, day, 30)
+	seedPresence(t, st, day.Add(2*time.Hour), 30)
+	fill := event.Override{Start: day.Add(30 * time.Minute), End: day.Add(2 * time.Hour), Ticket: "MEET-1", Kind: event.OverrideFill}
+	if err := st.AddOverride(context.Background(), fill); err != nil {
+		t.Fatal(err)
+	}
+	got := runExplainOut(t, deps, out, "2")
+	for _, want := range []string{"MEET-1", "explicit", "manual fill 08:30:00-10:00:00", "no presence recorded", "never as events"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("explain of a filled block lacks %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestExplainTargetErrors(t *testing.T) {
 	deps, st, _ := newDailyEnv(t, "")
 	ctx := context.Background()

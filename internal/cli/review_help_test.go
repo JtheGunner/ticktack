@@ -16,7 +16,7 @@ const (
 )
 
 // reviewKeys are the actions the review prompt accepts, plus the help.
-var reviewKeys = []string{"c", "t", "u", "r", "d", "b", "s", "a", "y", "q", "?"}
+var reviewKeys = []string{"c", "t", "u", "r", "d", "b", "s", "z", "a", "y", "q", "?"}
 
 func helpRenderer(width int, colour bool) render.Renderer {
 	r := render.Plain()

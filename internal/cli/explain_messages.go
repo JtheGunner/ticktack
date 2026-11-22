@@ -60,6 +60,14 @@ func msgExplainOverrideRule(ticket string) string {
 	return "override assigns " + ticket + " (corrections are stored as overrides, never as events)"
 }
 
+func msgExplainFillSignal(start, end string) string {
+	return fmt.Sprintf("manual fill %s-%s (no presence recorded)", start, end)
+}
+
+func msgExplainFillRule(ticket string) string {
+	return "you filled idle time with " + ticket + " in review; the time exists only because of that action (fills are stored as overrides, never as events)"
+}
+
 func msgExplainRuleText(d resolver.Decision, ticket string) string {
 	switch d.Rule {
 	case resolver.RuleEventTicket:

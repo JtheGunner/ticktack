@@ -131,6 +131,10 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		rows = append(rows,
 			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainOverrideSignal(clock(ex.Override.Start), clock(ex.Override.End)))},
 			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainOverrideRule(ex.Override.Ticket))})
+	case explain.SourceFill:
+		rows = append(rows,
+			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainFillSignal(clock(ex.Override.Start), clock(ex.Override.End)))},
+			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainFillRule(ex.Override.Ticket))})
 	case explain.SourceMerged:
 		rows = append(rows, render.LabelRow{Label: msgLabelSignal, Value: msgExplainMergedSignal})
 		for _, m := range ex.Merged {

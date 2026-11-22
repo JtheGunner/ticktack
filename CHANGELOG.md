@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ticktack review` offers idle gaps (holes of at least `gap_threshold` between the first and the last presence of the day) as entries. Fill one with a ticket (`t`; `s` fills the part after a split time), mark it as a break (`b`) or discard it (`d`). A filled gap is an `explicit` block with the reason `manuell gefüllt`, created only by that action; `ticktack auto` never fills gaps, and `ticktack explain` names the manual fill.
+- Breaks are stored apart from discards, are never booked, and show as their own sum in `ticktack review` and `ticktack today`.
+- `z` in `ticktack review` undoes the last action of the session (repeatable) and takes it out of the review log's correction count.
+- Migration `0008` adds a `kind` column (`reassign`, `discard`, `break`, `fill`) to `overrides`; existing rows become `discard` (dropped time) or `reassign`.
 - Optional alias `tt` for `ticktack`: `ticktack init` adds it to the managed shell hook block (`alias tt=ticktack`, fish: `alias tt ticktack`) unless `tt` already exists as a command on `PATH` or as an alias or function in the rc file, or `--skip-alias` is given. Rerunning `init` upgrades an older block in place; `ticktack uninstall` removes the alias with the block. `ticktack doctor` reports the state as an informational line that is not counted as a check. The release ships no `tt` binary or symlink.
 - `ticktack uninstall` reverses `ticktack init`: after one confirmation (`--yes` skips it) it unloads and removes the launchd agent, removes the managed block from the shell startup files, deletes the YouTrack token from the OS keychain and deletes the log file and the title probe status file (`title-status.json`, with any temporary file of an interrupted write). Config file, database and binary stay.
 - New setting `context_max_age` (default `"2h"`; `"0"` turns the age limit for repository and branch context off, a pin from an earlier day stays `suggested`).
@@ -22,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Splitting an override block in `ticktack review` without a different ticket reported success and changed nothing; it is refused with a message.
+- Ending the input (or pressing Ctrl-C) at the ticket question of a split no longer carries out the split; it is cancelled.
 - The database and the agent log file are created with mode `0600` (an existing database is narrowed to `0600`); they used to follow the umask (`0644`) inside a `0700` directory.
 - `ticktack version` of a `go install` build reports the module version or `dev-<revision>` instead of `dev`.
 - The generated config now documents `repo_roots` and `[default_issue]`.

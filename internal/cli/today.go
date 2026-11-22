@@ -109,6 +109,9 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	}, totalRows)...)
 	lines = append(lines, "")
 	lines = append(lines, r.Labels([]render.LabelRow{{Label: msgLabelTotal, Value: formatMinutes(total)}}, 2)...)
+	if m := breakMinutes(derived.Breaks); m > 0 {
+		lines = append(lines, r.Gutter(render.StatusInfo, msgReviewBreakTotal(m)))
+	}
 	if overCap {
 		lines = append(lines, r.Gutter(render.StatusWarn, msgOverDailyCap(cfg.DailyCap)))
 	}
@@ -145,6 +148,16 @@ type derivedDay struct {
 	Overrides []event.Override
 	Rules     resolver.Rules
 	Blocks    []sessionizer.Block
+	Breaks    []sessionizer.Break
+}
+
+// breakMinutes is the break total in whole minutes, rounded to the nearest.
+func breakMinutes(breaks []sessionizer.Break) int {
+	var sum time.Duration
+	for _, b := range breaks {
+		sum += b.Duration()
+	}
+	return int((sum + 30*time.Second) / time.Minute)
 }
 
 // deriveDay loads the events, overrides and rules of the local day starting at
@@ -157,5 +170,5 @@ func deriveDay(ctx context.Context, st dailyStore, cfg config.Config, start time
 	if err != nil {
 		return derivedDay{}, err
 	}
-	return derivedDay{Events: in.Events, Overrides: in.Overrides, Rules: in.Rules, Blocks: in.Blocks}, nil
+	return derivedDay{Events: in.Events, Overrides: in.Overrides, Rules: in.Rules, Blocks: in.Blocks, Breaks: in.Breaks}, nil
 }

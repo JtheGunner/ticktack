@@ -64,6 +64,7 @@ func ContextAt(events []event.Event, rules resolver.Rules, at time.Time) (Contex
 // before any context event.
 const (
 	OverrideReason  = overrideReason
+	FillReason      = fillReason
 	MinBlockReason  = minBlockReason
 	NoContextReason = noContextReason
 )

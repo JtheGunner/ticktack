@@ -22,6 +22,9 @@ const (
 	SourceContext Source = "context"
 	// SourceOverride: a user override covers the block.
 	SourceOverride Source = "override"
+	// SourceFill: the user filled an idle gap with a ticket in review. There is
+	// no presence behind the block; Override is the deciding fill.
+	SourceFill Source = "fill"
 	// SourceNoContext: presence without any earlier context event.
 	SourceNoContext Source = "no-context"
 	// SourceMerged: the block was merged from several context signals with
@@ -112,6 +115,10 @@ func Block(in Input) Explanation {
 	switch in.Block.Reason {
 	case sessionizer.OverrideReason:
 		ex.Source = SourceOverride
+		ex.Override = overrideFor(in)
+		return ex
+	case sessionizer.FillReason:
+		ex.Source = SourceFill
 		ex.Override = overrideFor(in)
 		return ex
 	case sessionizer.MinBlockReason:
