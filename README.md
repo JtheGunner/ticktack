@@ -94,6 +94,28 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 > [!NOTE]
 > The capture agents (presence sampling, launchd) are macOS-only and rely on the system tools `ioreg` and `lsappinfo`. The review and sync commands are plain Go.
 
+### Uninstall
+
+`ticktack uninstall` reverses `ticktack init`. It lists what it is about to remove, asks once (`--yes` skips the question) and then:
+
+| | Removed | Where |
+|:--|:--|:--|
+| 🖥️ | launchd agent, unloaded first | `~/Library/LaunchAgents/dev.ticktack.agent.plist` |
+| 🐚 | Managed shell hook block; the rest of the file stays | `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.config/fish/config.fish` |
+| 🔑 | YouTrack token | OS keychain |
+| 📜 | Log file | `~/.local/state/ticktack/ticktack.log` (or under `XDG_STATE_HOME`) |
+
+The config file, the database and the binary stay. A step that fails is reported, the other steps still run, and the command exits non-zero; running it again is safe. Shells that are already open keep the hook until you restart them.
+
+To leave nothing behind:
+
+```sh
+ticktack uninstall   # agent, shell hook, token, log
+ticktack purge       # every row of the local database
+```
+
+Then remove the binary (`brew uninstall ticktack`, or delete it from your Go bin directory) and, if you like, the directories `~/.config/ticktack`, `~/.local/share/ticktack` and `~/.local/state/ticktack`. Nothing in YouTrack is touched: work items that were booked stay booked.
+
 ---
 
 ## 🚀 Quick start
@@ -204,7 +226,8 @@ Resolution order for a block:
 | 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
 | ⏸️ | `ticktack pause`                | Pause all capture.                                                                   |
 | ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
-| 🗑️ | `ticktack purge`                | Delete all local data: events, overrides, ledger (`--yes` skips the prompt).         |
+| 🗑️ | `ticktack purge`                | Empty the local database: events, overrides, ledger and sync history, review state, learned rules, digests, the cached project list, standard tasks and the consent to create them (`--yes` skips the prompt). Config, token, agent and shell hook stay. |
+| 🧹 | `ticktack uninstall`            | Remove the launchd agent, the shell hook block, the keychain token and the log file (`--yes` skips the prompt). See [Uninstall](#uninstall). |
 | ✅ | `ticktack review`               | Review the day's blocks and confirm what may be booked (`--day`).                    |
 | 🔍 | `ticktack explain <N\|HH:MM>`   | Show the signal and rule behind a block (`--day`).                                   |
 | 🗺️ | `ticktack map`                  | List and edit rules: `map list`, `map add --repo R [--branch B] TICKET`, `map edit ID`, `map rm ID`. |
@@ -223,7 +246,7 @@ Every command accepts the global flag `--no-color`.
 
 ## 🎨 Output and colours
 
-The interactive commands (`init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `pause`, `resume`, `switch`) print structured output: headings, aligned tables and status lines whose glyph tells success, warning and failure apart even without colour. This is `ticktack today` as plain text:
+The interactive commands (`init`, `doctor`, `status`, `today`, `review`, `explain`, `map`, `scan`, `sync`, `auto`, `digest`, `import`, `undo`, `purge`, `uninstall`, `pause`, `resume`, `switch`) print structured output: headings, aligned tables and status lines whose glyph tells success, warning and failure apart even without colour. This is `ticktack today` as plain text:
 
 ```text
   Blocks for 2026-03-02
@@ -291,7 +314,8 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - The only network call is the YouTrack sync. The optional ActivityWatch import talks to a loopback address only. There is no telemetry.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
-- `ticktack pause` stops all capture; `ticktack purge` deletes all local data.
+- `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
+- `ticktack uninstall` removes the launchd agent, the shell hook, the keychain token and the log file.
 
 ---
 

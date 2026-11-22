@@ -52,6 +52,41 @@ func upsertManagedBlock(content, block string) (string, error) {
 	return content[:begin] + block + content[end:], nil
 }
 
+// removeManagedBlock cuts the managed block out of content and reports
+// whether there was one. It reverses upsertManagedBlock, including the blank
+// line that separates an appended block from the text before it. A begin
+// marker without end marker is an error so the file is never corrupted.
+func removeManagedBlock(content string) (string, bool, error) {
+	begin := strings.Index(content, rcBlockBegin)
+	if begin < 0 {
+		return content, false, nil
+	}
+	endRel := strings.Index(content[begin:], rcBlockEnd)
+	if endRel < 0 {
+		return "", false, errors.New("found the begin marker but no end marker; fix the file by hand")
+	}
+	end := begin + endRel + len(rcBlockEnd)
+	if end < len(content) && content[end] == '\n' {
+		end++
+	}
+	before, after := content[:begin], content[end:]
+	if after == "" && strings.HasSuffix(before, "\n\n") {
+		before = strings.TrimSuffix(before, "\n")
+	}
+	return before + after, true, nil
+}
+
+// rcFileCandidates lists every shell startup file `init` may have written the
+// managed block to, whatever shell and platform it ran with.
+func rcFileCandidates(home string) []string {
+	return []string{
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
+		filepath.Join(home, ".config", "fish", "config.fish"),
+	}
+}
+
 // writeFileAtomic writes data to path through a temp file and a rename. An
 // existing file keeps its mode; a symlink is followed so it stays a symlink.
 func writeFileAtomic(path string, data []byte, defaultMode os.FileMode) error {

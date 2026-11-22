@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktack uninstall` reverses `ticktack init`: after one confirmation (`--yes` skips it) it unloads and removes the launchd agent, removes the managed block from the shell startup files, deletes the YouTrack token from the OS keychain and deletes the log file. Config file, database and binary stay.
+
+### Changed
+
+- The confirmation question of `ticktack purge` names everything it deletes.
+
 ### Fixed
+
+- `ticktack purge` now empties every table of the local database. The cached YouTrack project list, the remembered standard tasks and the consent to create them used to survive, so auto mode could create a standard task without asking again.
 
 - `ticktack sync` and `ticktack auto` no longer leave time booked on a ticket the day has no time for any more. A work item booked earlier is deleted when its block was reassigned, discarded or rounded to zero; `--dry-run` lists it as `dry-run-would-delete` and `ticktack undo` books it again. A booking whose item still exists but waits for a new confirmation is left as it is.
 - `ticktack sync`, `ticktack auto` and `ticktack undo` no longer run at the same time, so a scheduled `auto` and a manual `sync` cannot create the same work item twice. They share a lock file; a run that finds it taken changes nothing, says that another booking run is active and exits with code `75`. The lock is released by the operating system when a run ends, also after a crash. `--dry-run` takes no lock.
