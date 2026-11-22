@@ -1,6 +1,7 @@
 // Package store persists events, overrides and the booking ledger in SQLite.
 //
-// Events are append-only: apart from Purge the store exposes no way to
+// Events are append-only: apart from Purge and the retention cleanup
+// (ArchiveDay) the store exposes no way to
 // update or delete them.
 package store
 
@@ -230,16 +231,19 @@ func (s *Store) Close() error {
 }
 
 // Append stores an event. An event with a non-empty Key that already exists
-// is silently ignored.
+// is silently ignored, and so is an event inside an archived day: a re-scan
+// of git history must not bring back events the retention cleanup deleted.
 func (s *Store) Append(ctx context.Context, e event.Event) error {
 	var key any
 	if e.Key != "" {
 		key = e.Key
 	}
+	at := e.At.UTC().UnixNano()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO events (at, source, kind, repo, branch, ticket, app, idle_seconds, dedup_key)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.At.UTC().UnixNano(), e.Source, string(e.Kind), e.Repo, e.Branch, e.Ticket, e.App, e.IdleSeconds, key)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (SELECT 1 FROM archived_days WHERE start_at <= ? AND ? < end_at)`,
+		at, e.Source, string(e.Kind), e.Repo, e.Branch, e.Ticket, e.App, e.IdleSeconds, key, at, at)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}

@@ -195,6 +195,11 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	// An archived day has no events left: it must not look like a day without
+	// time, or the booked items would be reconciled away.
+	if err := refuseArchivedDay(ctx, st, day); err != nil {
+		return err
+	}
 
 	// Only confirmed items are ever booked.
 	items, err := review.ConfirmedItems(ctx, st, cfg, day)

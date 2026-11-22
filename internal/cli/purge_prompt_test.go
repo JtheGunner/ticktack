@@ -26,6 +26,7 @@ var purgePromptWording = map[string]string{
 	"youtrack_projects":    "cached YouTrack project list",
 	"default_tasks":        "standard tasks",
 	"default_task_consent": "consent to create them",
+	"archived_days":        "list of archived days",
 }
 
 // The question names everything purge deletes. The tables are read from the
