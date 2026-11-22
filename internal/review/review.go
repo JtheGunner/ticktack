@@ -20,6 +20,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/localday"
 	"github.com/JtheGunner/ticktack/internal/reporoots"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
@@ -148,8 +149,7 @@ func location(cfg config.Config) *time.Location {
 // EventsWithCarriedContext); its time comes from the day's own presence only.
 func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (Day, error) {
 	loc := location(cfg)
-	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, loc)
-	to := time.Date(day.Year, day.Month, day.Day+1, 0, 0, 0, 0, loc)
+	from, to := localday.Bounds(day, loc)
 	in, err := LoadDayInput(ctx, r, cfg, from, to)
 	if err != nil {
 		return Day{}, err

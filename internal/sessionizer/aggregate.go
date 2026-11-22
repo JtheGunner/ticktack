@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/localday"
 )
 
 // RoundingConfig controls how Aggregate rounds and caps time.
@@ -75,11 +76,12 @@ type dayTotal struct {
 	blocks   int
 }
 
-// Aggregate splits blocks at local midnight in loc, sums the time per
+// Aggregate splits blocks at the local day boundary in loc, sums the time per
 // (local date, ticket), and rounds each day: the day total is rounded to the
 // configured granularity and distributed over the tickets by largest
 // remainder, so the rounded per-ticket totals add up to the rounded day
-// total. Midnight is located by calendar date, so 23 h and 25 h days work.
+// total. Boundaries come from localday, so 23 h and 25 h days and days
+// without a local midnight work.
 // The result is ordered by date, then ticket (empty ticket first).
 func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem {
 	if loc == nil {
@@ -93,10 +95,9 @@ func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem
 	totals := map[dayKey]*dayTotal{}
 	for _, b := range blocks {
 		for cur := b.Start; cur.Before(b.End); {
-			local := cur.In(loc)
-			date := civil.DateOf(local)
-			next := time.Date(date.Year, date.Month, date.Day+1, 0, 0, 0, 0, loc)
-			end := minTime(b.End, next)
+			date := civil.DateOf(cur.In(loc))
+			// The next boundary is strictly after cur, so the loop ends.
+			end := minTime(b.End, localday.Next(cur, loc))
 			key := dayKey{date, b.Ticket}
 			t := totals[key]
 			if t == nil {
