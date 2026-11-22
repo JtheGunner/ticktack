@@ -120,7 +120,6 @@ func TestReviewReassignWritesOverride(t *testing.T) {
 func TestReviewDiscardExcludesFromSync(t *testing.T) {
 	for name, act := range map[string]func(*Session, context.Context) error{
 		"discard": func(s *Session, ctx context.Context) error { return s.Discard(ctx, 1) },
-		"break":   func(s *Session, ctx context.Context) error { return s.MarkBreak(ctx, 1) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			st := openStore(t)
@@ -259,7 +258,8 @@ func TestReviewNeverBooksUnconfirmedItems(t *testing.T) {
 		}
 	}
 	// Discarded after confirmation.
-	if err := newSession(t, st, cfg).Discard(ctx, 3); err != nil {
+	// Entries are ABC-1, idle gap, DEF-2, idle gap, GHI-3.
+	if err := newSession(t, st, cfg).Discard(ctx, 5); err != nil {
 		t.Fatal(err)
 	}
 	items, err = ConfirmedItems(ctx, st, cfg, testDay)

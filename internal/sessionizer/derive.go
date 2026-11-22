@@ -94,9 +94,18 @@
 //   - Events are sorted by time (then ID) first, so backwards clock jumps
 //     never produce a block with End <= Start.
 //   - Overrides are applied last: the override interval is cut out of the
-//     blocks; a discard override drops it, any other covers the intersection
-//     with the presence time with an explicit block. Overrides are inputs, so
+//     blocks; a discard or break override drops it (a break is also reported
+//     as break time, never booked), a reassign covers the intersection with
+//     the presence time with an explicit block. Overrides are inputs, so
 //     re-deriving with changed rules keeps them.
+//   - Idle gaps are the holes of at least Config.GapThreshold between two
+//     presence spans of the range; time before the first and after the last
+//     presence is never a gap. A fill override (created only by an explicit
+//     action in review) covers its intersection with an idle gap with an
+//     explicit block of reason FillReason. It never reaches presence time, so
+//     nothing is counted twice, and nothing here infers duration from context:
+//     the time exists only because the user asked for it. A gap that a fill,
+//     break or discard override covers is not offered again (Result.Gaps).
 package sessionizer
 
 import (
@@ -234,18 +243,24 @@ const (
 // The result is sorted by start time and never contains a block with
 // End <= Start. The inputs are not modified.
 func Derive(events []event.Event, ov []event.Override, cfg Config, rules resolver.Rules) []Block {
+	return DeriveDay(events, ov, cfg, rules).Blocks
+}
+
+// DeriveDay is Derive with the by-products of the overrides: the break time
+// and the idle gaps still open for filling. Derive is its Blocks.
+func DeriveDay(events []event.Event, ov []event.Override, cfg Config, rules resolver.Rules) Result {
 	cfg = cfg.withDefaults()
 	sorted := sortedEvents(events)
 	spans := presenceSpans(sorted, cfg)
 	if len(spans) == 0 {
-		return nil
+		return Result{}
 	}
 	steps, _ := contextTimeline(sorted)
 	blocks := attribute(spans, steps, rules, cfg)
 	blocks = mergeTouching(blocks)
 	blocks = resolveShortBlocks(blocks, cfg.MinBlock)
 	blocks = mergeTouching(blocks)
-	return applyOverrides(blocks, ov)
+	return applyOverrides(blocks, idleGaps(spans, personalRuns(sorted, cfg), cfg.GapThreshold), ov)
 }
 
 func sortedEvents(events []event.Event) []event.Event {
@@ -789,37 +804,241 @@ func mergeTarget(blocks []Block, i int) int {
 	return best
 }
 
-const overrideReason = "manual override"
+const (
+	overrideReason = "manual override"
+	// fillReason is user-facing display text of a filled idle gap.
+	fillReason = "manuell gefüllt"
+)
+
+// FillRule is the rule kind reported for a block created by filling an idle
+// gap in review.
+const FillRule resolver.RuleKind = "fill"
 
 // OverrideRule is the rule kind reported for a block created by a user
 // override.
 const OverrideRule resolver.RuleKind = "override"
 
-// applyOverrides cuts every override out of the blocks in input order (later
-// overrides win) and, unless it discards, covers the part of it that lies in
-// presence time with an explicit block.
-func applyOverrides(base []Block, ov []event.Override) []Block {
+// Interval is a stretch of time.
+type Interval struct{ Start, End time.Time }
+
+// Break is time the user marked as a break. Idle reports that it lies in an
+// idle gap (no presence) rather than in presence time; the two are never
+// merged into one break.
+type Break struct {
+	Start, End time.Time
+	Idle       bool
+}
+
+// Duration returns the break length.
+func (b Break) Duration() time.Duration { return b.End.Sub(b.Start) }
+
+// Result is a derived range: the blocks to book, the breaks (never booked)
+// and the idle gaps still offered for filling.
+type Result struct {
+	Blocks []Block
+	Breaks []Break
+	// Gaps are the holes of at least Config.GapThreshold between two presence
+	// spans, minus what a fill, break or discard override already covers.
+	// Time before the first and after the last presence is never a gap.
+	Gaps []Interval
+}
+
+// personalRuns returns the stretches spent in personal apps: runs of personal
+// presence samples, chained while they are at most cfg.GapThreshold apart and
+// not separated by a gap marker. Personal time is not counted and must never
+// be offered as idle time, so idleGaps subtracts it.
+func personalRuns(sorted []event.Event, cfg Config) []Interval {
+	var runs []Interval
+	open := false
+	var floor time.Time
+	for _, e := range sorted {
+		switch e.Kind {
+		case event.KindGap:
+			open = false
+			floor = e.At
+		case event.KindPresence:
+			idle := time.Duration(e.IdleSeconds) * time.Second
+			if idle >= cfg.IdleThreshold || cfg.appClass(e.App) != config.ClassPersonal {
+				continue
+			}
+			active := maxTime(e.At.Add(-idle), floor)
+			last := len(runs) - 1
+			if open && active.Sub(runs[last].End) <= cfg.GapThreshold {
+				runs[last].End = maxTime(runs[last].End, active)
+				continue
+			}
+			runs = append(runs, Interval{Start: active, End: active})
+			open = true
+		}
+	}
+	return runs
+}
+
+// idleGaps returns the holes of at least threshold between consecutive
+// presence spans, with personal stretches removed: a hole left after removing
+// them counts only when it is still at least threshold long.
+func idleGaps(spans []interval, personal []Interval, threshold time.Duration) []Interval {
+	var gaps []Interval
+	for i := 1; i < len(spans); i++ {
+		pieces := []Interval{{Start: spans[i-1].end, End: spans[i].start}}
+		for _, p := range personal {
+			var next []Interval
+			for _, g := range pieces {
+				if !g.Start.Before(p.End) || !g.End.After(p.Start) {
+					next = append(next, g)
+					continue
+				}
+				if g.Start.Before(p.Start) {
+					next = append(next, Interval{g.Start, p.Start})
+				}
+				if g.End.After(p.End) {
+					next = append(next, Interval{p.End, g.End})
+				}
+			}
+			pieces = next
+		}
+		for _, g := range pieces {
+			if g.End.After(g.Start) && g.End.Sub(g.Start) >= threshold {
+				gaps = append(gaps, g)
+			}
+		}
+	}
+	return gaps
+}
+
+// applyOverrides applies every override in input order (later overrides win).
+// Each one is cut out of the blocks and breaks first, then:
+//   - reassign covers the part in presence time with an explicit block;
+//   - fill covers the part in an idle gap with an explicit block of reason
+//     FillReason; it never reaches presence time, so nothing is counted twice;
+//   - break records the part in presence time and in idle gaps as break time;
+//   - discard only cuts.
+func applyOverrides(base []Block, gaps []Interval, ov []event.Override) Result {
 	current := base
+	var breaks []Break
 	for _, o := range ov {
 		if !o.End.After(o.Start) {
 			continue
 		}
+		// A fill acts on idle time only: it must not cut presence time.
+		touched := []Interval{{o.Start, o.End}}
+		if o.EffectiveKind() == event.OverrideFill {
+			touched = clipToGaps(gaps, o)
+		}
 		var next []Block
 		for _, b := range current {
-			next = append(next, cut(b, o.Start, o.End)...)
+			pieces := []Block{b}
+			for _, iv := range touched {
+				var rest []Block
+				for _, p := range pieces {
+					rest = append(rest, cut(p, iv.Start, iv.End)...)
+				}
+				pieces = rest
+			}
+			next = append(next, pieces...)
 		}
-		if !o.Discard {
+		for _, iv := range touched {
+			breaks = cutBreaks(breaks, iv.Start, iv.End)
+		}
+		switch o.EffectiveKind() {
+		case event.OverrideReassign:
 			for _, b := range base {
-				start, end := maxTime(b.Start, o.Start), minTime(b.End, o.End)
-				if end.After(start) {
+				if start, end := maxTime(b.Start, o.Start), minTime(b.End, o.End); end.After(start) {
 					next = append(next, Block{Start: start, End: end, Ticket: o.Ticket, Tier: resolver.TierExplicit, Reason: overrideReason, Rule: OverrideRule})
 				}
+			}
+		case event.OverrideFill:
+			for _, iv := range touched {
+				next = append(next, Block{Start: iv.Start, End: iv.End, Ticket: o.Ticket, Tier: resolver.TierExplicit, Reason: fillReason, Rule: FillRule})
+			}
+		case event.OverrideBreak:
+			for _, b := range base {
+				if start, end := maxTime(b.Start, o.Start), minTime(b.End, o.End); end.After(start) {
+					breaks = append(breaks, Break{Start: start, End: end})
+				}
+			}
+			for _, iv := range clipToGaps(gaps, o) {
+				breaks = append(breaks, Break{Start: iv.Start, End: iv.End, Idle: true})
 			}
 		}
 		current = next
 	}
 	sort.SliceStable(current, func(i, j int) bool { return current[i].Start.Before(current[j].Start) })
-	return mergeTouching(current)
+	return Result{Blocks: mergeTouching(current), Breaks: mergeBreaks(breaks), Gaps: openGaps(gaps, ov)}
+}
+
+// clipToGaps returns the parts of o that lie in an idle gap.
+func clipToGaps(gaps []Interval, o event.Override) []Interval {
+	var out []Interval
+	for _, g := range gaps {
+		if start, end := maxTime(g.Start, o.Start), minTime(g.End, o.End); end.After(start) {
+			out = append(out, Interval{start, end})
+		}
+	}
+	return out
+}
+
+// cutBreaks removes [start, end) from the breaks.
+func cutBreaks(breaks []Break, start, end time.Time) []Break {
+	var out []Break
+	for _, b := range breaks {
+		if !b.Start.Before(end) || !b.End.After(start) {
+			out = append(out, b)
+			continue
+		}
+		if b.Start.Before(start) {
+			out = append(out, Break{Start: b.Start, End: start, Idle: b.Idle})
+		}
+		if b.End.After(end) {
+			out = append(out, Break{Start: end, End: b.End, Idle: b.Idle})
+		}
+	}
+	return out
+}
+
+// mergeBreaks sorts the breaks and joins touching ones of the same kind.
+func mergeBreaks(breaks []Break) []Break {
+	sort.SliceStable(breaks, func(i, j int) bool { return breaks[i].Start.Before(breaks[j].Start) })
+	var out []Break
+	for _, b := range breaks {
+		if n := len(out); n > 0 && out[n-1].Idle == b.Idle && out[n-1].End.Equal(b.Start) {
+			out[n-1].End = b.End
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// openGaps returns the idle gaps minus the ranges of every fill, break and
+// discard override, so time that was filled, marked as a break or dismissed is
+// not offered again. A reassign never touches idle time and is ignored.
+func openGaps(gaps []Interval, ov []event.Override) []Interval {
+	var open []Interval
+	for _, g := range gaps {
+		pieces := []Interval{g}
+		for _, o := range ov {
+			if o.EffectiveKind() == event.OverrideReassign || !o.End.After(o.Start) {
+				continue
+			}
+			var next []Interval
+			for _, p := range pieces {
+				if !p.Start.Before(o.End) || !p.End.After(o.Start) {
+					next = append(next, p)
+					continue
+				}
+				if p.Start.Before(o.Start) {
+					next = append(next, Interval{p.Start, o.Start})
+				}
+				if p.End.After(o.End) {
+					next = append(next, Interval{o.End, p.End})
+				}
+			}
+			pieces = next
+		}
+		open = append(open, pieces...)
+	}
+	return open
 }
 
 // cut removes [start, end) from b and returns the remaining pieces.

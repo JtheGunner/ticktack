@@ -256,11 +256,38 @@ func (s *Store) Events(ctx context.Context, from, to time.Time) ([]event.Event, 
 
 // AddOverride records a user correction.
 func (s *Store) AddOverride(ctx context.Context, o event.Override) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO overrides (start, "end", ticket, discard) VALUES (?, ?, ?, ?)`,
-		o.Start.UTC().UnixNano(), o.End.UTC().UnixNano(), o.Ticket, o.Discard)
+	_, err := s.AddOverrideID(ctx, o)
+	return err
+}
+
+// AddOverrideID records a user correction and returns its id.
+func (s *Store) AddOverrideID(ctx context.Context, o event.Override) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO overrides (start, "end", ticket, discard, kind) VALUES (?, ?, ?, ?, ?)`,
+		o.Start.UTC().UnixNano(), o.End.UTC().UnixNano(), o.Ticket, o.Drops(), string(o.EffectiveKind()))
 	if err != nil {
-		return fmt.Errorf("add override: %w", err)
+		return 0, fmt.Errorf("add override: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("add override: %w", err)
+	}
+	return id, nil
+}
+
+// DeleteOverride removes one override. It is how a review session takes back
+// its own last correction; events are never touched.
+func (s *Store) DeleteOverride(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM overrides WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete override: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete override: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("delete override: no override with id %d", id)
 	}
 	return nil
 }
@@ -270,7 +297,7 @@ func (s *Store) AddOverride(ctx context.Context, o event.Override) error {
 // recent correction decides wherever overrides overlap.
 func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT start, "end", ticket, discard FROM overrides
+		`SELECT id, start, "end", ticket, kind FROM overrides
 		 WHERE start >= ? AND start < ? ORDER BY id`,
 		from.UTC().UnixNano(), to.UTC().UnixNano())
 	if err != nil {
@@ -281,11 +308,14 @@ func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Over
 	for rows.Next() {
 		var o event.Override
 		var start, end int64
-		if err := rows.Scan(&start, &end, &o.Ticket, &o.Discard); err != nil {
+		var kind string
+		if err := rows.Scan(&o.ID, &start, &end, &o.Ticket, &kind); err != nil {
 			return nil, fmt.Errorf("scan override: %w", err)
 		}
 		o.Start = time.Unix(0, start).UTC()
 		o.End = time.Unix(0, end).UTC()
+		o.Kind = event.OverrideKind(kind)
+		o.Discard = o.Drops()
 		out = append(out, o)
 	}
 	if err := rows.Err(); err != nil {

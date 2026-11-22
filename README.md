@@ -171,7 +171,27 @@ ticktack undo
 
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
-Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.
+Inside `ticktack review` the prompt accepts:
+
+| | Action | Effect |
+|:--|:--|:--|
+| ✅ | `c N` | Confirm block N. Idle gaps and breaks cannot be confirmed. |
+| ✅ | `y` | Confirm all blocks (all or nothing: if storing fails, none of them is confirmed). |
+| 🎫 | `t N TICKET` | Assign block N to a ticket. On an idle gap this fills the gap. |
+| 💡 | `u N K` | Take suggestion K for block N. |
+| 🧠 | `r` | Remember the last reassignment as a rule. |
+| ✂️ | `s N HH:MM [TICKET]` | Split block N. Without a ticket the second part keeps the ticket; on an override block (reassigned or filled) that does nothing, so it is refused. Without an answer to the ticket question (end of input, Ctrl-C) nothing is split. |
+| ☕ | `b N` | Mark block N or an idle gap as a break: not booked, shown as its own sum. |
+| 🗑️ | `d N` | Discard block N, or dismiss an idle gap. |
+| ↩️ | `z` | Undo the last action of this session. Repeat to go further back. |
+| ⚠️ | `a` | Acknowledge the daily cap. |
+| 🚪 | `q` | Quit. |
+
+**Idle gaps.** A hole of at least `gap_threshold` between two stretches of presence on the same day (a meeting without keyboard, say) shows up as an `idle gap` entry. Time before the first and after the last presence of the day is never offered, and neither is time in a `personal` app (see `[app_classes]`): it is not counted and a fill never covers it. You can fill the gap with a ticket (`t`; `s` fills only the part after the split time), mark it as a break (`b`) or discard it (`d`). A filled gap becomes an `explicit` block with the reason `manuell gefüllt`; it is the only way time without presence enters a day, and only through your action in review, so no duration is derived from context and `ticktack auto` never fills a gap. A gap that was filled, marked or discarded is not offered again. `ticktack explain` names a manual fill.
+
+**Breaks.** A break is stored separately from a discard, is never booked and is shown as its own sum (`Breaks: …`) in `review` and `today`, apart from the booked totals.
+
+**Undo.** `z` removes the override your session created last, together with what it added to the review log; with nothing left to undo it says so and changes nothing. Overrides of earlier sessions are not touched, and a learned rule written with `r` stays (remove it with `ticktack map rm`).
 
 ---
 
@@ -325,7 +345,7 @@ What the trust gate counts:
 | ✅ | Every item with a ticket is confirmed with the minutes it has now, on that calendar day or the next one (in your configured time zone). | The day counts. |
 | ⏭️ | An item is unconfirmed, or its minutes changed after you confirmed it. | The day does not count until you confirm it again in time. |
 | ⏭️ | The day was confirmed later with `ticktack review --day`. | Valid for booking, but the day does not count. |
-| ⏭️ | Unassigned time stays open, or you give it a ticket, split it or discard it. | No correction: the day still counts once its items are confirmed. |
+| ⏭️ | Unassigned time or an idle gap stays open, or you give it a ticket, split it, mark it as a break or discard it. | No correction: the day still counts once its items are confirmed. |
 | ⏭️ | `ticktack switch`. | No correction: it is information given in advance. |
 | ❌ | Time that already had a ticket is reassigned, discarded, marked as a break or split. | Correction: the streak ends at that day. |
 | ❌ | `ticktack map add`, `edit` or `rm`. | Correction on the day of the change: the streak ends there. |

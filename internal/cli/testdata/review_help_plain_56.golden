@@ -1,11 +1,11 @@
 ----------------------- Actions ------------------------
   c confirm   t assign   s split   d discard   b break
-  y confirm all   ? help   q quit
+  z undo   y confirm all   ? help   q quit
 
 ------------------------- Help -------------------------
   Assign
     t <block> <ticket>
-      Assign a block to a ticket
+      Assign or fill idle time
     u <block> <n>
       Take suggestion <n>
     r [repo]
@@ -19,9 +19,11 @@
     s <block> <time> [<ticket>]
       Split a block at a time
     b <block>
-      Mark a block as a break
+      Mark block or idle as break
     d <block>
       Discard a block
+    z
+      Undo last action
   Other
     a
       Acknowledge daily cap

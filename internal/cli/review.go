@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -232,6 +233,9 @@ func (r *reviewRun) show() {
 		r.println(line)
 	}
 	r.showItems()
+	if m := r.s.Day().BreakMinutes; m > 0 {
+		r.say(render.StatusInfo, msgReviewBreakTotal(m))
+	}
 	for _, e := range entries {
 		r.showSuggestions(e)
 	}
@@ -283,11 +287,17 @@ func (r *reviewRun) showLines(lines []string) {
 // entryRow returns the table cells of one entry. The block number is the same
 // 1-based index the actions accept.
 func (r *reviewRun) entryRow(e review.Entry) []string {
-	ticket := ticketLabel(e.Ticket)
+	ticket, tier, reason := ticketLabel(e.Ticket), colorTier(r.render, e.Tier), e.Reason
 	state := ""
 	switch {
 	case e.Kind == review.KindGap:
 		state = r.render.Colors.Warn(msgReviewStateNeedsTicket)
+	case e.Kind == review.KindIdle:
+		ticket, tier, reason = msgReviewNoTicket, "", msgReviewIdleReason
+		state = r.render.Colors.Warn(msgReviewStateIdle)
+	case e.Kind == review.KindBreak:
+		ticket, tier, reason = msgReviewNoTicket, "", msgReviewBreakReason
+		state = r.render.Colors.Dim(msgReviewStateBreak)
 	case e.Confirmed:
 		state = r.render.Colors.OK(msgReviewStateConfirmed)
 	}
@@ -296,8 +306,8 @@ func (r *reviewRun) entryRow(e review.Entry) []string {
 		e.Start.In(r.loc).Format("15:04") + "-" + e.End.In(r.loc).Format("15:04"),
 		formatMinutes(e.Minutes),
 		SanitizeForTerminal(ticket),
-		colorTier(r.render, e.Tier),
-		SanitizeForTerminal(e.Reason),
+		tier,
+		SanitizeForTerminal(reason),
 		state,
 	}
 }
@@ -378,6 +388,13 @@ func (r *reviewRun) execute(f []string) (refreshed bool, err error) {
 	case "r":
 		err := r.remember(args)
 		return err == nil, err
+	case "z":
+		if len(args) > 0 {
+			r.say(render.StatusWarn, msgReviewUsage(reviewUsage("z")))
+			return false, nil
+		}
+		err := r.undo()
+		return err == nil, err
 	case "c", "d", "b", "t", "s", "u":
 		return r.entryAction(cmd, args)
 	}
@@ -424,8 +441,30 @@ func (r *reviewRun) entryAction(cmd string, args []string) (bool, error) {
 		err = r.useSuggestion(n, args[1])
 	case "s":
 		err = r.split(n, args[1:])
+		if errors.Is(err, errSplitCancelled) {
+			r.say(render.StatusWarn, msgReviewSplitCancelled)
+			return false, nil
+		}
 	}
 	return err == nil, err
+}
+
+// undo takes back the last override this session created and reports what was
+// removed and what the review log now counts. With nothing to undo it says so
+// and changes nothing.
+func (r *reviewRun) undo() error {
+	o, err := r.s.UndoLast(r.ctx)
+	if errors.Is(err, review.ErrNothingToUndo) {
+		r.say(render.StatusInfo, msgReviewNothingToUndo)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	r.say(render.StatusOK, msgReviewUndone(
+		o.EffectiveKind(), SanitizeForTerminal(o.Ticket),
+		o.Start.In(r.loc).Format("15:04"), o.End.In(r.loc).Format("15:04"), r.s.Corrections()))
+	return nil
 }
 
 func (r *reviewRun) useSuggestion(n int, rawK string) error {
@@ -452,6 +491,10 @@ func (r *reviewRun) confirm(n int) error {
 	return nil
 }
 
+// errSplitCancelled reports a split abandoned because the ticket question got
+// no answer.
+var errSplitCancelled = errors.New("split cancelled")
+
 func (r *reviewRun) split(n int, rest []string) error {
 	// Validate the time before asking for the ticket.
 	if _, err := r.s.SplitAt(n, rest[0]); err != nil {
@@ -466,9 +509,14 @@ func (r *reviewRun) split(n int, rest []string) error {
 			current = msgUnassigned
 		}
 		r.printf(msgReviewSplitPrompt, SanitizeForTerminal(current))
-		if r.in.Scan() {
-			ticket = strings.TrimSpace(r.in.Text())
+		// No answer (end of input, or a read cancelled by the context) is not
+		// consent: the split is abandoned. The loop's next read reports the
+		// end of input or the cancellation.
+		if !r.in.Scan() {
+			r.println("")
+			return errSplitCancelled
 		}
+		ticket = strings.TrimSpace(r.in.Text())
 	}
 	if err := r.s.Split(r.ctx, n, rest[0], ticket); err != nil {
 		return err
