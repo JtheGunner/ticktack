@@ -43,6 +43,8 @@ const (
 	defaultMaxRetries = 3
 	maxRetryAfter     = 60 * time.Second
 	issuesPageSize    = 100
+	// maxResponseBytes bounds how much of one response body is read.
+	maxResponseBytes = 8 << 20
 )
 
 // WorkItemType is a work item type configured for a project.
@@ -275,7 +277,7 @@ func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string
 	if err != nil {
 		return "", false, err
 	}
-	var items []struct {
+	type workItem struct {
 		ID     string `json:"id"`
 		Text   string `json:"text"`
 		Author struct {
@@ -283,16 +285,19 @@ func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string
 		} `json:"author"`
 	}
 	path := "/api/issues/" + url.PathEscape(issue) + "/timeTracking/workItems"
-	q := url.Values{"fields": {"id,text,author(login),duration(minutes),date"}}
-	if err := c.do(ctx, http.MethodGet, path, q, nil, &items); err != nil {
+	q := url.Values{"fields": {"id,text,author(login)"}}
+	var found string
+	err = getAllPages(ctx, c, path, q, func(it workItem) string { return it.ID }, func(it workItem) bool {
+		if it.Author.Login == me && strings.Contains(it.Text, marker) {
+			found = issue + "/" + it.ID
+			return true
+		}
+		return false
+	})
+	if err != nil {
 		return "", false, err
 	}
-	for _, it := range items {
-		if it.Author.Login == me && strings.Contains(it.Text, marker) {
-			return issue + "/" + it.ID, true, nil
-		}
-	}
-	return "", false, nil
+	return found, found != "", nil
 }
 
 // WorkItemTypes lists the work item types of a project (by project key).
@@ -460,13 +465,14 @@ func (c *Client) once(ctx context.Context, method, target string, payload []byte
 		return 0, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	body := io.LimitReader(resp.Body, maxResponseBytes)
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		if out == nil {
 			return resp.StatusCode, 0, nil
 		}
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		if err := json.NewDecoder(body).Decode(out); err != nil {
 			return resp.StatusCode, 0, fmt.Errorf("youtrack: decode response: %w", err)
 		}
 		return resp.StatusCode, 0, nil

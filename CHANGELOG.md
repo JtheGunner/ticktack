@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The marker search on an issue's work items and the tag lookup read every page of YouTrack's answer (`$top`/`$skip`) instead of only the first. Beyond the first page the search used to report "not found" and booked duplicates. Responses are read up to 8 MiB.
 - The database and the agent log file are created with mode `0600` (an existing database is narrowed to `0600`); they used to follow the umask (`0644`) inside a `0700` directory.
 - `ticktack version` of a `go install` build reports the module version or `dev-<revision>` instead of `dev`.
 - The generated config now documents `repo_roots` and `[default_issue]`.
