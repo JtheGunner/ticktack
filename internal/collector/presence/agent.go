@@ -2,6 +2,7 @@ package presence
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -9,6 +10,10 @@ import (
 
 // DefaultInterval is the sampling period.
 const DefaultInterval = 30 * time.Second
+
+// DefaultSampleTimeout bounds one sampler call. A subprocess that hangs
+// longer costs one sample, not the agent.
+const DefaultSampleTimeout = 5 * time.Second
 
 // gapFactor is the multiple of Interval above which the time between two
 // ticks counts as a gap (typically the machine slept).
@@ -24,6 +29,8 @@ type Agent struct {
 	Sampler  Sampler
 	Sink     Appender
 	Interval time.Duration
+	// SampleTimeout bounds one Sampler call; zero means DefaultSampleTimeout.
+	SampleTimeout time.Duration
 	// Now is the injected clock.
 	Now func() time.Time
 	// Paused reports whether tracking is paused; nothing is stored then.
@@ -80,9 +87,8 @@ func (a *Agent) Tick(ctx context.Context) {
 			IdleSeconds: int(now.Sub(previous).Round(time.Second) / time.Second),
 		})
 	}
-	idle, app, err := a.Sampler.Sample(ctx)
+	idle, app, err := a.sample(ctx)
 	if err != nil {
-		a.logf("presence sample skipped: %v", err)
 		return
 	}
 	a.append(ctx, event.Event{
@@ -92,6 +98,29 @@ func (a *Agent) Tick(ctx context.Context) {
 		App:         app,
 		IdleSeconds: int(idle / time.Second),
 	})
+}
+
+// sample runs one sampler call under SampleTimeout and logs its failure. An
+// expired timeout is logged as such, so a hanging subprocess is told apart
+// from a failing one.
+func (a *Agent) sample(ctx context.Context) (time.Duration, string, error) {
+	timeout := a.SampleTimeout
+	if timeout <= 0 {
+		timeout = DefaultSampleTimeout
+	}
+	sampleCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	idle, app, err := a.Sampler.Sample(sampleCtx)
+	if err == nil {
+		return idle, app, nil
+	}
+	if errors.Is(sampleCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		a.logf("presence sample timed out after %s", timeout)
+		return 0, "", err
+	}
+	a.logf("presence sample skipped: %v", err)
+	return 0, "", err
 }
 
 func (a *Agent) append(ctx context.Context, e event.Event) {
