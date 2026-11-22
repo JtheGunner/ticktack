@@ -43,6 +43,11 @@ type syncDeps struct {
 	// log or return the token.
 	NewSink func(cfg config.Config, configPath string) (sink.TimeSink, error)
 	Now     func() time.Time
+	// AcquireLock takes the lock that admits one booking run at a time and
+	// returns the function that releases it. It fails with
+	// ErrBookingRunActive while another run holds the lock. Nil runs without
+	// a lock.
+	AcquireLock func() (release func(), err error)
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
 	// In supplies the answer to the question before standard tasks are
@@ -55,11 +60,12 @@ type syncDeps struct {
 
 func defaultSyncDeps() syncDeps {
 	return syncDeps{
-		LoadConfig: loadConfigFile,
-		OpenStore:  openLedgerStore,
-		NewSink:    newYouTrackSink,
-		Now:        func() time.Time { return time.Now().Round(0) },
-		RenderFor:  rendererFor,
+		LoadConfig:  loadConfigFile,
+		OpenStore:   openLedgerStore,
+		NewSink:     newYouTrackSink,
+		Now:         func() time.Time { return time.Now().Round(0) },
+		AcquireLock: acquireBookingLock,
+		RenderFor:   rendererFor,
 	}
 }
 
@@ -150,7 +156,7 @@ only booked after the cap warning was acknowledged in review.
 
 A work item booked earlier is deleted when the day no longer has time for its
 ticket, for example after the block was reassigned or discarded in review.
-"ticktack undo" books it again.`,
+"ticktack undo" books it again.` + msgBookingLockHelpDryRun,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSync(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
@@ -162,6 +168,12 @@ ticket, for example after the block was reassigned or discarded in review.
 }
 
 func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, dryRun bool) error {
+	// The lock comes first: nothing read below may change under another run.
+	release, err := deps.lockBookingRun(dryRun)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err
