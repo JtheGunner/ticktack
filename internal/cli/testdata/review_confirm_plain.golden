@@ -9,8 +9,8 @@
   ABC-1     1h  explicit 1h
 
 ---------------------------------- Actions -----------------------------------
-  c confirm   t assign   s split   d discard   b break   y confirm all
-  ? help   q quit
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
 review>   Review for 2026-01-05
 
   #  Time         Length  Ticket  Tier      Reason  State
@@ -22,8 +22,8 @@ review>   Review for 2026-01-05
   ABC-1     1h  explicit 1h
 
 ---------------------------------- Actions -----------------------------------
-  c confirm   t assign   s split   d discard   b break   y confirm all
-  ? help   q quit
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
   +  Confirmed ABC-1.
 review>   x  Error: no such entry: 7
 review> 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/suggest"
@@ -30,6 +31,13 @@ const (
 	msgReviewSuggestionNeedsConfirm = "A suggestion is only a proposal: confirm the entry (c <block>) to release it for booking."
 	msgReviewStateConfirmed         = "confirmed"
 	msgReviewStateNeedsTicket       = "needs ticket"
+	msgReviewStateIdle              = "idle gap"
+	msgReviewStateBreak             = "break"
+	msgReviewNoTicket               = "-"
+	msgReviewIdleReason             = "no activity: assign a ticket (t), break (b) or discard (d)"
+	msgReviewBreakReason            = "marked as break, never booked"
+	msgReviewSplitCancelled         = "Split cancelled: no answer to the ticket question, nothing was changed."
+	msgReviewNothingToUndo          = "Nothing to undo: this session has not changed anything (or everything is undone already)."
 	msgColLength                    = "Length"
 	msgColState                     = "State"
 	msgReviewCapBlocked             = "Sync is blocked by the daily cap until you acknowledge it (a)."
@@ -69,7 +77,7 @@ type reviewCommandGroup struct {
 // reviewHelpGroups is the content of the review help, in display order.
 var reviewHelpGroups = []reviewCommandGroup{
 	{Name: "Assign", Commands: []reviewCommand{
-		{Key: "t", Args: "<block> <ticket>", Verb: "assign", Description: "Assign a block to a ticket", Example: "t 3 ABC-12"},
+		{Key: "t", Args: "<block> <ticket>", Verb: "assign", Description: "Assign or fill idle time", Example: "t 3 ABC-12"},
 		{Key: "u", Args: "<block> <n>", Description: "Take suggestion <n>", Example: "u 3 2"},
 		{Key: "r", Args: "[repo]", Description: "Remember last assignment", Example: "r"},
 	}},
@@ -79,8 +87,9 @@ var reviewHelpGroups = []reviewCommandGroup{
 	}},
 	{Name: "Adjust", Commands: []reviewCommand{
 		{Key: "s", Args: "<block> <time> [<ticket>]", Verb: "split", Description: "Split a block at a time", Example: "s 3 09:30 ABC-12"},
-		{Key: "b", Args: "<block>", Verb: "break", Description: "Mark a block as a break", Example: "b 3"},
+		{Key: "b", Args: "<block>", Verb: "break", Description: "Mark block or idle as break", Example: "b 3"},
 		{Key: "d", Args: "<block>", Verb: "discard", Description: "Discard a block", Example: "d 3"},
+		{Key: "z", Verb: "undo", Description: "Undo last action", Example: "z"},
 	}},
 	{Name: "Other", Commands: []reviewCommand{
 		{Key: "a", Description: "Acknowledge daily cap", Example: "a"},
@@ -90,7 +99,7 @@ var reviewHelpGroups = []reviewCommandGroup{
 }
 
 // reviewKeyBarKeys are the commands of the key bar, in display order.
-var reviewKeyBarKeys = []string{"c", "t", "s", "d", "b", "y", "?", "q"}
+var reviewKeyBarKeys = []string{"c", "t", "s", "d", "b", "z", "y", "?", "q"}
 
 // reviewPlaceholders explains every placeholder the help uses.
 var reviewPlaceholders = []struct{ Name, Meaning string }{
@@ -167,8 +176,35 @@ func msgReviewCapWarning(w review.CapWarning) string {
 }
 
 func msgReviewSummary(s review.Summary) string {
-	return fmt.Sprintf("Summary: %d confirmed, %d discarded, %d unconfirmed, %d unassigned.",
+	text := fmt.Sprintf("Summary: %d confirmed, %d discarded, %d unconfirmed, %d unassigned",
 		s.Confirmed, s.Discarded, s.Unconfirmed, s.Unassigned)
+	if s.BreakMinutes > 0 {
+		text += fmt.Sprintf(", %s of breaks (not booked)", formatMinutes(s.BreakMinutes))
+	}
+	return text + "."
+}
+
+// msgReviewBreakTotal is the day's own break sum, kept apart from the booked
+// totals.
+func msgReviewBreakTotal(minutes int) string {
+	return fmt.Sprintf("Breaks: %s (never booked, not part of the totals).", formatMinutes(minutes))
+}
+
+// msgReviewUndone reports an undone override; corrections is what the review
+// log counts for the session afterwards.
+func msgReviewUndone(kind event.OverrideKind, ticket, from, to string, corrections int) string {
+	var what string
+	switch kind {
+	case event.OverrideFill:
+		what = "fill of " + from + "-" + to + " with " + ticket
+	case event.OverrideBreak:
+		what = "break " + from + "-" + to
+	case event.OverrideDiscard:
+		what = "discard of " + from + "-" + to
+	default:
+		what = "assignment of " + from + "-" + to + " to " + ticket
+	}
+	return fmt.Sprintf("Undid the last action: %s. The review log counts %d correction(s) for this session.", what, corrections)
 }
 
 func msgReviewHeading(day string) string { return "Review for " + day }

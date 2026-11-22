@@ -144,6 +144,9 @@ func TestEventsAreImmutable(t *testing.T) {
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
 		"LedgerRowsForDate": true, "RecordDeletion": true,
+		// Overrides are corrections in their own table; a review session takes
+		// its own last one back.
+		"AddOverrideID": true, "DeleteOverride": true,
 		// Review state (confirmations and cap acknowledgements) lives in its
 		// own tables and never touches events.
 		"Confirm": true, "Confirmations": true,

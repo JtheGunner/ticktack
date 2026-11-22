@@ -13,8 +13,8 @@
      2) DEF-2  second
 
 ------------------------------ Actions -------------------------------
-  c confirm   t assign   s split   d discard   b break   y confirm all
-  ? help   q quit
+  c confirm   t assign   s split   d discard   b break   z undo
+  y confirm all   ? help   q quit
 review> 
   i  Summary: 0 confirmed, 0 discarded, 0 unconfirmed, 1 unassigned.
   i  Nothing confirmed yet: `ticktack sync` will book nothing.
