@@ -12,8 +12,8 @@
     "Start": "2026-03-02T10:20:00Z",
     "End": "2026-03-02T11:19:59Z",
     "Ticket": "APP-1",
-    "Tier": "rule",
-    "Reason": "repo rule for /work/example-app",
+    "Tier": "suggested",
+    "Reason": "context unconfirmed for 2h20m",
     "Repo": "/work/example-app",
     "Branch": "main"
   }

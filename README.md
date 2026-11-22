@@ -63,8 +63,10 @@ Each block carries a discrete confidence tier:
 | `explicit`  | The ticket is named outright: pinned with `ticktack switch`, or found in the branch name. |
 | `rule`      | A repository rule from your config (`[[rules]]`).                        |
 | `learned`   | A rule taught during review or managed with `ticktack map`.              |
-| `suggested` | A proposal from your assigned, in-progress YouTrack issues. Needs your confirmation. |
+| `suggested` | A proposal that needs your confirmation: context that was not confirmed for longer than `context_max_age`, or one of your assigned, in-progress YouTrack issues. |
 | `unknown`   | No attribution. Never booked until you assign it.                        |
+
+Context loses certainty with age. A branch seen at 08:00 does not vouch for the whole day: once it has gone unconfirmed for `context_max_age` (default two hours), the time keeps its ticket but drops to `suggested` with the reason `context unconfirmed for <age>`, so you check it in review and auto mode does not book it. Any context event on the same repository and branch confirms it again: a shell prompt, a checkout, a commit, a title hint. A pin is exempt on the day you set it; on the following days it still applies, but only as `suggested`. `ticktack explain` names the age and the last confirmation.
 
 ---
 
@@ -145,6 +147,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
 | `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
 | `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
+| `context_max_age`    | `"2h0m0s"`             | Context not confirmed for this long is only `suggested`. A pin is exempt on the day it was set. `"0"` turns the limit off. |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this. Must be whole minutes; `"1m"` books exact minutes. |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
 | `daily_cap_enabled`  | `true`                 | `false` turns the daily cap off: no warning, and neither `sync` nor `auto` is blocked by it. |

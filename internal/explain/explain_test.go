@@ -186,3 +186,76 @@ func TestBlockMergedFromDifferentRulesListsSignals(t *testing.T) {
 		t.Errorf("merged rules = %v, %v", ex.Merged[0].Decision.Rule, ex.Merged[1].Decision.Rule)
 	}
 }
+
+func TestBlockNamesTheAgeOfStaleContext(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 2 * time.Hour
+	shell := func(at time.Time) event.Event {
+		return event.Event{At: at, Kind: event.KindContext, Source: "shell", Repo: "/x", Branch: "ABC-2-fix"}
+	}
+	pin := event.Event{At: t0.Add(-10 * time.Hour), Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}
+	tests := []struct {
+		name       string
+		events     []event.Event
+		block      int
+		wantStale  bool
+		wantAge    time.Duration
+		wantPinned bool
+		wantRule   resolver.RuleKind
+		wantEvent  time.Time
+	}{
+		{"below the limit", append([]event.Event{shell(t0)}, presenceRun(t0, 150)...), 0, false, 0, false, resolver.RuleBranchTicket, t0},
+		{"above the limit", append([]event.Event{shell(t0)}, presenceRun(t0, 150)...), 1, true, 2 * time.Hour, false, resolver.RuleBranchTicket, t0},
+		{
+			"carried across midnight", append([]event.Event{shell(t0.Add(-15 * time.Hour))}, presenceRun(t0, 30)...),
+			0, true, 15 * time.Hour, false, resolver.RuleBranchTicket, t0.Add(-15 * time.Hour),
+		},
+		{"pin of an earlier day", append([]event.Event{pin}, presenceRun(t0, 30)...), 0, true, 10 * time.Hour, true, sessionizer.ManualRule, pin.At},
+		{
+			"pin of the same day", append([]event.Event{{At: t0, Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}}, presenceRun(t0, 300)...),
+			0, false, 0, false, sessionizer.ManualRule, t0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := sessionizer.Derive(tc.events, nil, cfg, resolver.Rules{})
+			if tc.block >= len(blocks) {
+				t.Fatalf("blocks = %+v", blocks)
+			}
+			ex := Block(Input{Block: blocks[tc.block], Events: tc.events, Config: cfg})
+			if ex.Source != SourceContext || ex.Decision.Rule != tc.wantRule || !ex.Event.At.Equal(tc.wantEvent) {
+				t.Fatalf("explanation = %+v", ex)
+			}
+			if ex.Stale != tc.wantStale || ex.Age != tc.wantAge || ex.Pinned != tc.wantPinned {
+				t.Errorf("stale = %v, age = %v, pinned = %v", ex.Stale, ex.Age, ex.Pinned)
+			}
+			if !tc.wantStale {
+				return
+			}
+			if !ex.ConfirmedAt.Equal(tc.wantEvent) || ex.MaxAge != 2*time.Hour {
+				t.Errorf("confirmed at %v, limit %v", ex.ConfirmedAt, ex.MaxAge)
+			}
+			if blocks[tc.block].Reason != sessionizer.StaleReason(ex.Age) {
+				t.Errorf("block reason %q does not name the age %v", blocks[tc.block].Reason, ex.Age)
+			}
+		})
+	}
+}
+
+// The age is counted from the last confirmation, not from the event that
+// first set the context.
+func TestBlockCountsAgeFromTheLastConfirmation(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	ctx := event.Event{At: t0, Kind: event.KindContext, Source: "shell", Repo: "/x", Branch: "ABC-2-fix"}
+	again := ctx
+	again.At = t0.Add(30 * time.Minute)
+	events := append([]event.Event{ctx, again}, presenceRun(t0, 200)...)
+	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[1], Events: events, Config: cfg})
+	if !ex.Stale || !ex.ConfirmedAt.Equal(again.At) || ex.Age != 2*time.Hour {
+		t.Fatalf("explanation = %+v", ex)
+	}
+}

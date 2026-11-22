@@ -77,7 +77,19 @@ type Explanation struct {
 	// Override is the deciding override (SourceOverride only).
 	Override event.Override
 	// Signal is the repo, branch and ticket the resolver saw.
-	Signal   resolver.ContextSignal
+	Signal resolver.ContextSignal
+	// Stale reports that the deciding context was unconfirmed for too long
+	// (SourceContext only): the block keeps the ticket of Decision, but only
+	// as a suggestion.
+	Stale bool
+	// Age is how long the context was unconfirmed at the start of the block
+	// and ConfirmedAt when it was last confirmed (both set when Stale).
+	Age         time.Duration
+	ConfirmedAt time.Time
+	// Pinned reports that the stale context is a manual pin from an earlier
+	// day; otherwise it outlived MaxAge.
+	Pinned   bool
+	MaxAge   time.Duration
 	Presence Presence
 }
 
@@ -104,6 +116,16 @@ func Block(in Input) Explanation {
 		return ex
 	}
 	cd, ok := matchingStep(steps, in.Block)
+	if !ok {
+		cd, ok = staleStep(steps, in)
+		if ok {
+			ex.Stale = true
+			ex.Age = in.Block.Start.Sub(cd.ConfirmedAt)
+			ex.ConfirmedAt = cd.ConfirmedAt
+			ex.Pinned = cd.ManualTicket != ""
+			ex.MaxAge = in.Config.Normalized().ContextMaxAge
+		}
+	}
 	if !ok {
 		ex.Source = SourceMerged
 		ex.Merged = distinctSteps(steps)
@@ -151,6 +173,24 @@ func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (ses
 	for _, s := range steps {
 		a := s.Decision.Attribution
 		if a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+			return s, true
+		}
+	}
+	return sessionizer.ContextDecision{}, false
+}
+
+// staleStep returns the first step whose context had gone stale by the start
+// of the block and whose stale attribution (see sessionizer.StaleAttribution)
+// equals the block's own.
+func staleStep(steps []sessionizer.ContextDecision, in Input) (sessionizer.ContextDecision, bool) {
+	b := in.Block
+	for _, s := range steps {
+		staleFrom, ok := in.Config.StaleFrom(s)
+		if !ok || b.Start.Before(staleFrom) {
+			continue
+		}
+		a := sessionizer.StaleAttribution(s.Decision.Attribution, b.Start.Sub(s.ConfirmedAt))
+		if a != s.Decision.Attribution && a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
 			return s, true
 		}
 	}

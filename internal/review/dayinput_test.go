@@ -187,3 +187,66 @@ func TestLoadDayInputKeepsPresenceInsideTheDay(t *testing.T) {
 		t.Errorf("blocks = %+v", in.Blocks)
 	}
 }
+
+// The age limit applies to the context a day starts with, not only to
+// context of the day itself.
+func TestLoadDayAppliesContextAgeLimitToCarriedContext(t *testing.T) {
+	yesterday := func(hour int) time.Time { return time.Date(2026, 1, 4, hour, 0, 0, 0, time.UTC) }
+	tests := []struct {
+		name   string
+		maxAge time.Duration
+		events []event.Event
+		ticket string
+		tier   resolver.Tier
+		reason string
+	}{
+		{
+			name: "branch of the previous day is a suggestion", maxAge: 2 * time.Hour,
+			events: []event.Event{shellContext(yesterday(17), "/work/api", "ABC-7-fix")},
+			ticket: "ABC-7", tier: resolver.TierSuggested, reason: "context unconfirmed for 16h",
+		},
+		{
+			name: "pin of the previous day is a suggestion", maxAge: 2 * time.Hour,
+			events: []event.Event{manualSwitch(yesterday(23), "PIN-1")},
+			ticket: "PIN-1", tier: resolver.TierSuggested, reason: "context unconfirmed for 10h",
+		},
+		{
+			name: "branch confirmed within the limit stays explicit", maxAge: 2 * time.Hour,
+			events: []event.Event{shellContext(dayStart.Add(-time.Hour), "/work/api", "ABC-7-fix")},
+			ticket: "ABC-7", tier: resolver.TierExplicit,
+		},
+		{
+			name: "a longer limit keeps the branch of the previous day", maxAge: 24 * time.Hour,
+			events: []event.Event{shellContext(yesterday(17), "/work/api", "ABC-7-fix")},
+			ticket: "ABC-7", tier: resolver.TierExplicit,
+		},
+		{
+			name: "limit switched off", maxAge: 0,
+			events: []event.Event{manualSwitch(yesterday(23), "PIN-1")},
+			ticket: "PIN-1", tier: resolver.TierExplicit, reason: "manual switch to PIN-1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			appendEvents(t, st, tt.events...)
+			seed(t, st, dayStart, 30, "")
+			cfg := testConfig()
+			cfg.ContextMaxAge = tt.maxAge
+			d, err := LoadDay(context.Background(), st, cfg, testDay)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(d.Blocks) != 1 {
+				t.Fatalf("blocks = %+v", d.Blocks)
+			}
+			b := d.Blocks[0]
+			if b.Ticket != tt.ticket || b.Tier != tt.tier {
+				t.Errorf("block = %+v", b)
+			}
+			if tt.reason != "" && b.Reason != tt.reason {
+				t.Errorf("reason = %q, want %q", b.Reason, tt.reason)
+			}
+		})
+	}
+}

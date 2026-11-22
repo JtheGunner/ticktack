@@ -45,7 +45,9 @@ func TestTodayStatusAndReviewAgreeOnPinFromThePreviousEvening(t *testing.T) {
 		t.Fatal(err)
 	}
 	today := out.String()
-	for _, want := range []string{"08:00-08:40", "PIN-1", "manual switch to PIN-1"} {
+	// The pin is from the day before: it still decides the ticket, but only
+	// as a suggestion.
+	for _, want := range []string{"08:00-08:40", "PIN-1", "suggested", "context unconfirmed for 9h"} {
 		if !strings.Contains(today, want) {
 			t.Errorf("today output lacks %q:\n%s", want, today)
 		}
@@ -89,7 +91,8 @@ func TestTodayUsesBranchOfPreviousDayBeforeTheFirstPrompt(t *testing.T) {
 	if err := runToday(context.Background(), deps, ""); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"08:00-08:40", "ABC-7", "explicit"} {
+	// The branch was last seen 15 hours ago, beyond context_max_age.
+	for _, want := range []string{"08:00-08:40", "ABC-7", "suggested", "context unconfirmed for 15h"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("today output lacks %q:\n%s", want, out)
 		}
@@ -260,6 +263,75 @@ func TestExplainDatesDecidingEventFromBeforeTheDay(t *testing.T) {
 				t.Errorf("explain dates a time of the explained day:\n%s", got)
 			}
 		})
+	}
+}
+
+func TestExplainNamesTheAgeOfUnconfirmedContext(t *testing.T) {
+	morning := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		context event.Event
+		minutes int
+		block   string
+		want    []string
+	}{
+		{
+			name:    "branch older than the limit within the day",
+			context: shellContext(morning, "/work/api", "ABC-7-fix"),
+			minutes: 150,
+			block:   "2",
+			want: []string{
+				"suggested",
+				"context event from shell at 08:00:00 (",
+				"ticket ABC-7 found in the branch name",
+				"context unconfirmed for 2h: last confirmed at 08:00:00, limit 2h (context_max_age)",
+			},
+		},
+		{
+			name:    "branch carried from the day before",
+			context: shellContext(time.Date(2026, 3, 1, 17, 0, 0, 0, time.UTC), "/work/api", "ABC-7-fix"),
+			minutes: 30,
+			block:   "1",
+			want:    []string{"suggested", "context unconfirmed for 15h: last confirmed at 2026-03-01 17:00:00, limit 2h (context_max_age)"},
+		},
+		{
+			name: "pin of the previous evening",
+			context: event.Event{
+				At: time.Date(2026, 3, 1, 23, 0, 0, 0, time.UTC), Source: sessionizer.ManualSource, Kind: event.KindContext, Ticket: "PIN-1",
+			},
+			minutes: 30,
+			block:   "1",
+			want: []string{
+				"suggested",
+				"manual switch to PIN-1",
+				"context unconfirmed for 9h: the manual switch was set at 2026-03-01 23:00:00 and is exempt from context_max_age only on that day",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, st, out := newDailyEnv(t, "")
+			mustAppend(t, st, tt.context)
+			seedPresence(t, st, morning, tt.minutes)
+
+			got := runExplainOut(t, deps, out, tt.block)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("explain lacks %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestExplainDoesNotMentionAgeForConfirmedContext(t *testing.T) {
+	deps, st, out := newDailyEnv(t, "")
+	morning := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	mustAppend(t, st, shellContext(morning, "/work/api", "ABC-7-fix"))
+	seedPresence(t, st, morning, 150)
+
+	if got := runExplainOut(t, deps, out, "1"); strings.Contains(got, "unconfirmed") {
+		t.Errorf("explain names an age for confirmed context:\n%s", got)
 	}
 }
 

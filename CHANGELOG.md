@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New setting `context_max_age` (default `"2h"`, `"0"` turns it off).
+
+### Changed
+
+- Context no longer vouches for time without limit. Time under a repository and branch that were not confirmed for longer than `context_max_age` keeps its ticket but is only tier `suggested`, with the reason `context unconfirmed for <age>`: confirm it in `ticktack review`; `ticktack auto` does not book it. A shell prompt, checkout, commit or title hint on the same repository and branch confirms the context again. This also applies to the branch a day starts with from the day before.
+- A pin (`ticktack switch`) is exempt from that limit on the day it was set. On the following days it still decides the ticket, but only as `suggested`, so a forgotten pin no longer books as `explicit` for days.
+- `ticktack explain` names the age of the context and its last confirmation for such a block.
+
 ### Fixed
 
 - `ticktack sync` and `ticktack auto` no longer leave time booked on a ticket the day has no time for any more. A work item booked earlier is deleted when its block was reassigned, discarded or rounded to zero; `--dry-run` lists it as `dry-run-would-delete` and `ticktack undo` books it again. A booking whose item still exists but waits for a new confirmation is left as it is.
