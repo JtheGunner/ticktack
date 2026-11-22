@@ -6,6 +6,11 @@
 // The functions here locate boundaries by walking the zone's transitions
 // instead, so the result is the first instant of the day in every zone. They
 // are pure: no I/O and no clock reads.
+//
+// Dates are cloud.google.com/go/civil.Date throughout ticktack. Decision: the
+// dependency stays. Only the civil subpackage is compiled into the binary, the
+// shared interfaces use the type, and a home-grown date type would add risk
+// exactly at the date boundaries this package exists to get right.
 package localday
 
 import (

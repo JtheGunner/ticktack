@@ -425,6 +425,16 @@ func xdgBaseOf(file func() (string, error)) (string, error) {
 	return filepath.Dir(filepath.Dir(abs)), nil
 }
 
+// ensureOwnerOnlyFile creates path with mode 0600 when it is missing and
+// leaves the content of an existing file alone.
+func ensureOwnerOnlyFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
 func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error {
 	binary, err := r.deps.Binary()
 	if err != nil {
@@ -436,6 +446,11 @@ func (r *initRun) installAgent(ctx context.Context, plist string, uid int) error
 	}
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return fmt.Errorf("create log directory: %w", err)
+	}
+	// launchd creates a missing StandardOutPath file with mode 0644. Creating
+	// it first keeps the log owner-only; launchd appends to an existing file.
+	if err := ensureOwnerOnlyFile(logPath); err != nil {
+		return fmt.Errorf("create log file: %w", err)
 	}
 	params := launchd.Params{Binary: binary, LogPath: logPath}
 	// launchd does not inherit the shell environment. Pinning the XDG base

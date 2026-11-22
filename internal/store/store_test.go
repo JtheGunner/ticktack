@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,6 +21,36 @@ func openTemp(t *testing.T) (*Store, string) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s, path
+}
+
+func TestOpenCreatesDatabaseWithOwnerOnlyMode(t *testing.T) {
+	_, path := openTemp(t)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("new database mode = %v, want 0600", got)
+	}
+}
+
+func TestOpenNarrowsExistingDatabaseMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ticktack.db")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("existing database mode = %v, want 0600", got)
+	}
 }
 
 var base = time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)

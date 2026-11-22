@@ -10,6 +10,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -41,6 +42,9 @@ type dbtx interface {
 // Open opens (creating if needed) the database at path and applies all
 // pending migrations.
 func Open(path string) (*Store, error) {
+	if err := restrictFile(path); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -52,6 +56,22 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db, root: db}, nil
+}
+
+// restrictFile creates the database file with mode 0600 when it is missing and
+// narrows an existing one to 0600. The driver would create it with the
+// process umask (usually 0644); SQLite gives its journal file the mode of the
+// database file, so the side files inherit the restriction.
+func restrictFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("create database file: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("restrict database file: %w", err)
+	}
+	return f.Close()
 }
 
 func migrate(db *sql.DB) error {
