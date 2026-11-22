@@ -69,7 +69,11 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	cfg, cfgOK := loadAgentConfig(logger.Printf)
 	var jobs []backgroundJob
 	if cfgOK {
-		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, interval, logger.Printf); collector != nil {
+		titleStatusPath, statusErr := paths.TitleStatusPath()
+		if statusErr != nil {
+			logger.Printf("title probe status disabled: %v", statusErr)
+		}
+		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, titleStatusPath, interval, logger.Printf); collector != nil {
 			jobs = append(jobs, func(ctx context.Context) { _ = collector.Run(ctx) })
 		}
 		home, homeErr := os.UserHomeDir()
@@ -142,11 +146,18 @@ func loadAgentConfig(logf func(format string, args ...any)) (config.Config, bool
 // newTitleCollector builds the window-title collector, or returns nil while
 // the feature is disabled. It honours the same pause flag as the presence
 // agent.
-func newTitleCollector(cfg config.Config, source title.Source, sink title.Appender, pausePath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
+// The collector records the outcome of each title read in the status file at
+// statusPath, which `ticktack doctor` reads; an empty path records nothing.
+func newTitleCollector(cfg config.Config, source title.Source, sink title.Appender, pausePath, statusPath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
 	if !cfg.TitleHint.Enabled {
 		return nil
 	}
+	var status title.StatusRecorder
+	if statusPath != "" {
+		status = &title.StatusFile{Path: statusPath}
+	}
 	return &title.Collector{
+		Status:        status,
 		Source:        source,
 		Sink:          sink,
 		Projects:      cfg.TitleHint.Projects,

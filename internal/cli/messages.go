@@ -55,6 +55,8 @@ const (
 
 	msgDoctorSummaryOK     = "All %d checks passed."
 	msgDoctorSummaryFailed = "%d of %d checks failed."
+	// msgDoctorSummaryWarned closes a report without failures but with warnings.
+	msgDoctorSummaryWarned = "No check failed; %d of %d with a warning."
 	msgDoctorSummaryTitle  = "Summary"
 
 	msgNoColorUsage = "disable coloured output; NO_COLOR and TERM=dumb are honoured too"

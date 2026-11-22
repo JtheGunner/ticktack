@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,16 +154,37 @@ func TestInitIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestInitCreatesLogFileOwnerOnly(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	opts := initOptions{Yes: true, URL: "https://yt.example.com", SkipToken: true}
+	var out bytes.Buffer
+	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+		t.Fatal(err)
+	}
+	logPath, err := paths.LogPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("log file was not created: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("log file mode = %v, want 0600", got)
+	}
+}
+
 func TestInitNeverEchoesToken(t *testing.T) {
 	env := newTestEnv(t, testSecret+"\n", "")
 	// A failing token setter must not leak the secret through its error path.
+	env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{login: "jane"}, nil }
 	failing := env.deps
 	failing.SetToken = func(string) error { return errors.New("keychain locked") }
 
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, URL: "https://yt.example.com"}
-	if err := runInit(context.Background(), failing, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), failing, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
 		t.Fatal(err)
@@ -232,11 +254,25 @@ func TestInitReportsLaunchctlFailureWithHintAndContinues(t *testing.T) {
 	}
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatalf("launchctl failure must not be fatal: %v", err)
+	err := runInit(context.Background(), env.deps, opts, &out)
+	if !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "launchctl bootstrap gui/501") {
 		t.Errorf("missing hint:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "hook") {
+		t.Errorf("the failing step must not stop the others:\n%s", out.String())
+	}
+}
+
+func TestInitExitCodeNonZeroWhenAStepFails(t *testing.T) {
+	failing := fmt.Errorf("wrapped: %w", ErrInitIncomplete)
+	if ExitCode(failing) == 0 {
+		t.Error("exit code is 0 although a step failed")
+	}
+	if !IsSilent(failing) {
+		t.Error("main would print the failure a second time")
 	}
 }
 
@@ -294,26 +330,89 @@ func TestInitHookRefusesBrokenBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
-	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if readFile(t, rc) != broken {
 		t.Error("file with a broken block was modified")
 	}
 }
 
-func TestRCFileForPicksBashProfileOnMacOnlyWhenBashrcMissing(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, ".bash_profile"), nil, 0o644); err != nil {
+func TestRCFileFor(t *testing.T) {
+	zdot := t.TempDir()
+	tests := []struct {
+		name    string
+		goos    string
+		shell   string
+		zdotdir string
+		// existing lists files created in the home directory first.
+		existing []string
+		// want is the expected path; a relative one is joined to the home
+		// directory.
+		want string
+	}{
+		{name: "zsh without ZDOTDIR", goos: "darwin", shell: "zsh", want: ".zshrc"},
+		{name: "zsh with ZDOTDIR", goos: "darwin", shell: "zsh", zdotdir: zdot, want: filepath.Join(zdot, ".zshrc")},
+		{name: "zsh ignores a relative ZDOTDIR", goos: "darwin", shell: "zsh", zdotdir: "dots", want: ".zshrc"},
+		{name: "bash on macOS defaults to .bash_profile", goos: "darwin", shell: "bash", want: ".bash_profile"},
+		{name: "bash on macOS ignores an existing .bashrc", goos: "darwin", shell: "bash", existing: []string{".bashrc"}, want: ".bash_profile"},
+		{name: "bash on macOS keeps an existing .bash_profile", goos: "darwin", shell: "bash", existing: []string{".bashrc", ".bash_profile"}, want: ".bash_profile"},
+		{name: "bash on macOS keeps .bash_login over .profile", goos: "darwin", shell: "bash", existing: []string{".bash_login", ".profile"}, want: ".bash_login"},
+		{name: "bash on macOS keeps .profile when it is the only login file", goos: "darwin", shell: "bash", existing: []string{".profile"}, want: ".profile"},
+		{name: "bash on Linux uses .bashrc", goos: "linux", shell: "bash", existing: []string{".bash_profile"}, want: ".bashrc"},
+		{name: "fish", goos: "darwin", shell: "fish", want: filepath.Join(".config", "fish", "config.fish")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			for _, name := range tc.existing {
+				if err := os.WriteFile(filepath.Join(home, name), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want := tc.want
+			if !filepath.IsAbs(want) {
+				want = filepath.Join(home, want)
+			}
+			got, err := rcFileFor(home, tc.goos, tc.shell, tc.zdotdir)
+			if err != nil || got != want {
+				t.Errorf("rcFileFor = %q, %v; want %q", got, err, want)
+			}
+		})
+	}
+}
+
+func TestInitWritesTheZshHookIntoZDOTDIR(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	zdot := filepath.Join(env.home, "zdot")
+	env.deps.Doctor.ZDotDir = zdot
+	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
+	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := rcFileFor(home, "darwin", "bash")
-	if filepath.Base(got) != ".bash_profile" {
-		t.Errorf("got %s", got)
+	if got := readFile(t, filepath.Join(zdot, ".zshrc")); !strings.Contains(got, rcBlockBegin) {
+		t.Errorf("no managed block in $ZDOTDIR/.zshrc:\n%s", got)
 	}
-	got, _ = rcFileFor(home, "linux", "bash")
-	if filepath.Base(got) != ".bashrc" {
-		t.Errorf("got %s", got)
+	if fileExists(filepath.Join(env.home, ".zshrc")) {
+		t.Error("the hook was also written to ~/.zshrc, which zsh does not read")
+	}
+	if _, ok := installedRCFile(env.deps.Doctor); !ok {
+		t.Error("doctor does not find the hook in $ZDOTDIR/.zshrc")
+	}
+}
+
+func TestInitWritesTheBashHookIntoBashProfileOnMac(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	env.deps.Getenv = func(string) string { return "/bin/bash" }
+	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
+	if err := runInit(context.Background(), env.deps, opts, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(env.home, ".bash_profile")); !strings.Contains(got, rcBlockBegin) {
+		t.Errorf("no managed block in .bash_profile:\n%s", got)
+	}
+	if fileExists(filepath.Join(env.home, ".bashrc")) {
+		t.Error("the hook was written to .bashrc, which login shells do not read")
 	}
 }
 
@@ -357,8 +456,8 @@ func TestInitHookRefusesDanglingSymlink(t *testing.T) {
 	}
 	var out bytes.Buffer
 	opts := initOptions{Yes: true, SkipConfig: true, SkipToken: true, SkipAgent: true}
-	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-		t.Fatal(err)
+	if err := runInit(context.Background(), env.deps, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+		t.Fatalf("err = %v, want ErrInitIncomplete", err)
 	}
 	if !strings.Contains(out.String(), "dangling symlink") {
 		t.Errorf("no clear error:\n%s", out.String())

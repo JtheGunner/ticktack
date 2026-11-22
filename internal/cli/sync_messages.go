@@ -30,4 +30,7 @@ const (
 Only one booking run (sync, auto or undo) is active at a time: while another
 one runs, this command changes nothing and exits with code 75.`
 	msgBookingLockHelpDryRun = msgBookingLockHelp + " --dry-run takes no lock."
+
+	// msgInterrupted is the error of a run that SIGINT or SIGTERM cancelled.
+	msgInterrupted = "interrupted: the step in progress was finished, the rest was not done or sent; run the command again to continue"
 )

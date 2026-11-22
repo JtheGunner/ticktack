@@ -84,7 +84,7 @@ brew install JtheGunner/tap/ticktack
 go install github.com/JtheGunner/ticktack/cmd/ticktack@latest
 ```
 
-Check the install with `ticktack version`.
+Check the install with `ticktack version`. A `go install` build reports the module version, or `dev-<revision>` when built from a checkout.
 
 `ticktack init` writes two things into the launchd agent definition:
 
@@ -103,9 +103,10 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 | | Removed | Where |
 |:--|:--|:--|
 | 🖥️ | launchd agent, unloaded first | `~/Library/LaunchAgents/dev.ticktack.agent.plist` |
-| 🐚 | Managed shell hook block; the rest of the file stays | `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.config/fish/config.fish` |
+| 🐚 | Managed shell hook block; the rest of the file stays | `$ZDOTDIR/.zshrc` or `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.profile`, `~/.config/fish/config.fish` |
 | 🔑 | YouTrack token | OS keychain |
 | 📜 | Log file with its backup (`.1`), throttle state (`.throttle`) and temporary files | `~/.local/state/ticktack/ticktack.log` (or under `XDG_STATE_HOME`) |
+| 🔎 | Title probe status file (`title-status.json`) and temporary files of an interrupted write | `~/.local/state/ticktack/` (or under `XDG_STATE_HOME`) |
 
 The config file, the database and the binary stay. A step that fails is reported, the other steps still run, and the command exits non-zero; running it again is safe. If launchd cannot tell whether the agent is loaded, that counts as a failure too (the plist is still removed, so the agent does not start at the next login). Shells that are already open keep the hook until you restart them.
 
@@ -165,6 +166,9 @@ ticktack undo
 > [!NOTE]
 > Only one booking run is active at a time. `ticktack sync`, `ticktack auto` and `ticktack undo` share a lock file (`booking.lock` next to the database), so a scheduled `auto` and a manual `sync` cannot book the same work item twice. A run that finds the lock taken does not wait: it changes nothing, prints `another ticktack booking run (sync, auto or undo) is active` and exits with code `75`. Run it again once the other one has finished. The operating system releases the lock when a run ends, also after an abort or a crash, so there is never a stale lock to remove. `--dry-run` takes no lock.
 
+> [!NOTE]
+> Ctrl-C (SIGINT) or SIGTERM stops `sync`, `auto` and `undo` in an orderly way: the work item currently being sent is finished, including its ledger entry, and no further item is started. The items not started are reported as `not-sent`, and the command exits with code `130`; running it again continues. If a real failure happened as well (for example a rejected token during `undo`), it is printed next to the interruption notice and the exit code is `1`, so `130` always means a clean interruption; `75` still takes precedence. A second signal while it finishes ends the process at once. `ticktack init` also stops on the first signal, including at the hidden token prompt, and exits with `130` without storing anything that was being typed. Work on one item is bounded to two minutes, whether or not a signal arrived.
+
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
 Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.
@@ -190,7 +194,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance. Must use `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `::1`. |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
 | `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
-| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
+| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour, fold into the ticket they sit between (only when the short block itself is `explicit` or `rule`; the result never has a higher tier than either side), or become one block that needs a ticket. |
 | `context_max_age`    | `"2h0m0s"`             | Context not confirmed for this long is only `suggested`. `"0"` turns this limit off. A pin does not depend on it: it is `suggested` from the day after it was set, also with `"0"`. |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this. Must be whole minutes; `"1m"` books exact minutes. |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |
@@ -333,7 +337,8 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 
 - Never stored: window titles, screenshots, keystrokes, file contents. Titles may be parsed in memory for a project hint only.
 - `ticktack scan` runs the local `git` binary read-only on your configured repositories and keeps only repo, branch, ticket hint and timestamp.
-- The only network call is the YouTrack sync. The optional ActivityWatch import talks to a loopback address only. There is no telemetry.
+- Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
+- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`).
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
@@ -360,6 +365,10 @@ make lint     # golangci-lint run ./...
 | `internal/store/`, `internal/ledger/` | SQLite storage (pure Go, no CGO) and the booking ledger. |
 | `internal/sink/`, `internal/youtrack/` | The booking target and its YouTrack client.      |
 | `internal/config/`, `internal/paths/`, `internal/token/` | Config loading, file locations, keychain access. |
+| `internal/event/`, `internal/localday/`, `internal/ticketid/` | The event model, local calendar-day boundaries and ticket-id matching. `localday` and the shared interfaces use `cloud.google.com/go/civil.Date`: the dependency stays because only that subpackage is compiled and a custom date type would add risk at date boundaries. |
+| `internal/review/`, `internal/suggest/`, `internal/explain/`, `internal/auto/` | Review flow, ticket suggestions, block explanations and auto mode. |
+| `internal/reporoots/`, `internal/shellhook/` | Repository discovery under `repo_roots` and the shell-hook snippets. |
+| `internal/logfile/`, `internal/runlock/`, `internal/loopback/` | Rotating log, single-run lock and the loopback-only address check. |
 
 Tests are table-driven and the YouTrack client is tested against an `httptest` server; no test talks to a real YouTrack instance.
 
@@ -369,13 +378,14 @@ Tests are table-driven and the YouTrack client is tested against an `httptest` s
 
 | Job name               | Check                                                  |
 |------------------------|--------------------------------------------------------|
-| `lint`                 | `golangci-lint` (version pinned in the workflow)       |
-| `test (macos-latest)`  | `make test` (`CGO_ENABLED=0 go test ./...`) on macOS   |
-| `test (ubuntu-latest)` | the same tests on Linux, to catch portability issues   |
+| `lint`                 | `golangci-lint` (version pinned in the workflow) on Linux |
+| `lint-macos`           | the same lint on macOS, the only run that analyses the darwin-only files (advisory, not required) |
+| `test (macos-latest)`  | `make test` (`CGO_ENABLED=0 go test ./...`), then `go test -race ./...` on macOS |
+| `test (ubuntu-latest)` | the same tests and race run on Linux, to catch portability issues |
 | `build`                | `make build` on macOS                                  |
 | `tidy`                 | `go mod tidy -diff` fails when `go.mod`/`go.sum` drift |
 
-Register these five job names as required status checks when protecting `main`.
+Register `lint`, `test (macos-latest)`, `test (ubuntu-latest)`, `build` and `tidy` as required status checks when protecting `main`. `make test-race` runs the race tests locally.
 
 [`.github/workflows/docs-drift.yml`](.github/workflows/docs-drift.yml) also runs on every pull request. It uses [doc-drift-checker](https://github.com/JtheGunner/doc-drift-checker) to flag README sections whose code changed while the section did not, and reports them as annotations. It never fails the build, so its `docs-drift` job is advisory and not a required check. Configuration lives in [`.docdrift.yaml`](.docdrift.yaml). To run it locally against `main`:
 

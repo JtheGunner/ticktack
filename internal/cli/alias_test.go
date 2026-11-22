@@ -46,17 +46,23 @@ func TestRCDefinesTT(t *testing.T) {
 
 func TestInitWritesTheAliasIntoTheManagedBlock(t *testing.T) {
 	tests := []struct {
+		name      string
 		shell     string
+		zdotdir   string // relative to home; empty leaves ZDOTDIR unset
 		rcRel     []string
 		wantAlias string
 	}{
-		{"zsh", []string{".zshrc"}, "alias tt=ticktack\n"},
-		{"bash", []string{".bashrc"}, "alias tt=ticktack\n"},
-		{"fish", []string{".config", "fish", "config.fish"}, "alias tt ticktack\n"},
+		{"zsh", "zsh", "", []string{".zshrc"}, "alias tt=ticktack\n"},
+		{"zsh with ZDOTDIR", "zsh", "zdot", []string{"zdot", ".zshrc"}, "alias tt=ticktack\n"},
+		{"bash login file on macOS", "bash", "", []string{".bash_profile"}, "alias tt=ticktack\n"},
+		{"fish", "fish", "", []string{".config", "fish", "config.fish"}, "alias tt ticktack\n"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.shell, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			env := newTestEnv(t, "", "")
+			if tt.zdotdir != "" {
+				env.deps.Doctor.ZDotDir = filepath.Join(env.home, tt.zdotdir)
+			}
 			rc := filepath.Join(append([]string{env.home}, tt.rcRel...)...)
 			opts := initOptions{Yes: true, Shell: tt.shell, SkipConfig: true, SkipToken: true, SkipAgent: true}
 			var out bytes.Buffer
@@ -202,6 +208,16 @@ func TestDoctorReportsTheAliasAsAHintOnly(t *testing.T) {
 		{"not set", func(t *testing.T, env *testEnv) {
 			writeZshrc(t, env, renderManagedBlock("ticktack hook"))
 		}, nil, "tt is not set"},
+		{"alias set in ZDOTDIR", func(t *testing.T, env *testEnv) {
+			zdot := filepath.Join(env.home, "zdot")
+			env.deps.Doctor.ZDotDir = zdot
+			if err := os.MkdirAll(zdot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(zdot, ".zshrc"), []byte(renderManagedBlock("ticktack hook\nalias tt=ticktack")), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, nil, "tt is set in the managed block"},
 		{"skipped for command", func(t *testing.T, env *testEnv) {
 			writeZshrc(t, env, renderManagedBlock("ticktack hook"))
 		}, foundTT, "skipped because tt already exists (command /usr/local/bin/tt)"},

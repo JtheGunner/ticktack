@@ -2,7 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
 // User-facing strings of the daily commands live here so a German variant can
@@ -44,6 +47,7 @@ const (
 	msgColTier         = "Tier"
 	msgColReason       = "Reason"
 	msgColRaw          = "Raw"
+	msgColCertainty    = "Certainty"
 	msgLabelTotal      = "Total"
 )
 
@@ -59,6 +63,28 @@ func msgPresenceSeen(at, now time.Time, loc *time.Location) string {
 		ago = 0
 	}
 	return fmt.Sprintf("Presence last seen %s (%s ago)", at.In(loc).Format("2006-01-02 15:04:05"), ago)
+}
+
+// formatCertainty is the compact breakdown of an item's minutes by tier, for
+// example "rule 40m, suggested 50m (50m carried)". Tiers without minutes are
+// left out; carried time is the part of suggested that is stale context.
+func formatCertainty(c sessionizer.Certainty) string {
+	var parts []string
+	add := func(tier string, minutes int) {
+		if minutes > 0 {
+			parts = append(parts, tier+" "+formatMinutes(minutes))
+		}
+	}
+	add("explicit", c.Explicit)
+	add("rule", c.Rule)
+	add("learned", c.Learned)
+	add("suggested", c.Suggested)
+	if c.Suggested > 0 && c.Carried > 0 {
+		last := len(parts) - 1
+		parts[last] += " (" + formatMinutes(c.Carried) + " carried)"
+	}
+	add("unknown", c.Unknown)
+	return strings.Join(parts, ", ")
 }
 
 func formatMinutes(minutes int) string {

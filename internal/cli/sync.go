@@ -221,7 +221,7 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	}
 	confirmed := items
 	items, provisioned, err := provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
-	if ledger.IsStopError(err) {
+	if endsRun(ctx, err) {
 		// The run ends before anything is sent, so every item is listed as
 		// not sent, exactly as when booking itself is stopped.
 		printReport(out, deps.Render, ledger.NotSentReport(confirmed), dryRun)

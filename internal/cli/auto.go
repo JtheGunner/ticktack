@@ -120,7 +120,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		}
 		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
 		switch {
-		case ledger.IsStopError(err):
+		case endsRun(ctx, err):
 			// Nothing is sent; the digest lists every item as not sent.
 			report, syncErr = ledger.NotSentReport(sel.Items()), err
 		case err != nil:
@@ -139,7 +139,11 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	digest := auto.BuildDigest(day, sel, report, dryRun)
 	text := renderDigest(digest, storedDigestRenderer())
 	if !dryRun {
-		if _, err := st.AddDigest(ctx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
+		// The digest of a cancelled run is still stored: it lists what was not
+		// sent, so the write must not use the cancelled context.
+		digestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), digestWriteTimeout)
+		defer cancel()
+		if _, err := st.AddDigest(digestCtx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
 			return err
 		}
 	}
@@ -150,6 +154,9 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
 	return syncErr
 }
+
+// digestWriteTimeout bounds the digest write after a cancelled run.
+const digestWriteTimeout = 30 * time.Second
 
 // digestStoredWidth keeps long reasons whole in the stored digest.
 const digestStoredWidth = 400
