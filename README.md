@@ -173,7 +173,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance. Must use `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `::1`. |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
 | `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
-| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
+| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour, fold into the ticket they sit between, or become one block that needs a ticket. |
 | `context_max_age`    | `"2h0m0s"`             | Context not confirmed for this long is only `suggested`. `"0"` turns this limit off. A pin does not depend on it: it is `suggested` from the day after it was set, also with `"0"`. |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this. Must be whole minutes; `"1m"` books exact minutes. |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |

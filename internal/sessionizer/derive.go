@@ -58,6 +58,18 @@
 //     neighbour with the same ticket; if there is none it is kept as unknown.
 //     Touching unknown blocks of that kind merge into one, so a burst of short
 //     context flips shows as a single block that needs a ticket.
+//   - A short block with another ticket (or none) that touches a block on
+//     each side, both with the same ticket, is folded into one of them: the
+//     two sides and the short block become one block of that ticket, so a
+//     brief look at another branch between two stretches of one ticket costs
+//     no review. There is no length limit besides Config.MinBlock. The block
+//     takes the tier, reason and rule of the folded-into neighbour, which is
+//     the one with the lower tier (the longer one on a tie, then the earlier
+//     one), and records the folded time in Block.Folded. A stale short block
+//     (tier suggested) is never folded into a confirmed neighbour, a block
+//     from a manual switch is never folded into or demoted, and neither is a
+//     manual switch block taken as a neighbour. Overrides are applied later
+//     and are never folded.
 //   - Merging never raises a tier. A short suggested block (stale context)
 //     next to confirmed time of its ticket stays a suggested block of its own,
 //     however short, so stale minutes never end up in a block that is booked
@@ -172,6 +184,17 @@ type Block struct {
 	// Branch is the branch of that context, empty under the same conditions
 	// as Repo. Blocks on different branches are never merged.
 	Branch string
+	// Folded lists the short blocks of other attributions that were folded
+	// into this block because blocks of its ticket enclose them. Their time is
+	// part of the block and carries its tier and rule.
+	Folded []Fold `json:",omitempty"`
+}
+
+// Fold records a short block that was folded into an enclosing block (see
+// the package comment). Ticket is empty when the folded block had none.
+type Fold struct {
+	Start, End time.Time
+	Ticket     string
 }
 
 // Duration returns the block length.
@@ -511,6 +534,7 @@ func mergeTouching(blocks []Block) []Block {
 	for _, b := range blocks {
 		if n := len(out); n > 0 && out[n-1].End.Equal(b.Start) && sameAttribution(out[n-1], b) {
 			out[n-1].End = b.End
+			out[n-1].Folded = concatFolds(out[n-1].Folded, b.Folded)
 			continue
 		}
 		out = append(out, b)
@@ -528,10 +552,15 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 	for {
 		merged := false
 		for i := range blocks {
-			if blocks[i].Duration() >= minBlock {
+			if blocks[i].Duration() >= minBlock || isManual(blocks[i]) {
 				continue
 			}
 			target := mergeTarget(blocks, i)
+			folded := false
+			if target < 0 {
+				target = foldTarget(blocks, i)
+				folded = target >= 0
+			}
 			if target < 0 {
 				continue
 			}
@@ -541,6 +570,11 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 			}
 			combined := blocks[target]
 			combined.Start, combined.End = blocks[lo].Start, blocks[hi].End
+			var entry []Fold
+			if folded {
+				entry = []Fold{{Start: blocks[i].Start, End: blocks[i].End, Ticket: blocks[i].Ticket}}
+			}
+			combined.Folded = concatFolds(blocks[target].Folded, blocks[i].Folded, entry)
 			blocks = append(blocks[:lo], append([]Block{combined}, blocks[hi+1:]...)...)
 			merged = true
 			break
@@ -550,7 +584,7 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 		}
 	}
 	for i := range blocks {
-		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) && !touchesConfirmedTime(blocks, i) {
+		if blocks[i].Duration() < minBlock && !isManual(blocks[i]) && !isDemoted(blocks[i]) && !touchesConfirmedTime(blocks, i) {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
 			blocks[i].Reason = minBlockReason
@@ -562,6 +596,78 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 		}
 	}
 	return blocks
+}
+
+// isManual reports whether the block comes from a manual switch. An explicit
+// statement of the user is never folded away or demoted for being short.
+func isManual(b Block) bool {
+	return b.Rule == ManualRule
+}
+
+var tierRank = map[resolver.Tier]int{
+	resolver.TierExplicit:  4,
+	resolver.TierRule:      3,
+	resolver.TierLearned:   2,
+	resolver.TierSuggested: 1,
+	resolver.TierUnknown:   0,
+}
+
+// foldTarget returns the index of the neighbour block i is folded into, or
+// -1. Block i must touch a block on each side and both must carry the same
+// ticket, which is not the ticket of block i (a block of the same ticket is
+// merged, not folded). Of the two the one with the lower tier is taken, then
+// the longer, then the earlier, so folded time never gets a higher tier than
+// the lowest enclosing block has. Nothing is folded when block i is a stale
+// suggestion and the neighbour is not, or when a neighbour is a manual switch
+// block.
+func foldTarget(blocks []Block, i int) int {
+	if i == 0 || i+1 >= len(blocks) {
+		return -1
+	}
+	prev, next := blocks[i-1], blocks[i+1]
+	if !prev.End.Equal(blocks[i].Start) || !blocks[i].End.Equal(next.Start) {
+		return -1
+	}
+	if prev.Ticket == "" || prev.Ticket != next.Ticket || prev.Ticket == blocks[i].Ticket {
+		return -1
+	}
+	if isManual(prev) || isManual(next) {
+		return -1
+	}
+	target := i - 1
+	switch {
+	case tierRank[next.Tier] < tierRank[prev.Tier]:
+		target = i + 1
+	case tierRank[next.Tier] == tierRank[prev.Tier] && next.Duration() > prev.Duration():
+		target = i + 1
+	}
+	if upgrades(blocks[i], blocks[target]) {
+		return -1
+	}
+	return target
+}
+
+// concatFolds joins fold lists into a new list ordered by start time; it
+// returns nil when there is nothing to join.
+func concatFolds(lists ...[]Fold) []Fold {
+	var out []Fold
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out
+}
+
+// clipFolds returns the folds that lie in [start, end), cut to that range.
+func clipFolds(folds []Fold, start, end time.Time) []Fold {
+	var out []Fold
+	for _, f := range folds {
+		f.Start, f.End = maxTime(f.Start, start), minTime(f.End, end)
+		if f.End.After(f.Start) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func isDemoted(b Block) bool {
@@ -662,11 +768,13 @@ func cut(b Block, start, end time.Time) []Block {
 	if b.Start.Before(start) {
 		left := b
 		left.End = start
+		left.Folded = clipFolds(b.Folded, left.Start, left.End)
 		out = append(out, left)
 	}
 	if b.End.After(end) {
 		right := b
 		right.Start = end
+		right.Folded = clipFolds(b.Folded, right.Start, right.End)
 		out = append(out, right)
 	}
 	return out
