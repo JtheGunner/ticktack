@@ -205,6 +205,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
 | `[[rules]]`          | none                   | Fixed mappings with `repo` (absolute path or starting with `~/`) and `ticket` (must match `ticket_pattern`). Repeatable. |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
+| `[app_classes]`      | empty                  | Maps a macOS bundle ID of the foreground app to a class, for example `"us.zoom.xos" = "neutral"`. `work` (the default for an unlisted app) keeps the ticket; `neutral` keeps it but only as `suggested`, with the reason `foreground app class neutral`; `personal` ends the time, which is not counted and does not show as unassigned. ticktack ships no app list. Only the bundle ID is used, never a window title. |
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
 | `[scan]`             | `interval = "0"`       | Periodic git scan by the agent. `"0"` is off; otherwise at least `"5m"`. |
 | `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (required, for example `"Meetings / Admin"`). Turns on standard tasks (see below). |

@@ -88,6 +88,18 @@ enabled = false
 # [titlehint.projects]
 # "my-ide-project" = "/abs/path/to/repo"
 
+# Optional classes for the foreground app, by macOS bundle ID. Nothing is
+# listed by default and ticktack ships no app list: an app that is not listed
+# counts as "work" (the ticket of the current context applies in full).
+#   "neutral"  keeps the ticket, but only as a suggestion to confirm in review
+#              (chat, video calls).
+#   "personal" ends the time: it is not counted and does not show as unassigned.
+# Only the bundle ID of the frontmost app is used, never a window title.
+# [app_classes]
+# "com.tinyspeck.slackmacgap" = "neutral"
+# "us.zoom.xos" = "neutral"
+# "com.apple.Music" = "personal"
+
 # Optional import from a local ActivityWatch server (off by default). Only
 # loopback addresses are accepted.
 [activitywatch]

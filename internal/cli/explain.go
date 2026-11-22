@@ -156,6 +156,9 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		if len(skipped) > 0 {
 			rows = append(rows, render.LabelRow{Label: msgLabelNotApplied, Value: SanitizeForTerminal(strings.Join(skipped, "; "))})
 		}
+		if ex.AppClass != "" {
+			conclusions = append(conclusions, r.Gutter(render.StatusWarn, SanitizeForTerminal(msgExplainAppClass(ex.AppClass, ex.App))))
+		}
 		if ex.Stale {
 			conclusions = append(conclusions, r.Gutter(render.StatusWarn, SanitizeForTerminal(msgExplainStale(
 				sessionizer.StaleReason(ex.Age), eventTime(ex.ConfirmedAt), sessionizer.FormatAge(ex.MaxAge), ex.Pinned))))

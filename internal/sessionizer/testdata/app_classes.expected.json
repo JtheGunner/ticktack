@@ -1,0 +1,42 @@
+[
+  {
+    "Start": "2026-03-02T08:00:00Z",
+    "End": "2026-03-02T08:19:59Z",
+    "Ticket": "APP-1",
+    "Tier": "explicit",
+    "Reason": "ticket APP-1 found in branch \"feat/APP-1-login\"",
+    "Rule": "branch-ticket",
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-1-login"
+  },
+  {
+    "Start": "2026-03-02T08:19:59Z",
+    "End": "2026-03-02T08:39:59Z",
+    "Ticket": "APP-1",
+    "Tier": "suggested",
+    "Reason": "foreground app class neutral",
+    "Rule": "branch-ticket",
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-1-login"
+  },
+  {
+    "Start": "2026-03-02T08:39:59Z",
+    "End": "2026-03-02T08:59:59Z",
+    "Ticket": "APP-1",
+    "Tier": "explicit",
+    "Reason": "ticket APP-1 found in branch \"feat/APP-1-login\"",
+    "Rule": "branch-ticket",
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-1-login"
+  },
+  {
+    "Start": "2026-03-02T09:24:00Z",
+    "End": "2026-03-02T09:39:59Z",
+    "Ticket": "APP-1",
+    "Tier": "explicit",
+    "Reason": "ticket APP-1 found in branch \"feat/APP-1-login\"",
+    "Rule": "branch-ticket",
+    "Repo": "/work/example-app",
+    "Branch": "feat/APP-1-login"
+  }
+]

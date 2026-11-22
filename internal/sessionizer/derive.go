@@ -52,6 +52,15 @@
 //   - The two rules are independent. A ContextMaxAge of zero turns off the
 //     age limit of automatic context only: a pin carried over from an earlier
 //     day is only tier suggested whatever the limit is.
+//   - Foreground app classes (Config.AppClasses, by the bundle ID on each
+//     presence sample): an unlisted app is work and changes nothing. Presence
+//     in a personal app ends the presence span like a gap and is not counted,
+//     so it never shows up as unassigned time, and short-block folding never
+//     reaches across it. Presence in a neutral app keeps the ticket of the
+//     context but only as tier suggested, with the reason NeutralAppReason, so
+//     it is confirmed in review and never booked by auto mode. It does not
+//     count as carried context. A manual pin is not lowered, and stale time
+//     keeps its own reason.
 //   - Blocks are split whenever the attributed ticket or the context changes;
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
@@ -119,6 +128,18 @@ type Config struct {
 	// Location is the zone whose calendar days bound the time a manual pin
 	// is carried at its own tier. Nil means UTC.
 	Location *time.Location
+	// AppClasses maps the bundle ID of a foreground app to its class. It is
+	// read-only and nil by default: every app is then config.ClassWork.
+	AppClasses map[string]config.AppClass
+}
+
+// appClass returns the class of the app; an unlisted app, or a sample without
+// an app, is config.ClassWork.
+func (c Config) appClass(app string) config.AppClass {
+	if class, ok := c.AppClasses[app]; ok {
+		return class
+	}
+	return config.ClassWork
 }
 
 // DefaultConfig returns the default derivation thresholds.
@@ -147,6 +168,7 @@ func ConfigFrom(c config.Config) Config {
 	}
 	cfg.ContextMaxAge = c.ContextMaxAge
 	cfg.Location = c.Location
+	cfg.AppClasses = c.AppClasses
 	return cfg
 }
 
@@ -243,7 +265,12 @@ func sortedEvents(events []event.Event) []event.Event {
 	return out
 }
 
-type interval struct{ start, end time.Time }
+// interval is a stretch of presence. neutral is set when the foreground app
+// during it is of class neutral.
+type interval struct {
+	start, end time.Time
+	neutral    bool
+}
 
 // presenceSpans folds the sorted events into presence spans.
 //
@@ -254,15 +281,24 @@ type interval struct{ start, end time.Time }
 // triggered, and ends at its last activity; idle time after the last input is
 // not work. An activity more than GapThreshold after the previous one starts
 // a new span.
+//
+// The class of the sample's own app (Config.AppClasses) decides how its time
+// counts: a personal app ends the span like a gap does, without moving the
+// floor, so the time in it is never counted. A neutral app keeps the span, but
+// the stretch up to its activity is returned as a separate neutral interval.
+// Touching intervals of one span differ only in that flag.
 func presenceSpans(sorted []event.Event, cfg Config) []interval {
 	var spans []interval
 	var cur *interval
 	var floor time.Time
 
-	closeSpan := func() {
+	flush := func() {
 		if cur != nil && cur.end.After(cur.start) {
 			spans = append(spans, *cur)
 		}
+	}
+	closeSpan := func() {
+		flush()
 		cur = nil
 	}
 
@@ -276,12 +312,22 @@ func presenceSpans(sorted []event.Event, cfg Config) []interval {
 			if idle >= cfg.IdleThreshold {
 				continue
 			}
+			class := cfg.appClass(e.App)
+			if class == config.ClassPersonal {
+				closeSpan()
+				continue
+			}
+			neutral := class == config.ClassNeutral
 			active := maxTime(e.At.Add(-idle), floor)
 			if cur != nil && active.Sub(cur.end) > cfg.GapThreshold {
 				closeSpan()
 			}
 			if cur == nil {
-				cur = &interval{start: e.At, end: e.At}
+				cur = &interval{start: e.At, end: e.At, neutral: neutral}
+			}
+			if cur.neutral != neutral {
+				flush()
+				cur = &interval{start: cur.end, end: cur.end, neutral: neutral}
 			}
 			if active.After(cur.end) {
 				cur.end = active
@@ -495,7 +541,7 @@ func attribute(spans []interval, steps []contextStep, rules resolver.Rules, cfg 
 				}
 			}
 			if to.After(from) {
-				blocks = append(blocks, blockFor(from, to, idx, steps, rules, cfg))
+				blocks = append(blocks, blockFor(from, to, idx, steps, rules, cfg, span.neutral))
 			}
 			from = to
 			if reachesNextStep {
@@ -508,8 +554,11 @@ func attribute(spans []interval, steps []contextStep, rules resolver.Rules, cfg 
 
 // blockFor builds the block for [from, to) under the context in effect after
 // the first n steps. The caller cuts at the moment the context goes stale, so
-// the block is stale as a whole or not at all.
-func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rules, cfg Config) Block {
+// the block is stale as a whole or not at all. Time in a neutral app keeps the
+// ticket but only as a suggestion (see NeutralAppAttribution); a manual pin is
+// the user's own statement and is not lowered, and stale time already carries
+// the lower tier and its own reason.
+func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rules, cfg Config, neutral bool) Block {
 	if n == 0 {
 		return Block{Start: from, End: to, Tier: resolver.TierUnknown, Reason: noContextReason, Rule: resolver.RuleNone}
 	}
@@ -519,6 +568,9 @@ func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rul
 	if stale, ok := step.staleFrom(cfg); ok && !from.Before(stale) {
 		// The rule that produced the ticket stays: staleness only lowers the tier.
 		a = StaleAttribution(a, from.Sub(step.confirmedAt))
+	}
+	if neutral && step.manualTicket == "" {
+		a = NeutralAppAttribution(a)
 	}
 	return Block{
 		Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Rule: d.Rule,

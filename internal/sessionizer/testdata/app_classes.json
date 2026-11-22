@@ -1,0 +1,42 @@
+{
+ "config": {
+  "gapThreshold": "5m",
+  "idleThreshold": "5m",
+  "minBlock": "10m",
+  "contextMaxAge": "0",
+  "appClasses": {"com.example.chat": "neutral", "com.example.music": "personal"}
+ },
+ "rules": {
+  "repos": []
+ },
+ "events": [
+  {"At": "2026-03-02T08:00:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-1-login", "ID": 1},
+  {"At": "2026-03-02T08:00:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 2},
+  {"At": "2026-03-02T08:04:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 3},
+  {"At": "2026-03-02T08:08:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 4},
+  {"At": "2026-03-02T08:12:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 5},
+  {"At": "2026-03-02T08:16:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 6},
+  {"At": "2026-03-02T08:20:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 7},
+  {"At": "2026-03-02T08:24:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.chat", "IdleSeconds": 1, "ID": 8},
+  {"At": "2026-03-02T08:28:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.chat", "IdleSeconds": 1, "ID": 9},
+  {"At": "2026-03-02T08:32:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.chat", "IdleSeconds": 1, "ID": 10},
+  {"At": "2026-03-02T08:36:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.chat", "IdleSeconds": 1, "ID": 11},
+  {"At": "2026-03-02T08:40:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.chat", "IdleSeconds": 1, "ID": 12},
+  {"At": "2026-03-02T08:44:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 13},
+  {"At": "2026-03-02T08:48:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 14},
+  {"At": "2026-03-02T08:52:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 15},
+  {"At": "2026-03-02T08:56:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 16},
+  {"At": "2026-03-02T09:00:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 17},
+  {"At": "2026-03-02T09:04:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.music", "IdleSeconds": 1, "ID": 18},
+  {"At": "2026-03-02T09:08:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.music", "IdleSeconds": 1, "ID": 19},
+  {"At": "2026-03-02T09:12:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.music", "IdleSeconds": 1, "ID": 20},
+  {"At": "2026-03-02T09:16:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.music", "IdleSeconds": 1, "ID": 21},
+  {"At": "2026-03-02T09:20:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.music", "IdleSeconds": 1, "ID": 22},
+  {"At": "2026-03-02T09:24:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 23},
+  {"At": "2026-03-02T09:28:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 24},
+  {"At": "2026-03-02T09:32:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 25},
+  {"At": "2026-03-02T09:36:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 26},
+  {"At": "2026-03-02T09:40:00Z", "Kind": "presence", "Source": "presence", "App": "com.example.ide", "IdleSeconds": 1, "ID": 27}
+ ],
+ "overrides": []
+}

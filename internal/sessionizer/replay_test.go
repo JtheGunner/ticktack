@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 )
@@ -21,6 +22,8 @@ type fixture struct {
 		IdleThreshold string `json:"idleThreshold"`
 		MinBlock      string `json:"minBlock"`
 		ContextMaxAge string `json:"contextMaxAge"`
+		// AppClasses maps a bundle ID to a class name (neutral, personal).
+		AppClasses map[string]config.AppClass `json:"appClasses"`
 	} `json:"config"`
 	Rules struct {
 		Repos []resolver.RepoRule `json:"repos"`
@@ -68,6 +71,10 @@ func parseDuration(t *testing.T, s string) time.Duration {
 //     between two stretches of APP-2 is folded into one APP-2 block that lists
 //     the folded time; a 6 min block of APP-5 between APP-2 and APP-6 has no
 //     enclosing ticket and stays unknown.
+//   - app_classes.json: chat is neutral, music is personal. The chat stretch
+//     (08:20-08:40) keeps APP-1 as suggested; the music stretch (09:00-09:24)
+//     is not counted and splits the work into two blocks, with no unknown
+//     block in between.
 func TestReplayFixtures(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "*.json"))
 	if err != nil {
@@ -94,6 +101,7 @@ func TestReplayFixtures(t *testing.T) {
 				IdleThreshold: parseDuration(t, fx.Config.IdleThreshold),
 				MinBlock:      parseDuration(t, fx.Config.MinBlock),
 				ContextMaxAge: parseDuration(t, fx.Config.ContextMaxAge),
+				AppClasses:    fx.Config.AppClasses,
 			}
 			blocks := Derive(fx.Events, fx.Overrides, cfg, resolver.Rules{Repos: fx.Rules.Repos})
 			for i := range blocks {

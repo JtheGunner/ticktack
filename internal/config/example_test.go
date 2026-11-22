@@ -66,6 +66,7 @@ func TestExampleConfigDocumentsEveryKey(t *testing.T) {
 		"[titlehint]", "enabled", "[titlehint.projects]", "[activitywatch]", "url", "hostname",
 		"[auto]", "trusted_days", "[scan]", "interval",
 		"idle_threshold", "repo_roots", "[default_issue]", "project =", "summary =",
+		"[app_classes]", "neutral", "personal",
 	}
 	generated := DefaultTOML("")
 	for _, key := range keys {
