@@ -56,6 +56,11 @@
 //     neighbour with the same ticket; if there is none it is kept as unknown.
 //     Touching unknown blocks of that kind merge into one, so a burst of short
 //     context flips shows as a single block that needs a ticket.
+//   - Merging never raises a tier. A short suggested block (stale context)
+//     next to confirmed time of its ticket stays a suggested block of its own,
+//     however short, so stale minutes never end up in a block that is booked
+//     without review. A short confirmed block that merges into a longer
+//     suggested neighbour takes that neighbour's tier and reason.
 //   - Events are sorted by time (then ID) first, so backwards clock jumps
 //     never produce a block with End <= Start.
 //   - Overrides are applied last: the override interval is cut out of the
@@ -487,7 +492,8 @@ func mergeTouching(blocks []Block) []Block {
 }
 
 // resolveShortBlocks merges blocks shorter than minBlock into the longer
-// touching same-ticket neighbour and demotes the rest to unknown.
+// touching same-ticket neighbour and demotes the rest to unknown, except for
+// suggestions that were kept apart from confirmed time of their ticket.
 func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 	if minBlock <= 0 {
 		return blocks
@@ -517,7 +523,7 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 		}
 	}
 	for i := range blocks {
-		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) {
+		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) && !touchesConfirmedTime(blocks, i) {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
 			blocks[i].Reason = minBlockReason
@@ -534,12 +540,34 @@ func isDemoted(b Block) bool {
 	return b.Tier == resolver.TierUnknown && b.Ticket == ""
 }
 
+// upgrades reports whether merging short into target would raise the tier of
+// its time: a suggested block, which is what stale context yields, joins only
+// another suggested block. The other way round is allowed, the combined block
+// then carries the lower tier of the target.
+func upgrades(short, target Block) bool {
+	return short.Tier == resolver.TierSuggested && target.Tier != resolver.TierSuggested
+}
+
+// touchesConfirmedTime reports whether block i is a suggestion next to a
+// block of its own ticket that it must not merge into. Such a block is kept
+// as it is: the ticket is not in doubt, only the minutes need confirming.
+func touchesConfirmedTime(blocks []Block, i int) bool {
+	refused := func(j int) bool {
+		return blocks[j].Ticket == blocks[i].Ticket && upgrades(blocks[i], blocks[j])
+	}
+	if i > 0 && blocks[i-1].End.Equal(blocks[i].Start) && refused(i-1) {
+		return true
+	}
+	return i+1 < len(blocks) && blocks[i].End.Equal(blocks[i+1].Start) && refused(i+1)
+}
+
 // mergeTarget returns the index of the longer touching neighbour of block i
-// with the same ticket, or -1. A tie prefers the previous block.
+// with the same ticket that the block may merge into, or -1. A tie prefers
+// the previous block.
 func mergeTarget(blocks []Block, i int) int {
 	best := -1
 	candidate := func(j int) {
-		if j < 0 || j >= len(blocks) || blocks[j].Ticket != blocks[i].Ticket {
+		if j < 0 || j >= len(blocks) || blocks[j].Ticket != blocks[i].Ticket || upgrades(blocks[i], blocks[j]) {
 			return
 		}
 		if blocks[j].Duration() < blocks[i].Duration() {

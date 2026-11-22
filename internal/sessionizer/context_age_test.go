@@ -215,6 +215,63 @@ func TestDeriveContextAgeLimitDemotesRuleAndLearnedTiers(t *testing.T) {
 	}
 }
 
+// A stale block shorter than MinBlock must not take over the tier of a
+// confirmed neighbour, or auto mode would book the stale minutes.
+func TestDeriveContextAgeLimitKeepsShortStaleBlocksSuggested(t *testing.T) {
+	branch := ctx(0, "/r/a", "ABC-1-work")
+	tests := []struct {
+		name   string
+		events []event.Event
+		want   []wantBlock
+	}{
+		{
+			name:   "a short stale tail is not absorbed by the confirmed block before it",
+			events: join([]event.Event{branch}, presence(0, 128, 1)),
+			want: []wantBlock{
+				{0, 120, "ABC-1", resolver.TierExplicit, ""},
+				{120, 128, "ABC-1", resolver.TierSuggested, "context unconfirmed for 2h"},
+			},
+		},
+		{
+			name:   "a short stale head is not absorbed by the confirmed block after it",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work"), ctx(8, "/r/a", "ABC-1-work")}, presence(0, 30, 1)),
+			want: []wantBlock{
+				{0, 8, "ABC-1", resolver.TierSuggested, "context unconfirmed for 15h"},
+				{8, 30, "ABC-1", resolver.TierExplicit, ""},
+			},
+		},
+		{
+			name:   "a short stale stretch between two confirmed blocks stays apart",
+			events: join([]event.Event{branch, ctx(125, "/r/a", "ABC-1-work")}, presence(0, 200, 1)),
+			want: []wantBlock{
+				{0, 120, "ABC-1", resolver.TierExplicit, ""},
+				{120, 125, "ABC-1", resolver.TierSuggested, "context unconfirmed for 2h"},
+				{125, 200, "ABC-1", resolver.TierExplicit, ""},
+			},
+		},
+		{
+			name:   "a short confirmed block joins a longer stale neighbour at the lower tier",
+			events: join([]event.Event{branch, ctx(150, "/r/a", "ABC-1-work")}, presence(0, 155, 1)),
+			want: []wantBlock{
+				{0, 120, "ABC-1", resolver.TierExplicit, ""},
+				{120, 155, "ABC-1", resolver.TierSuggested, "context unconfirmed for 2h"},
+			},
+		},
+		{
+			name:   "a short stale block without a neighbour of its ticket is unknown like any short block",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work")}, presence(0, 8, 1)),
+			want:   []wantBlock{{0, 8, "", resolver.TierUnknown, minBlockReason}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := agedConfig(nil)
+			cfg.MinBlock = 10 * time.Minute
+			assertBlocks(t, Derive(tt.events, nil, cfg, resolver.Rules{}), tt.want)
+		})
+	}
+}
+
 func TestDeriveContextAgeLimitKeepsRepoAndBranchOnTheSuggestion(t *testing.T) {
 	events := join([]event.Event{ctx(-900, "/r/a", "ABC-1-work")}, presence(0, 30, 1))
 	blocks := Derive(events, nil, agedConfig(nil), resolver.Rules{})
