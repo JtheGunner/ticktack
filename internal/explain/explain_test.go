@@ -242,6 +242,55 @@ func TestBlockNamesTheAgeOfStaleContext(t *testing.T) {
 	}
 }
 
+// A short confirmed block that merged into a stale neighbour of its ticket
+// starts before the context went stale, or under a later confirmation; the
+// tier still comes from the stale context, so the age is named.
+func TestBlockNamesTheAgeOfStaleContextMergedWithConfirmedTime(t *testing.T) {
+	cfg := shortCfg()
+	cfg.ContextMaxAge = 2 * time.Hour
+	shell := func(at time.Time) event.Event { return ctxAt(at, "/x", "ABC-2-fix", "") }
+	tests := []struct {
+		name            string
+		events          []event.Event
+		wantAge         time.Duration
+		wantConfirmedAt time.Time
+	}{
+		{
+			"confirmed head shorter than the stale tail",
+			append([]event.Event{shell(t0)}, presenceRun(t0.Add(115*time.Minute), 12)...),
+			2 * time.Hour, t0,
+		},
+		{
+			"confirmed head longer than the stale tail",
+			append([]event.Event{shell(t0)}, presenceRun(t0.Add(113*time.Minute), 12)...),
+			2 * time.Hour, t0,
+		},
+		{
+			"stale head before a short confirmed tail",
+			append([]event.Event{shell(t0.Add(-15 * time.Hour)), shell(t0.Add(7 * time.Minute))}, presenceRun(t0, 12)...),
+			15 * time.Hour, t0.Add(-15 * time.Hour),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := sessionizer.Derive(tc.events, nil, cfg, resolver.Rules{})
+			if len(blocks) != 1 || blocks[0].Tier != resolver.TierSuggested || blocks[0].Duration() != 12*time.Minute {
+				t.Fatalf("blocks = %+v", blocks)
+			}
+			ex := Block(Input{Block: blocks[0], Events: tc.events, Config: cfg})
+			if ex.Source != SourceContext || ex.Decision.Rule != resolver.RuleBranchTicket {
+				t.Fatalf("explanation = %+v", ex)
+			}
+			if !ex.Stale || ex.Age != tc.wantAge || !ex.ConfirmedAt.Equal(tc.wantConfirmedAt) || ex.Pinned {
+				t.Errorf("stale = %v, age = %v, confirmed at %v, pinned = %v", ex.Stale, ex.Age, ex.ConfirmedAt, ex.Pinned)
+			}
+			if blocks[0].Reason != sessionizer.StaleReason(ex.Age) {
+				t.Errorf("block reason %q does not name the age %v", blocks[0].Reason, ex.Age)
+			}
+		})
+	}
+}
+
 // The age is counted from the last confirmation, not from the event that
 // first set the context.
 func TestBlockCountsAgeFromTheLastConfirmation(t *testing.T) {

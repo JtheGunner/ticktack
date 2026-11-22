@@ -59,8 +59,12 @@
 //   - Merging never raises a tier. A short suggested block (stale context)
 //     next to confirmed time of its ticket stays a suggested block of its own,
 //     however short, so stale minutes never end up in a block that is booked
-//     without review. A short confirmed block that merges into a longer
-//     suggested neighbour takes that neighbour's tier and reason.
+//     without review. A short confirmed block that merges into a suggested
+//     neighbour takes that neighbour's tier and reason. With no longer
+//     neighbour of its ticket to join, it merges into a touching suggestion
+//     of its ticket even when that one is shorter, so a short stretch of
+//     presence that context going stale cuts in two keeps its ticket as one
+//     suggested block instead of losing it.
 //   - Events are sorted by time (then ID) first, so backwards clock jumps
 //     never produce a block with End <= Start.
 //   - Overrides are applied last: the override interval is cut out of the
@@ -564,13 +568,19 @@ func touchesConfirmedTime(blocks []Block, i int) bool {
 // mergeTarget returns the index of the longer touching neighbour of block i
 // with the same ticket that the block may merge into, or -1. A tie prefers
 // the previous block.
+//
+// A shorter neighbour is a target too when it is a suggestion that may not
+// merge into block i: the two would otherwise both lose a ticket that is not
+// in doubt, as when the moment context goes stale cuts one short stretch of
+// presence in two. Such a neighbour is shorter than any regular target, so it
+// is chosen only when there is none.
 func mergeTarget(blocks []Block, i int) int {
 	best := -1
 	candidate := func(j int) {
 		if j < 0 || j >= len(blocks) || blocks[j].Ticket != blocks[i].Ticket || upgrades(blocks[i], blocks[j]) {
 			return
 		}
-		if blocks[j].Duration() < blocks[i].Duration() {
+		if blocks[j].Duration() < blocks[i].Duration() && !upgrades(blocks[j], blocks[i]) {
 			return
 		}
 		if best < 0 || blocks[j].Duration() > blocks[best].Duration() {

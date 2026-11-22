@@ -258,6 +258,32 @@ func TestDeriveContextAgeLimitKeepsShortStaleBlocksSuggested(t *testing.T) {
 			},
 		},
 		{
+			name:   "a short confirmed head keeps its ticket next to a shorter stale tail",
+			events: join([]event.Event{branch}, presence(113, 125, 1)),
+			want:   []wantBlock{{113, 125, "ABC-1", resolver.TierSuggested, "context unconfirmed for 2h"}},
+		},
+		{
+			name:   "a short confirmed tail keeps its ticket next to a shorter stale head",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work"), ctx(5, "/r/a", "ABC-1-work")}, presence(0, 12, 1)),
+			want:   []wantBlock{{0, 12, "ABC-1", resolver.TierSuggested, "context unconfirmed for 15h"}},
+		},
+		{
+			name: "a short confirmed block between a short stale and a long confirmed block joins the confirmed one",
+			events: join(
+				[]event.Event{ctx(-900, "/r/a", "ABC-1-work"), ctx(5, "/r/a", "ABC-1-work"), ctx(12, "/r/b", "ABC-1-other")},
+				presence(0, 100, 1),
+			),
+			want: []wantBlock{
+				{0, 5, "ABC-1", resolver.TierSuggested, "context unconfirmed for 15h"},
+				{5, 100, "ABC-1", resolver.TierExplicit, ""},
+			},
+		},
+		{
+			name:   "halves of the age cut that stay below the minimum together are unknown like any short block",
+			events: join([]event.Event{branch}, presence(117, 122, 1)),
+			want:   []wantBlock{{117, 122, "", resolver.TierUnknown, minBlockReason}},
+		},
+		{
 			name:   "a short stale block without a neighbour of its ticket is unknown like any short block",
 			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work")}, presence(0, 8, 1)),
 			want:   []wantBlock{{0, 8, "", resolver.TierUnknown, minBlockReason}},

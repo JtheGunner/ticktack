@@ -82,8 +82,10 @@ type Explanation struct {
 	// (SourceContext only): the block keeps the ticket of Decision, but only
 	// as a suggestion.
 	Stale bool
-	// Age is how long the context was unconfirmed at the start of the block
-	// and ConfirmedAt when it was last confirmed (both set when Stale).
+	// Age is how long the context was unconfirmed when its stale time in the
+	// block began (the block start, unless a short confirmed block was merged
+	// in front of it) and ConfirmedAt when it was last confirmed (both set
+	// when Stale).
 	Age         time.Duration
 	ConfirmedAt time.Time
 	// Pinned reports that the stale context is a manual pin from an earlier
@@ -117,10 +119,11 @@ func Block(in Input) Explanation {
 	}
 	cd, ok := matchingStep(steps, in.Block)
 	if !ok {
-		cd, ok = staleStep(steps, in)
+		var age time.Duration
+		cd, age, ok = staleStep(steps, in)
 		if ok {
 			ex.Stale = true
-			ex.Age = in.Block.Start.Sub(cd.ConfirmedAt)
+			ex.Age = age
 			ex.ConfirmedAt = cd.ConfirmedAt
 			ex.Pinned = cd.ManualTicket != ""
 			ex.MaxAge = in.Config.Normalized().ContextMaxAge
@@ -179,22 +182,42 @@ func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (ses
 	return sessionizer.ContextDecision{}, false
 }
 
-// staleStep returns the first step whose context had gone stale by the start
-// of the block and whose stale attribution (see sessionizer.StaleAttribution)
-// equals the block's own.
-func staleStep(steps []sessionizer.ContextDecision, in Input) (sessionizer.ContextDecision, bool) {
+// staleStep returns the first step whose context was stale during the block
+// and whose stale attribution (see sessionizer.StaleAttribution) equals the
+// block's own, together with the age of that context when its stale time in
+// the block began. That moment is not always the block start: a short
+// confirmed block that merged into a stale neighbour takes the neighbour's
+// tier and reason, so the block can begin before its context went stale.
+func staleStep(steps []sessionizer.ContextDecision, in Input) (sessionizer.ContextDecision, time.Duration, bool) {
 	b := in.Block
-	for _, s := range steps {
+	for i, s := range steps {
 		staleFrom, ok := in.Config.StaleFrom(s)
-		if !ok || b.Start.Before(staleFrom) {
+		if !ok {
 			continue
 		}
-		a := sessionizer.StaleAttribution(s.Decision.Attribution, b.Start.Sub(s.ConfirmedAt))
+		// The step is in effect inside the block from from to until.
+		from, until := laterOf(b.Start, s.At), b.End
+		if i+1 < len(steps) {
+			until = steps[i+1].At
+		}
+		staleStart := laterOf(from, staleFrom)
+		if !staleStart.Before(until) {
+			continue
+		}
+		age := staleStart.Sub(s.ConfirmedAt)
+		a := sessionizer.StaleAttribution(s.Decision.Attribution, age)
 		if a != s.Decision.Attribution && a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
-			return s, true
+			return s, age, true
 		}
 	}
-	return sessionizer.ContextDecision{}, false
+	return sessionizer.ContextDecision{}, 0, false
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // distinctSteps drops steps that repeat an earlier attribution.
