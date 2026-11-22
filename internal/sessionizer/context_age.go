@@ -54,6 +54,22 @@ func StaleAttribution(a resolver.Attribution, age time.Duration) resolver.Attrib
 	return resolver.Attribution{Ticket: a.Ticket, Tier: resolver.TierSuggested, Reason: StaleReason(age)}
 }
 
+// NeutralAppReason is the block reason of time spent in a neutral app: the
+// ticket of the context stays, as a suggestion. It deliberately does not start
+// with the stale prefix, so such time is never counted as carried.
+const NeutralAppReason = "foreground app class neutral"
+
+// NeutralAppAttribution is the attribution of time in a neutral app: the
+// ticket stays as a suggestion with NeutralAppReason. An attribution without a
+// ticket, or one that is already no more than a suggestion (stale context
+// keeps its own reason), is returned unchanged.
+func NeutralAppAttribution(a resolver.Attribution) resolver.Attribution {
+	if a.Ticket == "" || a.Tier == resolver.TierSuggested || a.Tier == resolver.TierUnknown {
+		return a
+	}
+	return resolver.Attribution{Ticket: a.Ticket, Tier: resolver.TierSuggested, Reason: NeutralAppReason}
+}
+
 // StaleReason is the block reason for context unconfirmed for age. The age is
 // cut to whole minutes.
 func StaleReason(age time.Duration) string {

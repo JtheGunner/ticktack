@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
@@ -44,6 +45,15 @@ func msgExplainStale(reason, confirmedAt, maxAge string, pinned bool) string {
 		return fmt.Sprintf("%s: the manual switch was set at %s and is exempt from context_max_age only on that day; confirm the ticket in review", reason, confirmedAt)
 	}
 	return fmt.Sprintf("%s: last confirmed at %s, limit %s (context_max_age); confirm the ticket in review", reason, confirmedAt, maxAge)
+}
+
+// msgExplainAppClass names the app class as the reason a block is only a
+// suggestion. app is the bundle ID and can be empty.
+func msgExplainAppClass(class config.AppClass, app string) string {
+	if app == "" {
+		return fmt.Sprintf("%s: the foreground app is in class %q (app_classes); the ticket stays, confirm it in review", sessionizer.NeutralAppReason, class)
+	}
+	return fmt.Sprintf("%s: the foreground app %s is in class %q (app_classes); the ticket stays, confirm it in review", sessionizer.NeutralAppReason, app, class)
 }
 
 // msgExplainFolded names the rule that put a short block of another ticket

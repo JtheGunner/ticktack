@@ -21,8 +21,8 @@ type fakeSink struct {
 	closed bool
 }
 
-func (f *fakeSink) Append(_ context.Context, e event.Event) error {
-	f.events = append(f.events, e)
+func (f *fakeSink) AppendBatch(_ context.Context, events []event.Event) error {
+	f.events = append(f.events, events...)
 	return nil
 }
 

@@ -225,6 +225,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
 | `[[rules]]`          | none                   | Fixed mappings with `repo` (absolute path or starting with `~/`) and `ticket` (must match `ticket_pattern`). Repeatable. |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
+| `[app_classes]`      | empty                  | Maps a macOS bundle ID of the foreground app to a class, for example `"us.zoom.xos" = "neutral"`. `work` (the default for an unlisted app) keeps the ticket; `neutral` keeps it but only as `suggested`, with the reason `foreground app class neutral`; `personal` ends the time, which is not counted and does not show as unassigned. ticktack ships no app list. Only the bundle ID is used, never a window title. Bundle IDs are matched exactly and case-sensitively, as macOS reports them (surrounding spaces are ignored); listing one app twice, also with different case, is an error. |
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
 | `[scan]`             | `interval = "0"`       | Periodic git scan by the agent. `"0"` is off; otherwise at least `"5m"`. |
 | `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (required, for example `"Meetings / Admin"`). Turns on standard tasks (see below). |
@@ -358,7 +359,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - Never stored: window titles, screenshots, keystrokes, file contents. Titles may be parsed in memory for a project hint only.
 - `ticktack scan` runs the local `git` binary read-only on your configured repositories and keeps only repo, branch, ticket hint and timestamp.
 - Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
-- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`).
+- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`). The database runs in WAL mode, so `events.db-wal` and `events.db-shm` appear next to it while it is in use; they hold the same data, carry the same `0600` mode and are removed with the database file when you delete the data directory. `ticktack purge` empties the tables and leaves no events behind in them. The bundled SQLite (3.54.1 in `modernc.org/sqlite` v1.62.0) contains the fix for the WAL-reset bug (3.51.3, backports 3.44.6 and 3.50.7); a test fails if a driver update falls below it.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.

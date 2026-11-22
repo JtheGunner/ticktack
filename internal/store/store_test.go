@@ -136,7 +136,8 @@ func TestEventsAreImmutable(t *testing.T) {
 	typ := reflect.TypeOf(&Store{})
 	allowed := map[string]bool{
 		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
-		"Purge": true, "Close": true, "InTx": true, "CheckWritable": true,
+		"AppendBatch": true,
+		"Purge":       true, "Close": true, "InTx": true, "CheckWritable": true,
 		// CarriedContext only reads the events table.
 		"CarriedContext": true,
 		// Ledger and sync history methods never touch the events table.

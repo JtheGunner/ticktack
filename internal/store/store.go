@@ -39,13 +39,35 @@ type dbtx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// dsnOptions configures every connection:
+//
+//   - busy_timeout makes a connection wait up to 5s for a lock instead of
+//     failing at once with SQLITE_BUSY. It comes first so the journal_mode
+//     change below already waits.
+//   - journal_mode(WAL) lets readers and one writer run side by side; the
+//     agent, the shell hook and the CLI share one database file.
+//   - _txlock=immediate makes every transaction start with BEGIN IMMEDIATE,
+//     so it takes the write lock up front (and waits for it) instead of
+//     failing with SQLITE_BUSY_SNAPSHOT when it upgrades from a read.
+//     TestTransactionsTakeTheWriteLockImmediately proves the driver honours it.
+//
+// SQLite versions before 3.51.3 (backports 3.44.6 and 3.50.7) can corrupt a
+// WAL database when several connections write and checkpoint at the same time
+// (the "WAL-reset bug"). modernc.org/sqlite v1.62.0 bundles SQLite 3.54.1;
+// TestBundledSQLiteHasWALResetFix fails when a driver update goes below the
+// fixed versions.
+const dsnOptions = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+
 // Open opens (creating if needed) the database at path and applies all
 // pending migrations.
 func Open(path string) (*Store, error) {
 	if err := restrictFile(path); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	if strings.Contains(path, "?") {
+		return nil, fmt.Errorf("open database: path %q contains '?'", path)
+	}
+	db, err := sql.Open("sqlite", path+dsnOptions)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -75,11 +97,8 @@ func restrictFile(path string) error {
 }
 
 func migrate(db *sql.DB) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		name TEXT PRIMARY KEY,
-		applied_at INTEGER NOT NULL
-	)`); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
+	if err := ensureMigrationsTable(db); err != nil {
+		return err
 	}
 	entries, err := migrationFiles.ReadDir("migrations")
 	if err != nil {
@@ -98,23 +117,65 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+// ensureMigrationsTable creates the bookkeeping table in a write transaction,
+// and only when it is missing: a plain CREATE TABLE IF NOT EXISTS outside a
+// transaction fails at once with SQLITE_BUSY while another process writes,
+// instead of waiting for the lock.
+func ensureMigrationsTable(db *sql.DB) error {
+	var present int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", migrationsTable).Scan(&present); err != nil {
+		return fmt.Errorf("check schema_migrations: %w", err)
+	}
+	if present > 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin schema_migrations: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name TEXT PRIMARY KEY,
+		applied_at INTEGER NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schema_migrations: %w", err)
+	}
+	return nil
+}
+
 func applyMigration(db *sql.DB, name string) error {
-	var exists int
-	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE name = ?", name).Scan(&exists); err != nil {
+	// Fast path without the write lock: an up-to-date database must open while
+	// another process holds a write transaction. The check is repeated inside
+	// the transaction below, which is the one that decides.
+	var applied int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE name = ?", name).Scan(&applied); err != nil {
 		return fmt.Errorf("check migration %s: %w", name, err)
 	}
-	if exists > 0 {
+	if applied > 0 {
 		return nil
 	}
 	body, err := migrationFiles.ReadFile("migrations/" + name)
 	if err != nil {
 		return fmt.Errorf("read migration %s: %w", name, err)
 	}
+	// The write lock is taken by BEGIN IMMEDIATE, so the "already applied"
+	// check and the apply are one atomic step: of several processes opening a
+	// fresh database, exactly one applies each migration.
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin migration %s: %w", name, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	var exists int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE name = ?", name).Scan(&exists); err != nil {
+		return fmt.Errorf("check migration %s: %w", name, err)
+	}
+	if exists > 0 {
+		return nil
+	}
 	if _, err := tx.Exec(string(body)); err != nil {
 		return fmt.Errorf("apply migration %s: %w", name, err)
 	}
@@ -147,6 +208,22 @@ func (s *Store) Append(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("append event: %w", err)
 	}
 	return nil
+}
+
+// AppendBatch stores events in one transaction: either all of them are
+// stored or none. Events with a known Key are ignored like in Append.
+func (s *Store) AppendBatch(ctx context.Context, events []event.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	return s.InTx(ctx, func(tx Tx) error {
+		for _, e := range events {
+			if err := tx.Append(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Events returns events with from <= At < to, ordered by time.
