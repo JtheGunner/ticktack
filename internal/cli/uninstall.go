@@ -24,8 +24,10 @@ var ErrUninstallIncomplete = errors.New("uninstall incomplete")
 // uninstallDeps holds everything uninstall touches outside of pure logic.
 type uninstallDeps struct {
 	Home string
-	GOOS string
-	UID  int
+	// ZDotDir is the value of $ZDOTDIR, where `init` put the zsh hook.
+	ZDotDir string
+	GOOS    string
+	UID     int
 	// Launchctl runs launchctl with args and returns its combined output.
 	Launchctl func(ctx context.Context, args ...string) (string, error)
 	// DeleteToken removes the token from the keychain; token.ErrNotSet means
@@ -60,6 +62,7 @@ func defaultUninstallDeps(cmd *cobra.Command) uninstallDeps {
 	doctor := defaultDoctorDeps(cmd)
 	return uninstallDeps{
 		Home:        doctor.Home,
+		ZDotDir:     doctor.ZDotDir,
 		GOOS:        doctor.GOOS,
 		UID:         doctor.UID,
 		Launchctl:   runLaunchctl,
@@ -124,7 +127,7 @@ func uninstallPrompt(deps uninstallDeps) string {
 	if plist := agentPlistPath(deps.Home); fileExists(plist) {
 		lines = append(lines, fmt.Sprintf(msgUninstallPromptAgent, SanitizeForTerminal(plist)))
 	}
-	for _, rc := range rcFileCandidates(deps.Home) {
+	for _, rc := range rcFileCandidates(deps.Home, deps.ZDotDir) {
 		if data, err := os.ReadFile(rc); err == nil && strings.Contains(string(data), rcBlockBegin) {
 			lines = append(lines, fmt.Sprintf(msgUninstallPromptHook, SanitizeForTerminal(rc)))
 		}
@@ -180,7 +183,7 @@ func isServiceNotFound(output string) bool {
 // one.
 func (r *uninstallRun) hookStep() {
 	found := false
-	for _, rc := range rcFileCandidates(r.deps.Home) {
+	for _, rc := range rcFileCandidates(r.deps.Home, r.deps.ZDotDir) {
 		removed, err := removeHook(rc)
 		if err != nil {
 			found = true

@@ -285,7 +285,7 @@ func (r *initRun) hookStep() {
 		r.say(render.StatusFail, msgInitHookUnsupported, SanitizeForTerminal(shell))
 		return
 	}
-	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell)
+	rc, err := rcFileFor(r.deps.Doctor.Home, r.deps.Doctor.GOOS, shell, r.deps.Doctor.ZDotDir)
 	if err != nil {
 		r.say(render.StatusFail, msgInitHookFailed, SanitizeForTerminal(err.Error()))
 		return

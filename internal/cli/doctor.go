@@ -77,7 +77,10 @@ type eventReader interface {
 
 // doctorDeps holds everything the checks touch outside of pure logic.
 type doctorDeps struct {
-	Home       string
+	Home string
+	// ZDotDir is the value of $ZDOTDIR; zsh reads its startup files from there
+	// when it is set.
+	ZDotDir    string
 	GOOS       string
 	UID        int
 	Now        func() time.Time
@@ -113,6 +116,7 @@ func defaultDoctorDeps(cmd *cobra.Command) doctorDeps {
 	return doctorDeps{
 		Render:     rendererFor(cmd, cmd.OutOrStdout()),
 		Home:       home,
+		ZDotDir:    os.Getenv("ZDOTDIR"),
 		GOOS:       runtime.GOOS,
 		UID:        os.Getuid(),
 		Now:        func() time.Time { return time.Now().Round(0) },
@@ -254,11 +258,7 @@ func checkConfig(_ context.Context, deps doctorDeps) checkResult {
 
 // installedRCFile returns the first shell rc file holding a managed block.
 func installedRCFile(deps doctorDeps) (string, bool) {
-	for _, shell := range []string{"zsh", "bash", "fish"} {
-		path, err := rcFileFor(deps.Home, deps.GOOS, shell)
-		if err != nil {
-			continue
-		}
+	for _, path := range rcFileCandidates(deps.Home, deps.ZDotDir) {
 		data, err := os.ReadFile(path)
 		if err == nil && hasManagedBlock(string(data)) {
 			return path, true

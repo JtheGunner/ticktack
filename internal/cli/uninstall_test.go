@@ -236,6 +236,34 @@ func TestUninstallRemovesTheBlockFromEveryShell(t *testing.T) {
 	}
 }
 
+func TestUninstallRemovesTheBlockFromZDOTDIRAndEveryBashLoginFile(t *testing.T) {
+	env, deps := newInstalledEnv(t, "")
+	zdot := filepath.Join(env.home, "zdot")
+	deps.ZDotDir = zdot
+	block := renderManagedBlock("ticktack hook")
+	rcFiles := []string{
+		filepath.Join(zdot, ".zshrc"),
+		filepath.Join(env.home, ".bash_login"),
+		filepath.Join(env.home, ".profile"),
+	}
+	for _, path := range rcFiles {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("before\n\n"+block+"after\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runUninstall(context.Background(), deps, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range rcFiles {
+		if got, want := readFile(t, path), "before\n\nafter\n"; got != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestUninstallKeepsGoingAndFailsOnABrokenStep(t *testing.T) {
 	t.Run("unterminated block", func(t *testing.T) {
 		env, deps := newInstalledEnv(t, "")
