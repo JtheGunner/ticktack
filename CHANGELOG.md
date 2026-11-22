@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The work item text names the commits of the booked time. `ticktack sync` and `ticktack auto` read the subjects from the repository with the local `git` when they run (unique subjects in the order they were made, at most 5 and 200 characters each, then `+N more`; merge, `fixup!` and `squash!` commits are left out; control characters are removed). Without commits, or with an unreadable repository, the text stays the short summary. The `[ticktack:<key>]` marker stays at the end. Subjects are not stored on `events`; the booked text is kept in `sync_entries` for undo, as before. Turn it off with `description_from_commits = false` (default `true`).
+- Migration `0009` adds `previous_text` to `sync_entries`, the text a work item had before an update or a deletion.
 - `ticktack review` offers idle gaps (holes of at least `gap_threshold` between the first and the last presence of the day) as entries. Fill one with a ticket (`t`; `s` fills the part after a split time), mark it as a break (`b`) or discard it (`d`); time in a `personal` app is never offered. A filled gap is an `explicit` block with the reason `manuell gefüllt`, created only by that action; `ticktack auto` never fills gaps, and `ticktack explain` names the manual fill.
 - Breaks are stored apart from discards, are never booked, and show as their own sum in `ticktack review` and `ticktack today`.
 - `z` in `ticktack review` undoes the last action of the session (repeatable) and takes it out of the review log's correction count.
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The content hash in the ledger now decides: `ticktack sync` skips a booked item only when its minutes and its text are unchanged, and updates it when the text changed. `ticktack undo` restores the earlier text together with the earlier minutes, and books a deleted item again with the text it had; entries of earlier versions keep the old behaviour.
 - Context no longer vouches for time without limit. Time under a repository and branch that were not confirmed for longer than `context_max_age` keeps its ticket but is only tier `suggested`, with the reason `context unconfirmed for <age>`: confirm it in `ticktack review`; `ticktack auto` does not book it. A shell prompt, checkout, commit or title hint on the same repository and branch confirms the context again. This also applies to the branch a day starts with from the day before.
 - A pin (`ticktack switch`) is exempt from that limit on the day it was set. On the following days it still decides the ticket, but only as `suggested`, so a forgotten pin no longer books as `explicit` for days. This does not depend on `context_max_age` and also holds with `"0"`.
 - `ticktack explain` names the age of the context and its last confirmation for such a block.

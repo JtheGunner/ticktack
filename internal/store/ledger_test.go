@@ -119,3 +119,39 @@ func TestRecordDeletionRemovesRowAndKeepsUndoEntry(t *testing.T) {
 		t.Fatalf("entry = %+v, want %+v", got, deleted)
 	}
 }
+
+func TestSyncEntryKeepsPreviousTextAndLastBookedTextFollowsTheHistory(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	const date, typ = "2026-01-05", "Development"
+	row := func(minutes int) LedgerRow {
+		return LedgerRow{Issue: "A-1", Date: date, Type: typ, WorkItemID: "A-1/1", Minutes: minutes, ContentHash: "h", BookedAt: base}
+	}
+	if _, ok, err := s.LastBookedText(ctx, "A-1", date, typ); err != nil || ok {
+		t.Fatalf("empty history: ok=%v err=%v", ok, err)
+	}
+	first, _ := s.BeginSyncRun(ctx, base)
+	if err := s.RecordBooking(ctx, first, row(30), SyncEntry{Issue: "A-1", Date: date, Type: typ, Action: "created", WorkItemID: "A-1/1", NewMinutes: 30, Text: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := s.BeginSyncRun(ctx, base.Add(time.Hour))
+	if err := s.RecordBooking(ctx, second, row(45), SyncEntry{Issue: "A-1", Date: date, Type: typ, Action: "updated", WorkItemID: "A-1/1", PreviousMinutes: 30, NewMinutes: 45, Text: "two", PreviousText: "one"}); err != nil {
+		t.Fatal(err)
+	}
+
+	text, ok, err := s.LastBookedText(ctx, "A-1", date, typ)
+	if err != nil || !ok || text != "two" {
+		t.Fatalf("LastBookedText = %q ok=%v err=%v, want two", text, ok, err)
+	}
+	last, _, err := s.LastSyncRun(ctx)
+	if err != nil || len(last.Entries) != 1 || last.Entries[0].PreviousText != "one" {
+		t.Fatalf("entry = %+v err=%v", last.Entries, err)
+	}
+	restore := row(30)
+	if err := s.RevertEntry(ctx, second, last.Entries[0], &restore); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := s.LastBookedText(ctx, "A-1", date, typ); text != "one" {
+		t.Errorf("LastBookedText after undo = %q, want one", text)
+	}
+}

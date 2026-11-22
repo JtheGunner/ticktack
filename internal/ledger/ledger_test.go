@@ -180,6 +180,22 @@ func (r *fakeRepo) LastSyncRun(context.Context) (store.SyncRun, bool, error) {
 	return *r.runs[best], true, nil
 }
 
+func (r *fakeRepo) LastBookedText(_ context.Context, issue, date, typ string) (string, bool, error) {
+	var bestRun int64
+	var text string
+	for id, run := range r.runs {
+		for _, e := range run.Entries {
+			if e.Issue != issue || e.Date != date || e.Type != typ || id < bestRun {
+				continue
+			}
+			if e.Action == entryActionCreated || e.Action == entryActionUpdated || e.Action == entryActionRecovered {
+				bestRun, text = id, e.Text
+			}
+		}
+	}
+	return text, bestRun != 0, nil
+}
+
 func (r *fakeRepo) RevertEntry(_ context.Context, runID int64, e store.SyncEntry, restore *store.LedgerRow) error {
 	k := rowKey(e.Issue, e.Date, e.Type)
 	if restore != nil {
