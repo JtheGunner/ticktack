@@ -1,5 +1,6 @@
 # Build output
 /bin/
+/dist/
 
 # Local planning material (design, plan) — never committed
 .planning/

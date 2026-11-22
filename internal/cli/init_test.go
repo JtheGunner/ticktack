@@ -149,6 +149,26 @@ func TestInitIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestInitCreatesLogFileOwnerOnly(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	opts := initOptions{Yes: true, URL: "https://yt.example.com", SkipToken: true}
+	var out bytes.Buffer
+	if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
+		t.Fatal(err)
+	}
+	logPath, err := paths.LogPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("log file was not created: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("log file mode = %v, want 0600", got)
+	}
+}
+
 func TestInitNeverEchoesToken(t *testing.T) {
 	env := newTestEnv(t, testSecret+"\n", "")
 	// A failing token setter must not leak the secret through its error path.

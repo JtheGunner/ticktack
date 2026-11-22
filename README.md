@@ -84,7 +84,7 @@ brew install JtheGunner/tap/ticktack
 go install github.com/JtheGunner/ticktack/cmd/ticktack@latest
 ```
 
-Check the install with `ticktack version`.
+Check the install with `ticktack version`. A `go install` build reports the module version, or `dev-<revision>` when built from a checkout.
 
 `ticktack init` writes two things into the launchd agent definition:
 
@@ -320,7 +320,8 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 
 - Never stored: window titles, screenshots, keystrokes, file contents. Titles may be parsed in memory for a project hint only.
 - `ticktack scan` runs the local `git` binary read-only on your configured repositories and keeps only repo, branch, ticket hint and timestamp.
-- The only network call is the YouTrack sync. The optional ActivityWatch import talks to a loopback address only. There is no telemetry.
+- Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
+- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`).
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
@@ -347,6 +348,10 @@ make lint     # golangci-lint run ./...
 | `internal/store/`, `internal/ledger/` | SQLite storage (pure Go, no CGO) and the booking ledger. |
 | `internal/sink/`, `internal/youtrack/` | The booking target and its YouTrack client.      |
 | `internal/config/`, `internal/paths/`, `internal/token/` | Config loading, file locations, keychain access. |
+| `internal/event/`, `internal/localday/`, `internal/ticketid/` | The event model, local calendar-day boundaries and ticket-id matching. `localday` and the shared interfaces use `cloud.google.com/go/civil.Date`: the dependency stays because only that subpackage is compiled and a custom date type would add risk at date boundaries. |
+| `internal/review/`, `internal/suggest/`, `internal/explain/`, `internal/auto/` | Review flow, ticket suggestions, block explanations and auto mode. |
+| `internal/reporoots/`, `internal/shellhook/` | Repository discovery under `repo_roots` and the shell-hook snippets. |
+| `internal/logfile/`, `internal/runlock/`, `internal/loopback/` | Rotating log, single-run lock and the loopback-only address check. |
 
 Tests are table-driven and the YouTrack client is tested against an `httptest` server; no test talks to a real YouTrack instance.
 
@@ -356,13 +361,14 @@ Tests are table-driven and the YouTrack client is tested against an `httptest` s
 
 | Job name               | Check                                                  |
 |------------------------|--------------------------------------------------------|
-| `lint`                 | `golangci-lint` (version pinned in the workflow)       |
-| `test (macos-latest)`  | `make test` (`CGO_ENABLED=0 go test ./...`) on macOS   |
-| `test (ubuntu-latest)` | the same tests on Linux, to catch portability issues   |
+| `lint`                 | `golangci-lint` (version pinned in the workflow) on Linux |
+| `lint-macos`           | the same lint on macOS, the only run that analyses the darwin-only files (advisory, not required) |
+| `test (macos-latest)`  | `make test` (`CGO_ENABLED=0 go test ./...`), then `go test -race ./...` on macOS |
+| `test (ubuntu-latest)` | the same tests and race run on Linux, to catch portability issues |
 | `build`                | `make build` on macOS                                  |
 | `tidy`                 | `go mod tidy -diff` fails when `go.mod`/`go.sum` drift |
 
-Register these five job names as required status checks when protecting `main`.
+Register `lint`, `test (macos-latest)`, `test (ubuntu-latest)`, `build` and `tidy` as required status checks when protecting `main`. `make test-race` runs the race tests locally.
 
 [`.github/workflows/docs-drift.yml`](.github/workflows/docs-drift.yml) also runs on every pull request. It uses [doc-drift-checker](https://github.com/JtheGunner/doc-drift-checker) to flag README sections whose code changed while the section did not, and reports them as annotations. It never fails the build, so its `docs-drift` job is advisory and not a required check. Configuration lives in [`.docdrift.yaml`](.docdrift.yaml). To run it locally against `main`:
 

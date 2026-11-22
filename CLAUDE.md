@@ -18,7 +18,7 @@ Deltas to the global rules in `~/.claude/rules/`. Passive time tracker (Go CLI) 
 ## Privacy invariants (anti-goals — a change that breaks one is a bug)
 
 - Never persist window titles, screenshots, keystrokes, or file contents. Titles may be parsed in memory for a project hint only.
-- Only network call: the YouTrack sync. No telemetry.
+- Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
 - The YouTrack token lives in the OS keychain, never in config, env files, logs, or tests.
 - Nothing is booked without review unless the user enabled auto mode and the trust gate is met.
 

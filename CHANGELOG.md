@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The database and the agent log file are created with mode `0600` (an existing database is narrowed to `0600`); they used to follow the umask (`0644`) inside a `0700` directory.
+- `ticktack version` of a `go install` build reports the module version or `dev-<revision>` instead of `dev`.
+- The generated config now documents `repo_roots` and `[default_issue]`.
 - `ticktack uninstall` now deletes everything the log writer owns: the log file, its backup (`.1`), the throttle state (`.throttle`) and leftover temporary files, not only `ticktack.log`.
 - `ticktack uninstall` no longer treats every `launchctl print` error as "agent not loaded". Only launchctl's "service not found" result skips the unload; any other error is reported as a failure and the command exits non-zero (the plist is still removed).
 - `ticktack purge` now empties every table of the local database. The cached YouTrack project list, the remembered standard tasks and the consent to create them used to survive, so auto mode could create a standard task without asking again.

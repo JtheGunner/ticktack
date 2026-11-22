@@ -65,10 +65,15 @@ func TestExampleConfigDocumentsEveryKey(t *testing.T) {
 		"ticket_pattern", "repo_paths", "time_zone", "[[rules]]", "repo =", "ticket =",
 		"[titlehint]", "enabled", "[titlehint.projects]", "[activitywatch]", "url", "hostname",
 		"[auto]", "trusted_days", "[scan]", "interval",
+		"idle_threshold", "repo_roots", "[default_issue]", "project =", "summary =",
 	}
+	generated := DefaultTOML("")
 	for _, key := range keys {
 		if !strings.Contains(data, key) {
 			t.Errorf("example config does not mention %q", key)
+		}
+		if !strings.Contains(generated, key) {
+			t.Errorf("DefaultTOML does not mention %q", key)
 		}
 	}
 }
