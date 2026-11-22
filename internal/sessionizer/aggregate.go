@@ -64,6 +64,9 @@ type DayItem struct {
 	// OverCap is set on every item of a day whose rounded total exceeds
 	// RoundingConfig.DailyCap. Time is never truncated silently.
 	OverCap bool
+	// Certainty splits Minutes by tier; it always adds up to Minutes. See
+	// apportionCertainty for how rounding distributes it.
+	Certainty Certainty
 }
 
 type dayKey struct {
@@ -74,6 +77,8 @@ type dayKey struct {
 type dayTotal struct {
 	duration time.Duration
 	blocks   int
+	// byBucket splits duration by certainty class.
+	byBucket [bucketCount]time.Duration
 }
 
 // Aggregate splits blocks at the local day boundary in loc, sums the time per
@@ -105,6 +110,7 @@ func Aggregate(blocks []Block, cfg RoundingConfig, loc *time.Location) []DayItem
 				totals[key] = t
 			}
 			t.duration += end.Sub(cur)
+			t.byBucket[bucketOf(b)] += end.Sub(cur)
 			t.blocks++
 			cur = end
 		}
@@ -177,6 +183,7 @@ func roundDay(date civil.Date, keys []dayKey, totals map[dayKey]*dayTotal, cfg R
 			Description: describe(k.ticket, t.blocks),
 			RawMinutes:  int((t.duration + 30*time.Second) / time.Minute),
 			OverCap:     overCap,
+			Certainty:   apportionCertainty(t.byBucket, units[i], step),
 		})
 	}
 	return items

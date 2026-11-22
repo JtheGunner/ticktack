@@ -36,6 +36,7 @@ func MergeItems(items []DayItem) []DayItem {
 		}
 		out[i].Minutes += it.Minutes
 		out[i].RawMinutes += it.RawMinutes
+		out[i].Certainty = out[i].Certainty.Add(it.Certainty)
 		out[i].OverCap = out[i].OverCap || it.OverCap
 	}
 	return out
