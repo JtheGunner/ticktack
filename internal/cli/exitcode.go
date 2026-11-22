@@ -16,5 +16,5 @@ func ExitCode(err error) int {
 // IsSilent reports whether err was already explained on stdout, so main need
 // not print it again.
 func IsSilent(err error) bool {
-	return errors.Is(err, ErrChecksFailed)
+	return errors.Is(err, ErrChecksFailed) || errors.Is(err, ErrUninstallIncomplete)
 }
