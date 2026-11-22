@@ -39,7 +39,8 @@ func (f *fakeLaunchctl) run(_ context.Context, args ...string) (string, error) {
 	switch args[0] {
 	case "print":
 		if !f.loaded {
-			return "", errors.New("not loaded")
+			return `Could not find service "dev.ticktack.agent" in domain for user gui: 501`,
+				errors.New("exit status 113")
 		}
 	case "bootout":
 		f.loaded = false

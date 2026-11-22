@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/token"
@@ -284,6 +285,118 @@ func TestUninstallKeepsGoingAndFailsOnABrokenStep(t *testing.T) {
 		}
 		if fileExists(env.plist) {
 			t.Error("the plist stayed, so the agent would start again at the next login")
+		}
+	})
+}
+
+func TestUninstallAgentStepReadsLaunchctlPrintResult(t *testing.T) {
+	tests := []struct {
+		name        string
+		printOut    string
+		printErr    error
+		wantFail    bool
+		wantBootout bool
+	}{
+		{name: "service not found by text", printOut: `Could not find service "dev.ticktack.agent" in domain for user gui: 501`, printErr: errors.New("exit status 113")},
+		{name: "no such process", printOut: "Boot-out failed: 3: No such process", printErr: errors.New("exit status 3")},
+		{name: "other error fails", printOut: "Operation not permitted", printErr: errors.New("exit status 1"), wantFail: true},
+		{name: "error without output fails", printErr: errors.New("signal: killed"), wantFail: true},
+		{name: "loaded service is booted out", wantBootout: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, deps := newInstalledEnv(t, "")
+			var calls []string
+			deps.Launchctl = func(_ context.Context, args ...string) (string, error) {
+				calls = append(calls, args[0])
+				if args[0] == "print" {
+					return tt.printOut, tt.printErr
+				}
+				return "", nil
+			}
+			err := runUninstall(context.Background(), deps, true)
+			if tt.wantFail {
+				if !errors.Is(err, ErrUninstallIncomplete) {
+					t.Fatalf("err = %v, want ErrUninstallIncomplete\n%s", err, env.out)
+				}
+			} else if err != nil {
+				t.Fatalf("err = %v, want success\n%s", err, env.out)
+			}
+			if gotBootout := strings.Contains(strings.Join(calls, " "), "bootout"); gotBootout != tt.wantBootout {
+				t.Errorf("bootout called = %v, want %v (calls %v)", gotBootout, tt.wantBootout, calls)
+			}
+			if fileExists(env.plist) {
+				t.Error("the plist stayed, so the agent would start again at the next login")
+			}
+		})
+	}
+}
+
+func TestUninstallRemovesEveryLogFile(t *testing.T) {
+	t.Run("log, backup, state and temp files", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		files := logfile.Files(env.log)
+		for _, path := range files {
+			if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := runUninstall(context.Background(), deps, true); err != nil {
+			t.Fatalf("uninstall: %v\n%s", err, env.out)
+		}
+		for _, path := range files {
+			if fileExists(path) {
+				t.Errorf("%s still exists", path)
+			}
+		}
+	})
+	t.Run("only some exist", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		if err := os.WriteFile(env.log+".throttle", []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := runUninstall(context.Background(), deps, true); err != nil {
+			t.Fatalf("uninstall: %v\n%s", err, env.out)
+		}
+		if fileExists(env.log) || fileExists(env.log+".throttle") {
+			t.Error("log files left behind")
+		}
+	})
+	t.Run("the question lists the files that exist", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "n\n")
+		if err := os.WriteFile(env.log+".1", []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := runUninstall(context.Background(), deps, false); err != nil {
+			t.Fatal(err)
+		}
+		out := env.out.String()
+		if !strings.Contains(out, env.log+".1") {
+			t.Errorf("question does not mention the backup:\n%s", out)
+		}
+		if strings.Contains(out, env.log+".throttle") {
+			t.Errorf("question mentions a file that does not exist:\n%s", out)
+		}
+	})
+	t.Run("one failing removal is reported and the rest goes", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		// A non-empty directory cannot be removed with os.Remove.
+		stuck := env.log + ".1"
+		if err := os.MkdirAll(filepath.Join(stuck, "child"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(env.log+".throttle", []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := runUninstall(context.Background(), deps, true)
+		if !errors.Is(err, ErrUninstallIncomplete) {
+			t.Fatalf("err = %v, want ErrUninstallIncomplete\n%s", err, env.out)
+		}
+		if fileExists(env.log) || fileExists(env.log+".throttle") {
+			t.Error("the other log files were not removed")
+		}
+		if !fileExists(stuck) {
+			t.Error("the stuck path vanished unexpectedly")
 		}
 	})
 }

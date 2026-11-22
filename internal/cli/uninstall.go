@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/token"
@@ -44,7 +45,7 @@ func newUninstallCommand() *cobra.Command {
 		Short: "Remove the launchd agent, shell hook, token and log",
 		Long: "Reverses `ticktack init`: unloads and removes the launchd agent, removes the " +
 			"managed block from the shell startup files, deletes the YouTrack token from the " +
-			"OS keychain and deletes the log file. The config file, the database and the " +
+			"OS keychain and deletes the log file with its backup and state files. The config file, the database and the " +
 			"binary stay; `ticktack purge` deletes the data.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -129,8 +130,12 @@ func uninstallPrompt(deps uninstallDeps) string {
 		}
 	}
 	lines = append(lines, msgUninstallPromptToken)
-	if logPath, err := deps.LogPath(); err == nil && fileExists(logPath) {
-		lines = append(lines, fmt.Sprintf(msgUninstallPromptLog, SanitizeForTerminal(logPath)))
+	if logPath, err := deps.LogPath(); err == nil {
+		for _, path := range logfile.Files(logPath) {
+			if fileExists(path) {
+				lines = append(lines, fmt.Sprintf(msgUninstallPromptLog, SanitizeForTerminal(path)))
+			}
+		}
 	}
 	lines = append(lines, msgUninstallPromptKept)
 	return strings.Join(lines, "\n") + "\n" + msgUninstallPromptAsk
@@ -141,17 +146,34 @@ func uninstallPrompt(deps uninstallDeps) string {
 func (r *uninstallRun) agentStep(ctx context.Context) {
 	if r.deps.GOOS == "darwin" {
 		service := fmt.Sprintf("gui/%d/%s", r.deps.UID, launchd.Label)
-		if _, err := r.deps.Launchctl(ctx, "print", service); err == nil {
+		printOut, printErr := r.deps.Launchctl(ctx, "print", service)
+		switch {
+		case printErr == nil:
 			if out, err := r.deps.Launchctl(ctx, "bootout", service); err != nil {
 				r.say(render.StatusFail, msgUninstallAgentUnloadFailed,
 					SanitizeForTerminal(fmt.Sprintf("launchctl bootout: %v: %s", err, out)))
 			} else {
 				r.say(render.StatusOK, "%s", msgUninstallAgentUnloaded)
 			}
+		case isServiceNotFound(printOut):
+			// Not loaded: nothing to unload.
+		default:
+			// The state is unknown, so the agent may still be running.
+			r.say(render.StatusFail, msgUninstallAgentUnloadFailed,
+				SanitizeForTerminal(fmt.Sprintf("launchctl print: %v: %s", printErr, printOut)))
 		}
 	}
 	plist := agentPlistPath(r.deps.Home)
 	r.removeFile(plist, msgUninstallPlistRemoved, msgUninstallPlistMissing, msgUninstallPlistFailed)
+}
+
+// isServiceNotFound reports whether launchctl output says the service is not
+// loaded. launchctl signals that with a non-zero exit whose code differs by
+// macOS version (113, 3, 36), so the output text is matched instead:
+// "Could not find service ..." or "... No such process".
+func isServiceNotFound(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "could not find service") || strings.Contains(lower, "no such process")
 }
 
 // hookStep removes the managed block from every shell startup file holding
@@ -216,7 +238,17 @@ func (r *uninstallRun) logStep() {
 		r.say(render.StatusFail, msgUninstallLogFailed, SanitizeForTerminal(err.Error()))
 		return
 	}
-	r.removeFile(logPath, msgUninstallLogRemoved, msgUninstallLogMissing, msgUninstallLogFailed)
+	// Backup, throttle state and temp files are reported only when they exist.
+	for _, path := range logfile.Files(logPath) {
+		if path == logPath {
+			r.removeFile(path, msgUninstallLogRemoved, msgUninstallLogMissing, msgUninstallLogFailed)
+			continue
+		}
+		if !fileExists(path) {
+			continue
+		}
+		r.removeFile(path, msgUninstallLogRemoved, msgUninstallLogMissing, msgUninstallLogFailed)
+	}
 }
 
 // removeFile deletes path and reports the outcome with the given messages. A
