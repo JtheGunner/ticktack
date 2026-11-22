@@ -339,7 +339,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - Never stored: window titles, screenshots, keystrokes, file contents. Titles may be parsed in memory for a project hint only.
 - `ticktack scan` runs the local `git` binary read-only on your configured repositories and keeps only repo, branch, ticket hint and timestamp.
 - Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
-- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`).
+- The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`). The database runs in WAL mode, so `events.db-wal` and `events.db-shm` appear next to it while it is in use; they hold the same data, carry the same `0600` mode and are removed with the database file when you delete the data directory. `ticktack purge` empties the tables and leaves no events behind in them. The bundled SQLite (3.54.1 in `modernc.org/sqlite` v1.62.0) contains the fix for the WAL-reset bug (3.51.3, backports 3.44.6 and 3.50.7); a test fails if a driver update falls below it.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.

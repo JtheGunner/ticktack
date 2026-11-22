@@ -147,18 +147,24 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 // ensureTag returns the id of the tag called name, creating it when no tag of
 // that name (case-insensitive) is visible to the token owner.
 func (c *Client) ensureTag(ctx context.Context, name string) (string, error) {
-	var tags []struct {
+	type tag struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
+	var tagID string
 	q := url.Values{"query": {name}, "fields": {"id,name"}}
-	if err := c.do(ctx, http.MethodGet, "/api/tags", q, nil, &tags); err != nil {
+	err := getAllPages(ctx, c, "/api/tags", q, func(t tag) string { return t.ID }, func(t tag) bool {
+		if t.ID != "" && strings.EqualFold(t.Name, name) {
+			tagID = t.ID
+			return true
+		}
+		return false
+	})
+	if err != nil {
 		return "", err
 	}
-	for _, t := range tags {
-		if t.ID != "" && strings.EqualFold(t.Name, name) {
-			return t.ID, nil
-		}
+	if tagID != "" {
+		return tagID, nil
 	}
 	var created struct {
 		ID string `json:"id"`

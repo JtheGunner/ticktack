@@ -28,7 +28,8 @@ const (
 
 // eventSink is the part of the store the hook needs.
 type eventSink interface {
-	Append(ctx context.Context, e event.Event) error
+	// AppendBatch stores all events in one transaction.
+	AppendBatch(ctx context.Context, events []event.Event) error
 	Close() error
 }
 
@@ -225,11 +226,10 @@ func runHook(ctx context.Context, deps hookDeps, cwd string) error {
 		{At: now, Source: hookSource, Kind: event.KindContext, Repo: root, Branch: branch, Ticket: ticketid.Extract(branch, pattern)},
 		{At: now, Source: hookSource, Kind: event.KindPresence},
 	}
-	for _, e := range events {
-		if err := sink.Append(ctx, e); err != nil {
-			deps.Logf("append %s event: %v", e.Kind, err)
-			return nil
-		}
+	// One transaction: the context and the presence event are stored together
+	// or not at all.
+	if err := sink.AppendBatch(ctx, events); err != nil {
+		deps.Logf("append events: %v", err)
 	}
 	return nil
 }

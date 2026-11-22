@@ -99,6 +99,7 @@ func (s *Store) CapAcknowledgementFor(ctx context.Context, day string) (CapAckno
 // action stores together with its review log entry, and the rule writes of
 // the map command together with their rule change record.
 type Tx interface {
+	Append(ctx context.Context, e event.Event) error
 	AddOverride(ctx context.Context, o event.Override) error
 	Confirm(ctx context.Context, c Confirmation) error
 	AcknowledgeCap(ctx context.Context, a CapAcknowledgement) error

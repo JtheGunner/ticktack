@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Concurrent writers (agent, shell hook, CLI) no longer lose events or fail with `SQLITE_BUSY`. The database now uses WAL mode and waits up to 5 s for a lock, every transaction takes the write lock when it starts, and the check for applied migrations runs inside the migration transaction. The two events of a shell prompt and every scan or import pass are stored in one transaction, so a failure stores none of them instead of a part. The `-wal` and `-shm` side files are created with mode `0600`.
+- The marker search on an issue's work items and the tag lookup read every page of YouTrack's answer (`$top`/`$skip`) instead of only the first. Beyond the first page the search used to report "not found" and booked duplicates. Responses are read up to 8 MiB.
 - The database and the agent log file are created with mode `0600` (an existing database is narrowed to `0600`); they used to follow the umask (`0644`) inside a `0700` directory.
 - `ticktack version` of a `go install` build reports the module version or `dev-<revision>` instead of `dev`.
 - The generated config now documents `repo_roots` and `[default_issue]`.
