@@ -34,7 +34,10 @@ func assertFolds(t *testing.T, b Block, want []wantFold) {
 }
 
 func TestDeriveFoldsShortBlockBetweenBlocksOfOneTicket(t *testing.T) {
-	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/r/rule", Ticket: "AAA-1"}}}
+	rules := resolver.Rules{Repos: []resolver.RepoRule{
+		{Repo: "/r/rule", Ticket: "AAA-1"},
+		{Repo: "/r/other", Ticket: "BBB-2"},
+	}}
 	tests := []struct {
 		name      string
 		events    []event.Event
@@ -50,12 +53,28 @@ func TestDeriveFoldsShortBlockBetweenBlocksOfOneTicket(t *testing.T) {
 			wantFolds: map[int][]wantFold{0: {{10, 13, "BBB-2"}}},
 		},
 		{
-			name: "short block without a ticket is folded too",
+			name: "short block without a ticket is not folded",
 			events: join(presence(0, 25, 1), []event.Event{
 				ctx(0, "/r/a", "AAA-1-x"), ctx(10, "/r/b", "main"), ctx(13, "/r/a", "AAA-1-x"),
 			}),
-			wantBlock: []wantBlock{{0, 25, "AAA-1", resolver.TierExplicit, ""}},
-			wantFolds: map[int][]wantFold{0: {{10, 13, ""}}},
+			wantBlock: []wantBlock{
+				{0, 10, "AAA-1", resolver.TierExplicit, ""},
+				{10, 13, "", resolver.TierUnknown, ""},
+				{13, 25, "AAA-1", resolver.TierExplicit, ""},
+			},
+		},
+		{
+			name: "short block of tier rule between explicit blocks folds at tier rule",
+			events: join(presence(0, 25, 1), []event.Event{
+				ctx(0, "/r/a", "AAA-1-x"), ctx(10, "/r/other", "main"), ctx(13, "/r/a", "AAA-1-x"),
+			}),
+			// The enclosing blocks are explicit; only the folded time and the
+			// block it joined are lowered to rule.
+			wantBlock: []wantBlock{
+				{0, 10, "AAA-1", resolver.TierExplicit, ""},
+				{10, 25, "AAA-1", resolver.TierRule, ""},
+			},
+			wantFolds: map[int][]wantFold{1: {{10, 13, "BBB-2"}}},
 		},
 		{
 			name: "two short blocks in a row between A are not enclosed one by one",
@@ -201,7 +220,7 @@ func TestResolveShortBlocksFold(t *testing.T) {
 	blk := func(from, to float64, ticket string, tier resolver.Tier, rule resolver.RuleKind) Block {
 		return Block{Start: at(from), End: at(to), Ticket: ticket, Tier: tier, Rule: rule, Reason: string(tier) + "/" + ticket}
 	}
-	const suggested, explicit = resolver.TierSuggested, resolver.TierExplicit
+	const suggested, explicit, rule, learned = resolver.TierSuggested, resolver.TierExplicit, resolver.TierRule, resolver.TierLearned
 	tests := []struct {
 		name   string
 		blocks []Block
@@ -223,13 +242,79 @@ func TestResolveShortBlocksFold(t *testing.T) {
 			},
 		},
 		{
-			name: "stale short block is folded into stale neighbours (the longer one)",
+			name: "stale short block is not folded into stale neighbours either",
 			blocks: []Block{
 				blk(0, 10, "AAA-1", suggested, resolver.RuleBranchTicket),
 				blk(10, 13, "BBB-2", suggested, resolver.RuleBranchTicket),
 				blk(13, 25, "AAA-1", suggested, resolver.RuleBranchTicket),
 			},
-			want: []wantBlock{{0, 10, "AAA-1", suggested, ""}, {10, 25, "AAA-1", suggested, ""}},
+			want: []wantBlock{
+				{0, 10, "AAA-1", suggested, ""},
+				{10, 13, "", resolver.TierUnknown, minBlockReason},
+				{13, 25, "AAA-1", suggested, ""},
+			},
+		},
+		{
+			name: "short block of tier unknown is not folded",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", explicit, resolver.RuleBranchTicket),
+				blk(10, 13, "BBB-2", resolver.TierUnknown, resolver.RuleNone),
+				blk(13, 25, "AAA-1", explicit, resolver.RuleBranchTicket),
+			},
+			want: []wantBlock{
+				{0, 10, "AAA-1", explicit, ""},
+				{10, 13, "", resolver.TierUnknown, minBlockReason},
+				{13, 25, "AAA-1", explicit, ""},
+			},
+		},
+		{
+			name: "short block of tier learned is not folded",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", explicit, resolver.RuleBranchTicket),
+				blk(10, 13, "BBB-2", learned, resolver.RuleLearned),
+				blk(13, 25, "AAA-1", explicit, resolver.RuleBranchTicket),
+			},
+			want: []wantBlock{
+				{0, 10, "AAA-1", explicit, ""},
+				{10, 13, "", resolver.TierUnknown, minBlockReason},
+				{13, 25, "AAA-1", explicit, ""},
+			},
+		},
+		{
+			name: "short block of tier rule between explicit neighbours lowers the result to rule",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", explicit, resolver.RuleBranchTicket),
+				blk(10, 13, "BBB-2", rule, resolver.RuleRepo),
+				blk(13, 25, "AAA-1", explicit, resolver.RuleBranchTicket),
+			},
+			want: []wantBlock{{0, 10, "AAA-1", explicit, ""}, {10, 25, "AAA-1", rule, ""}},
+		},
+		{
+			name: "short block of tier explicit between rule neighbours keeps the neighbours' tier",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", rule, resolver.RuleRepo),
+				blk(10, 13, "BBB-2", explicit, resolver.RuleBranchTicket),
+				blk(13, 25, "AAA-1", rule, resolver.RuleRepo),
+			},
+			want: []wantBlock{{0, 10, "AAA-1", rule, ""}, {10, 25, "AAA-1", rule, ""}},
+		},
+		{
+			name: "short block of tier explicit between explicit neighbours stays explicit",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", explicit, resolver.RuleBranchTicket),
+				blk(10, 13, "BBB-2", explicit, resolver.RuleBranchTicket),
+				blk(13, 25, "AAA-1", explicit, resolver.RuleBranchTicket),
+			},
+			want: []wantBlock{{0, 10, "AAA-1", explicit, ""}, {10, 25, "AAA-1", explicit, ""}},
+		},
+		{
+			name: "neighbours of different tiers and a rule block: the lowest of all three wins",
+			blocks: []Block{
+				blk(0, 10, "AAA-1", explicit, resolver.RuleBranchTicket),
+				blk(10, 13, "BBB-2", rule, resolver.RuleRepo),
+				blk(13, 25, "AAA-1", learned, resolver.RuleLearned),
+			},
+			want: []wantBlock{{0, 10, "AAA-1", explicit, ""}, {10, 25, "AAA-1", learned, ""}},
 		},
 		{
 			name: "stale neighbour on one side takes the folded time",

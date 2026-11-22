@@ -49,7 +49,7 @@ func msgExplainStale(reason, confirmedAt, maxAge string, pinned bool) string {
 // msgExplainFolded names the rule that put a short block of another ticket
 // into this block. ticket is the display label of the folded block's ticket.
 func msgExplainFolded(start, end, ticket string) string {
-	return fmt.Sprintf("%s-%s (%s) was shorter than the minimum duration and lies between blocks of this ticket; folded in (rule: short block between two blocks of one ticket)", start, end, ticket)
+	return fmt.Sprintf("%s-%s (%s) was shorter than the minimum duration and lies between blocks of this ticket; folded in (rule: confirmed short block between two blocks of one ticket; the tier is the lower of the two)", start, end, ticket)
 }
 
 func msgExplainOverrideSignal(start, end string) string {

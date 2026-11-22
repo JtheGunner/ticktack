@@ -58,18 +58,21 @@
 //     neighbour with the same ticket; if there is none it is kept as unknown.
 //     Touching unknown blocks of that kind merge into one, so a burst of short
 //     context flips shows as a single block that needs a ticket.
-//   - A short block with another ticket (or none) that touches a block on
-//     each side, both with the same ticket, is folded into one of them: the
-//     two sides and the short block become one block of that ticket, so a
-//     brief look at another branch between two stretches of one ticket costs
-//     no review. There is no length limit besides Config.MinBlock. The block
-//     takes the tier, reason and rule of the folded-into neighbour, which is
-//     the one with the lower tier (the longer one on a tie, then the earlier
-//     one), and records the folded time in Block.Folded. A stale short block
-//     (tier suggested) is never folded into a confirmed neighbour, a block
-//     from a manual switch is never folded into or demoted, and neither is a
-//     manual switch block taken as a neighbour. Overrides are applied later
-//     and are never folded.
+//   - A short block with another ticket that touches a block on each side,
+//     both with the same ticket, is folded into one of them: the two sides
+//     and the short block become one block of that ticket, so a brief look
+//     at another branch between two stretches of one ticket costs no review.
+//     There is no length limit besides Config.MinBlock. Only a short block
+//     of tier explicit or rule is folded (the user knowingly worked
+//     elsewhere); one of tier learned, suggested or unknown, which may be
+//     presence without any context, is not folded and is demoted as usual.
+//     The folded-into neighbour is the one with the lower tier (the longer
+//     one on a tie, then the earlier one). The block takes its reason and
+//     rule, and the lower of the neighbour's and the short block's tier, so
+//     folding never raises a tier. The folded time is recorded in
+//     Block.Folded. A block from a manual switch is never folded into or
+//     demoted, and neither is a manual switch block taken as a neighbour.
+//     Overrides are applied later and are never folded.
 //   - Merging never raises a tier. A short suggested block (stale context)
 //     next to confirmed time of its ticket stays a suggested block of its own,
 //     however short, so stale minutes never end up in a block that is booked
@@ -573,6 +576,9 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 			var entry []Fold
 			if folded {
 				entry = []Fold{{Start: blocks[i].Start, End: blocks[i].End, Ticket: blocks[i].Ticket}}
+				if tierRank[blocks[i].Tier] < tierRank[combined.Tier] {
+					combined.Tier = blocks[i].Tier
+				}
 			}
 			combined.Folded = concatFolds(blocks[target].Folded, blocks[i].Folded, entry)
 			blocks = append(blocks[:lo], append([]Block{combined}, blocks[hi+1:]...)...)
@@ -617,11 +623,10 @@ var tierRank = map[resolver.Tier]int{
 // ticket, which is not the ticket of block i (a block of the same ticket is
 // merged, not folded). Of the two the one with the lower tier is taken, then
 // the longer, then the earlier, so folded time never gets a higher tier than
-// the lowest enclosing block has. Nothing is folded when block i is a stale
-// suggestion and the neighbour is not, or when a neighbour is a manual switch
-// block.
+// the lowest enclosing block has. Nothing is folded when block i is below
+// tier rule (see canBeFolded) or when a neighbour is a manual switch block.
 func foldTarget(blocks []Block, i int) int {
-	if i == 0 || i+1 >= len(blocks) {
+	if i == 0 || i+1 >= len(blocks) || !canBeFolded(blocks[i]) {
 		return -1
 	}
 	prev, next := blocks[i-1], blocks[i+1]
@@ -641,10 +646,16 @@ func foldTarget(blocks []Block, i int) int {
 	case tierRank[next.Tier] == tierRank[prev.Tier] && next.Duration() > prev.Duration():
 		target = i + 1
 	}
-	if upgrades(blocks[i], blocks[target]) {
-		return -1
-	}
 	return target
+}
+
+// canBeFolded reports whether a short block of another attribution may be
+// folded away: only confirmed time (tier explicit or rule) may, because the
+// user knowingly worked elsewhere. A block of a lower tier may be presence
+// without any context, and folding it would turn it into confirmed time of
+// the enclosing ticket.
+func canBeFolded(b Block) bool {
+	return tierRank[b.Tier] >= tierRank[resolver.TierRule]
 }
 
 // concatFolds joins fold lists into a new list ordered by start time; it
