@@ -235,6 +235,7 @@ func (r *reviewRun) show() {
 	for _, e := range entries {
 		r.showSuggestions(e)
 	}
+	r.showLines(roundingLines(r.render, r.s.Day().Rounding, r.s.Day().Items))
 	if w := r.s.CapWarning(); w != nil {
 		r.say(render.StatusWarn, msgReviewCapWarning(*w))
 	}
