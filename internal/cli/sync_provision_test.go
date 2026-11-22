@@ -24,16 +24,25 @@ type provisioningSink struct {
 	*recordingSink
 	existing map[string]string
 	created  []string
+	// findErrs and createErrs fail the call for one project.
+	findErrs   map[string]error
+	createErrs map[string]error
 }
 
 func (p *provisioningSink) Projects(context.Context) ([]sink.ProjectRef, error) { return nil, nil }
 
 func (p *provisioningSink) FindIssueByMarker(_ context.Context, project, _ string) (string, bool, error) {
+	if err := p.findErrs[project]; err != nil {
+		return "", false, err
+	}
 	key, ok := p.existing[project]
 	return key, ok, nil
 }
 
 func (p *provisioningSink) CreateIssue(_ context.Context, project, summary, description string) (string, error) {
+	if err := p.createErrs[project]; err != nil {
+		return "", err
+	}
 	if summary != "Meetings / Admin" || !strings.Contains(description, ledger.DefaultIssueMarker) {
 		return "", context.DeadlineExceeded
 	}

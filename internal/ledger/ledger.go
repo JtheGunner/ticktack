@@ -81,6 +81,11 @@ type SyncOptions struct {
 	// Keep holds the keys of rows that stay booked without an item, for
 	// example items the day still has but that may not be booked right now.
 	Keep []string
+	// Failed holds the results of items that failed before the run and are
+	// not among the items, for example because their standard task could not
+	// be provided (ProvisionReport.Failed). They are reported as they are;
+	// nothing is sent for them.
+	Failed []ItemResult
 }
 
 // ItemResult is the outcome for one item.
@@ -144,7 +149,8 @@ func Marker(key string) string { return markerPrefix + key + "]" }
 // Sync books items through s. Items are processed in date, issue, type order.
 // Unauthorized and rate-limit errors stop the run: the remaining items are
 // reported as not sent and Sync returns the report together with the error.
-// Other failures are recorded per item and the run continues.
+// Other failures are recorded per item and the run continues. The results in
+// opts.Failed are reported first.
 //
 // A booked item that is missing in the sink is repaired: an item carrying the
 // marker is adopted, otherwise the item is created again, and the ledger row
@@ -162,6 +168,33 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	sorted := sortedItems(items)
+
+	run := &syncRun{sink: s, opts: opts}
+	var report Report
+	for _, res := range opts.Failed {
+		report.add(res)
+	}
+	for i, it := range sorted {
+		if err := ctx.Err(); err != nil {
+			markNotSent(&report, sorted[i:])
+			return report, err
+		}
+		res, err := run.syncItem(ctx, it)
+		report.add(res)
+		if IsStopError(err) {
+			markNotSent(&report, sorted[i+1:])
+			return report, err
+		}
+	}
+	if err := run.reconcile(ctx, sorted, &report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+// sortedItems returns a copy of items in date, issue, type order.
+func sortedItems(items []sessionizer.DayItem) []sessionizer.DayItem {
 	sorted := append([]sessionizer.DayItem(nil), items...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
@@ -173,25 +206,16 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 		}
 		return itemType(a) < itemType(b)
 	})
+	return sorted
+}
 
-	run := &syncRun{sink: s, opts: opts}
+// NotSentReport is the report of a run that stopped before any item was sent,
+// for example because providing the standard tasks hit a stop error: every
+// item is reported as not sent, in the order Sync would have processed them.
+func NotSentReport(items []sessionizer.DayItem) Report {
 	var report Report
-	for i, it := range sorted {
-		if err := ctx.Err(); err != nil {
-			markNotSent(&report, sorted[i:])
-			return report, err
-		}
-		res, err := run.syncItem(ctx, it)
-		report.add(res)
-		if isStopError(err) {
-			markNotSent(&report, sorted[i+1:])
-			return report, err
-		}
-	}
-	if err := run.reconcile(ctx, sorted, &report); err != nil {
-		return report, err
-	}
-	return report, nil
+	markNotSent(&report, sortedItems(items))
+	return report
 }
 
 // reconcile deletes the booked rows of the reconciled days that no item and
@@ -229,7 +253,7 @@ func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, re
 		}
 		res, err := r.deleteRow(ctx, row)
 		report.add(res)
-		if isStopError(err) {
+		if IsStopError(err) {
 			markRowsNotSent(report, stale[i+1:])
 			return err
 		}
@@ -267,7 +291,7 @@ func (r *syncRun) deleteRow(ctx context.Context, row store.LedgerRow) (ItemResul
 	}
 	fail := func(err error) (ItemResult, error) {
 		res.Action, res.Reason, res.Error = ActionFailed, "", err.Error()
-		if isStopError(err) {
+		if IsStopError(err) {
 			return res, err
 		}
 		return res, nil
@@ -327,7 +351,9 @@ func itemKey(it sessionizer.DayItem) string {
 	return Key(it.Ticket, it.Date.String(), itemType(it))
 }
 
-func isStopError(err error) bool {
+// IsStopError reports whether err ends a run instead of failing one item: an
+// unauthorized or rate-limited sink would fail every following call as well.
+func IsStopError(err error) bool {
 	return errors.Is(err, youtrack.ErrUnauthorized) || errors.Is(err, youtrack.ErrRateLimited)
 }
 
@@ -367,7 +393,7 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 	// A per-item failure must not stop the run; stop errors are returned.
 	failItem := func(err error) (ItemResult, error) {
 		res, err := fail(err)
-		if isStopError(err) {
+		if IsStopError(err) {
 			return res, err
 		}
 		return res, nil
@@ -454,7 +480,7 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 // failed marks res as failed. Only a stop error is returned.
 func failed(res ItemResult, err error) (ItemResult, error) {
 	res.Action, res.Error = ActionFailed, err.Error()
-	if isStopError(err) {
+	if IsStopError(err) {
 		return res, err
 	}
 	return res, nil
@@ -602,7 +628,7 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 		case entryActionCreated:
 			if err := s.Delete(ctx, e.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
 				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if isStopError(err) {
+				if IsStopError(err) {
 					return result, errors.Join(errs...)
 				}
 				continue
@@ -619,7 +645,7 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 			}
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if isStopError(err) {
+				if IsStopError(err) {
 					return result, errors.Join(errs...)
 				}
 				continue
@@ -636,7 +662,7 @@ func Undo(ctx context.Context, s sink.TimeSink, repo Repository, now func() time
 			id, err := recreate(ctx, s, w, Marker(Key(e.Issue, e.Date, e.Type)))
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", Key(e.Issue, e.Date, e.Type), err))
-				if isStopError(err) {
+				if IsStopError(err) {
 					return result, errors.Join(errs...)
 				}
 				continue

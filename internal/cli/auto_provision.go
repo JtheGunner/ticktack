@@ -17,9 +17,13 @@ import (
 // created only for a project whose creation the user confirmed in `ticktack
 // sync` before. Everything else is moved to the skipped items with a reason,
 // so a placeholder is never booked.
-func provisionForAuto(ctx context.Context, st *store.Store, cfg config.Config, target sink.TimeSink, sel auto.Selection, dryRun bool, now func() time.Time) (auto.Selection, error) {
+//
+// Items of a project whose lookup or creation failed leave the selection and
+// are returned as failed results for the sync report: whether their task
+// exists is unknown, so they are not reported as waiting for its creation.
+func provisionForAuto(ctx context.Context, st *store.Store, cfg config.Config, target sink.TimeSink, sel auto.Selection, dryRun bool, now func() time.Time) (auto.Selection, []ledger.ItemResult, error) {
 	if cfg.DefaultIssue == nil {
-		return sel, nil
+		return sel, nil, nil
 	}
 	prov, ok := target.(sink.TaskProvisioner)
 	if !ok {
@@ -29,15 +33,15 @@ func provisionForAuto(ctx context.Context, st *store.Store, cfg config.Config, t
 				placeholders = append(placeholders, e.Item.Ticket)
 			}
 		}
-		return sel.Resolve(nil, placeholders), nil
+		return sel.Resolve(nil, placeholders), nil, nil
 	}
 	consented, err := st.ConsentedProjects(ctx)
 	if err != nil {
-		return sel, err
+		return sel, nil, err
 	}
 	known, err := st.DefaultTasks(ctx)
 	if err != nil {
-		return sel, err
+		return sel, nil, err
 	}
 	// A task the tool already knew that cannot be found now may have been
 	// moved or edited, not deleted: only a person decides to replace it.
@@ -57,7 +61,7 @@ func provisionForAuto(ctx context.Context, st *store.Store, cfg config.Config, t
 		Now:     now,
 	})
 	if err != nil {
-		return sel, err
+		return sel, nil, err
 	}
-	return sel.Resolve(report.Rewritten, report.DroppedTickets), nil
+	return sel.Without(report.FailedTickets).Resolve(report.Rewritten, report.DroppedTickets), report.Failed, nil
 }
