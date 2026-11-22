@@ -106,6 +106,7 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 | 🐚 | Managed shell hook block; the rest of the file stays | `$ZDOTDIR/.zshrc` or `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.profile`, `~/.config/fish/config.fish` |
 | 🔑 | YouTrack token | OS keychain |
 | 📜 | Log file with its backup (`.1`), throttle state (`.throttle`) and temporary files | `~/.local/state/ticktack/ticktack.log` (or under `XDG_STATE_HOME`) |
+| 🔎 | Title probe status file (`title-status.json`) and temporary files of an interrupted write | `~/.local/state/ticktack/` (or under `XDG_STATE_HOME`) |
 
 The config file, the database and the binary stay. A step that fails is reported, the other steps still run, and the command exits non-zero; running it again is safe. If launchd cannot tell whether the agent is loaded, that counts as a failure too (the plist is still removed, so the agent does not start at the next login). Shells that are already open keep the hook until you restart them.
 

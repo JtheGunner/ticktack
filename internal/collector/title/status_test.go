@@ -135,6 +135,54 @@ func TestCollectorRecordsNothingWhilePaused(t *testing.T) {
 	}
 }
 
+func TestStatusFilesListsTheFileAndOnlyItsOwnStrayTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "title-status.json")
+	stray := filepath.Join(dir, statusTempPrefix+"123456")
+	other := filepath.Join(dir, "ticktack.log")
+	for _, p := range []string{stray, other} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := StatusFiles(path)
+	want := map[string]bool{path: true, stray: true}
+	if len(got) != len(want) {
+		t.Fatalf("StatusFiles = %v, want %v", got, want)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected file %s in %v", p, got)
+		}
+	}
+}
+
+func TestStatusFilesOfAMissingDirectoryIsJustThePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent", "title-status.json")
+	got := StatusFiles(path)
+	if len(got) != 1 || got[0] != path {
+		t.Errorf("StatusFiles = %v, want just %s", got, path)
+	}
+}
+
+func TestStatusWriterTempFilesAreRecognisedByStatusFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "title-status.json")
+	// Simulate a crash between CreateTemp and Rename: the temp file is left.
+	tmp, err := os.CreateTemp(dir, statusTempPrefix+"*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = tmp.Close()
+	found := false
+	for _, p := range StatusFiles(path) {
+		found = found || p == tmp.Name()
+	}
+	if !found {
+		t.Errorf("the writer's temp file %s is not listed", tmp.Name())
+	}
+}
+
 type failingRecorder struct{}
 
 func (failingRecorder) Record(ProbeState, time.Time) error { return errors.New("disk full") }

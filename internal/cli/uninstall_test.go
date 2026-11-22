@@ -84,9 +84,11 @@ func newInstalledEnv(t *testing.T, answers string) (*installedEnv, uninstallDeps
 		Launchctl:   env.fl.run,
 		DeleteToken: token.Delete,
 		LogPath:     paths.LogPath,
-		In:          strings.NewReader(answers),
-		Out:         installed.out,
-		Render:      render.Plain(),
+
+		TitleStatusPath: paths.TitleStatusPath,
+		In:              strings.NewReader(answers),
+		Out:             installed.out,
+		Render:          render.Plain(),
 	}
 	return installed, deps
 }
@@ -425,6 +427,95 @@ func TestUninstallRemovesEveryLogFile(t *testing.T) {
 		}
 		if !fileExists(stuck) {
 			t.Error("the stuck path vanished unexpectedly")
+		}
+	})
+}
+
+func TestUninstallRemovesTheTitleStatusFile(t *testing.T) {
+	statusPath := func(t *testing.T) string {
+		t.Helper()
+		p, err := paths.TitleStatusPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	t.Run("removed together with stray temp files", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		status := statusPath(t)
+		stray := filepath.Join(filepath.Dir(status), ".title-status-987654")
+		unrelated := filepath.Join(filepath.Dir(status), "keep-me.txt")
+		for _, p := range []string{status, stray, unrelated} {
+			if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := runUninstall(context.Background(), deps, true); err != nil {
+			t.Fatalf("uninstall: %v\n%s", err, env.out)
+		}
+		if fileExists(status) || fileExists(stray) {
+			t.Error("the status file or its temp file is left behind")
+		}
+		if !fileExists(unrelated) {
+			t.Error("a file outside the writer's names was removed")
+		}
+	})
+	t.Run("the question lists it only when it exists", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "n\n")
+		status := statusPath(t)
+		if err := runUninstall(context.Background(), deps, false); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(env.out.String(), status) {
+			t.Errorf("question mentions a missing status file:\n%s", env.out)
+		}
+		env, deps = newInstalledEnv(t, "n\n")
+		status = statusPath(t)
+		if err := os.WriteFile(status, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := runUninstall(context.Background(), deps, false); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(env.out.String(), status) {
+			t.Errorf("question does not mention the status file:\n%s", env.out)
+		}
+		if !fileExists(status) {
+			t.Error("declining removed the status file")
+		}
+	})
+	t.Run("a missing file is a skip", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		if err := runUninstall(context.Background(), deps, true); err != nil {
+			t.Fatalf("uninstall: %v\n%s", err, env.out)
+		}
+		if !strings.Contains(env.out.String(), "no title status file") {
+			t.Errorf("the missing status file is not reported as a skip:\n%s", env.out)
+		}
+	})
+	t.Run("a failing removal ends incomplete", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		status := statusPath(t)
+		if err := os.MkdirAll(filepath.Join(status, "child"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		err := runUninstall(context.Background(), deps, true)
+		if !errors.Is(err, ErrUninstallIncomplete) {
+			t.Fatalf("err = %v, want ErrUninstallIncomplete\n%s", err, env.out)
+		}
+		if fileExists(env.log) {
+			t.Error("the other steps did not run")
+		}
+	})
+	t.Run("a path error ends incomplete", func(t *testing.T) {
+		env, deps := newInstalledEnv(t, "")
+		deps.TitleStatusPath = func() (string, error) { return "", errors.New("no state dir") }
+		err := runUninstall(context.Background(), deps, true)
+		if !errors.Is(err, ErrUninstallIncomplete) {
+			t.Fatalf("err = %v, want ErrUninstallIncomplete\n%s", err, env.out)
 		}
 	})
 }

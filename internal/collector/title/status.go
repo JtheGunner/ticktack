@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,6 +71,30 @@ func (f *StatusFile) Record(state ProbeState, at time.Time) error {
 	return nil
 }
 
+// statusTempPrefix starts the name of the temp file the status writer creates
+// next to the status file; a crash can leave one behind.
+const statusTempPrefix = ".title-status-"
+
+// StatusFiles lists every file the status writer owns for the status file at
+// path: the file itself and any temp file a crashed write left in the same
+// directory (recognised by the writer's own prefix, nothing else). Callers
+// that delete the status file use it so no leftover stays behind. The files
+// need not exist; an unreadable directory yields just path.
+func StatusFiles(path string) []string {
+	files := []string{path}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return files
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), statusTempPrefix) {
+			continue
+		}
+		files = append(files, filepath.Join(filepath.Dir(path), entry.Name()))
+	}
+	return files
+}
+
 // ReadStatus reads the status file at path. A missing file yields an error
 // matching os.ErrNotExist; a file that is not a valid status yields
 // ErrBadStatus.
@@ -97,7 +122,7 @@ func writeFileReplacing(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".title-status-*")
+	tmp, err := os.CreateTemp(dir, statusTempPrefix+"*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
