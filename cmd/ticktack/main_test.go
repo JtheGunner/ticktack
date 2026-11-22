@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,7 @@ func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
 	isolate(t)              // no config, so the checks fail without any network access
 	t.Setenv("LC_ALL", "C") // ASCII glyphs, whatever the developer's locale
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"doctor"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"doctor"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code 0 although checks failed:\n%s", stdout.String())
 	}
@@ -44,16 +46,60 @@ func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
 func TestRunReturnsZeroOnSuccessAndPrintsErrorsOnce(t *testing.T) {
 	isolate(t)
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("version exit code = %d, stderr %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"no-such-command"}, &stdout, &stderr); code == 0 {
+	if code := run(context.Background(), []string{"no-such-command"}, &stdout, &stderr); code == 0 {
 		t.Fatal("unknown command returned 0")
 	}
 	if strings.Count(stderr.String(), "error:") != 1 {
 		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestFinishReportsFailuresAndInterruptionWithTheRightExitCode(t *testing.T) {
+	const secret = "perm:SECRET-TOKEN"
+	failure := errors.New("ABC-1: HTTP 401 unauthorized")
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+		want     []string
+		wantNot  []string
+	}{
+		{"only cancellation", context.Canceled, cli.ExitInterrupted,
+			[]string{"error: interrupted:"}, []string{"401"}},
+		{"failure plus cancellation", errors.Join(failure, context.Canceled), 1,
+			[]string{"error: ABC-1: HTTP 401 unauthorized", "error: interrupted:"}, []string{secret}},
+		{"cancellation first then failure", errors.Join(context.Canceled, failure), 1,
+			[]string{"ABC-1: HTTP 401 unauthorized", "interrupted:"}, nil},
+		{"failure only", failure, 1,
+			[]string{"error: ABC-1: HTTP 401 unauthorized"}, []string{"interrupted"}},
+		{"lock active", cli.ErrBookingRunActive, cli.ExitBookingRunActive,
+			[]string{"another ticktack booking run"}, []string{"interrupted"}},
+		{"lock active and cancelled", errors.Join(cli.ErrBookingRunActive, context.Canceled), cli.ExitBookingRunActive,
+			[]string{"another ticktack booking run"}, nil},
+		{"success", nil, 0, nil, []string{"error"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := finish(tt.err, &stderr); code != tt.wantCode {
+				t.Fatalf("exit code = %d, want %d (stderr %q)", code, tt.wantCode, stderr.String())
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(stderr.String(), w) {
+					t.Errorf("stderr %q lacks %q", stderr.String(), w)
+				}
+			}
+			for _, w := range tt.wantNot {
+				if strings.Contains(stderr.String(), w) {
+					t.Errorf("stderr %q contains %q", stderr.String(), w)
+				}
+			}
+		})
 	}
 }
 
@@ -77,7 +123,7 @@ func TestBookingCommandsExitWithDefinedCodeWhileAnotherRunIsActive(t *testing.T)
 	for _, command := range []string{"sync", "auto", "undo"} {
 		t.Run(command, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run([]string{command}, &stdout, &stderr)
+			code := run(context.Background(), []string{command}, &stdout, &stderr)
 			if code != cli.ExitBookingRunActive {
 				t.Errorf("exit code = %d, want %d", code, cli.ExitBookingRunActive)
 			}

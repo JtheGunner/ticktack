@@ -149,6 +149,9 @@ ticktack undo
 > [!NOTE]
 > Only one booking run is active at a time. `ticktack sync`, `ticktack auto` and `ticktack undo` share a lock file (`booking.lock` next to the database), so a scheduled `auto` and a manual `sync` cannot book the same work item twice. A run that finds the lock taken does not wait: it changes nothing, prints `another ticktack booking run (sync, auto or undo) is active` and exits with code `75`. Run it again once the other one has finished. The operating system releases the lock when a run ends, also after an abort or a crash, so there is never a stale lock to remove. `--dry-run` takes no lock.
 
+> [!NOTE]
+> Ctrl-C (SIGINT) or SIGTERM stops `sync`, `auto` and `undo` in an orderly way: the work item currently being sent is finished, including its ledger entry, and no further item is started. The items not started are reported as `not-sent`, and the command exits with code `130`; running it again continues. If a real failure happened as well (for example a rejected token during `undo`), it is printed next to the interruption notice and the exit code is `1`, so `130` always means a clean interruption; `75` still takes precedence. A second signal while it finishes ends the process at once. `ticktack init` also stops on the first signal, including at the hidden token prompt, and exits with `130` without storing anything that was being typed. Work on one item is bounded to two minutes, whether or not a signal arrived.
+
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
 Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.
@@ -174,7 +177,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance. Must use `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `::1`. |
 | `gap_threshold`      | `"5m0s"`               | Presence gaps longer than this end a work block.                 |
 | `idle_threshold`     | `"3m0s"`               | A presence sample with at least this much idle time is ignored; time after the last input is never booked. |
-| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour or become one block that needs a ticket.                          |
+| `min_block_duration` | `"10m0s"`              | Shorter blocks join a same-ticket neighbour, fold into the ticket they sit between (only when the short block itself is `explicit` or `rule`; the result never has a higher tier than either side), or become one block that needs a ticket. |
 | `context_max_age`    | `"2h0m0s"`             | Context not confirmed for this long is only `suggested`. `"0"` turns this limit off. A pin does not depend on it: it is `suggested` from the day after it was set, also with `"0"`. |
 | `rounding`           | `"15m0s"`              | Booked durations are rounded to a multiple of this. Must be whole minutes; `"1m"` books exact minutes. |
 | `daily_cap`          | `"10h0m0s"`            | Maximum time booked per day; above it, review must acknowledge. |

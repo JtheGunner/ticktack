@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -136,7 +137,7 @@ func TestDeriveDayAndLoadDayShareBlocks(t *testing.T) {
 		t.Fatalf("today blocks %+v, review blocks %+v", derived.Blocks, d.Blocks)
 	}
 	for i := range d.Blocks {
-		if d.Blocks[i] != derived.Blocks[i] {
+		if !reflect.DeepEqual(d.Blocks[i], derived.Blocks[i]) {
 			t.Errorf("block %d differs: today %+v, review %+v", i+1, derived.Blocks[i], d.Blocks[i])
 		}
 	}
