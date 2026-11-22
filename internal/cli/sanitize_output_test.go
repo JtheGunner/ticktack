@@ -16,7 +16,8 @@ const escape = "\x1b"
 func TestTodaySanitizesExternallyDerivedText(t *testing.T) {
 	deps, st, out := newDailyEnv(t, "")
 	start := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
-	ctx := shellContext(start, "/work/api", "main")
+	// A stored ticket only counts on an event without a branch.
+	ctx := shellContext(start, "/work/api", "")
 	ctx.Ticket = "EVIL-1" + escape + "]0;pwned\a\r"
 	mustAppend(t, st, ctx)
 	for m := 0; m <= 40; m++ {
