@@ -60,6 +60,7 @@ func DefaultTOML(youTrackURL string) string {
 	b.WriteString("# Optional classes for the foreground app, by macOS bundle ID (nothing is listed by default).\n")
 	b.WriteString("# \"work\" (an unlisted app) keeps the ticket; \"neutral\" keeps it but only as a suggestion;\n")
 	b.WriteString("# \"personal\" ends the time, which is not counted. Only the bundle ID is used, never a title.\n")
+	b.WriteString("# Bundle IDs are matched exactly and case-sensitively; listing one app twice, also with different case, is an error.\n")
 	b.WriteString("# [app_classes]\n# \"com.tinyspeck.slackmacgap\" = \"neutral\"\n# \"us.zoom.xos\" = \"neutral\"\n# \"com.apple.Music\" = \"personal\"\n\n")
 	b.WriteString("# Fixed repository to ticket mappings. The repo is an absolute path or starts with ~/;\n")
 	b.WriteString("# the ticket must match ticket_pattern.\n# [[rules]]\n# repo = \"/path/to/repo\"\n# ticket = \"ABC-1\"\n\n")

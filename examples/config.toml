@@ -95,6 +95,9 @@ enabled = false
 #              (chat, video calls).
 #   "personal" ends the time: it is not counted and does not show as unassigned.
 # Only the bundle ID of the frontmost app is used, never a window title.
+# Bundle IDs are matched exactly and case-sensitively, as macOS reports them
+# (surrounding spaces are ignored). Listing one app twice, also with different
+# case, is an error.
 # [app_classes]
 # "com.tinyspeck.slackmacgap" = "neutral"
 # "us.zoom.xos" = "neutral"

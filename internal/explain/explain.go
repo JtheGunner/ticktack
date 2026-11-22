@@ -206,10 +206,18 @@ func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block, tick
 
 // neutralApp returns the bundle ID of the first neutral foreground app seen
 // in the block, from the presence samples already in the events; empty when
-// none is found.
+// none is found. A sample belongs to the block by its moment of activity (its
+// time minus its idle time), as in Derive, so a sample stamped after the block
+// end still counts when its activity lies inside.
 func neutralApp(in Input) string {
+	idleLimit := in.Config.Normalized().IdleThreshold
 	for _, e := range sortedByTime(in.Events) {
-		if e.Kind != event.KindPresence || e.At.Before(in.Block.Start) || e.At.After(in.Block.End) {
+		if e.Kind != event.KindPresence {
+			continue
+		}
+		idle := time.Duration(e.IdleSeconds) * time.Second
+		active := e.At.Add(-idle)
+		if idle >= idleLimit || active.Before(in.Block.Start) || active.After(in.Block.End) {
 			continue
 		}
 		if in.Config.AppClasses[e.App] == config.ClassNeutral {
