@@ -5,8 +5,8 @@
   2  09:30-09:50  (unassigned)  unknown   no ticket in br...
 
   Totals
-  Ticket        Time  Raw
-  (unassigned)   15m  20m
-  ABC-7          45m  40m
+  Ticket        Time  Raw  Certainty
+  (unassigned)   15m  20m  unknown 15m
+  ABC-7          45m  40m  explicit 45m
 
   Total  1h
