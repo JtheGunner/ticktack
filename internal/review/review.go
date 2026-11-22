@@ -204,10 +204,12 @@ func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (
 			d.Rounding = s
 		}
 	}
+	commits := commitRefs(in.Events, blocks, from, to)
 	for _, it := range rounded.Items {
 		if it.Date != day {
 			continue
 		}
+		it.Commits = commits[it.Ticket]
 		d.Items = append(d.Items, it)
 		d.TotalMinutes += it.Minutes
 		d.OverCap = d.OverCap || it.OverCap

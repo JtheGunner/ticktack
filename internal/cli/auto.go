@@ -136,6 +136,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 				Repo: st, DryRun: dryRun, Now: deps.Now,
 				Reconcile: []civil.Date{day}, Keep: keep,
 				HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
+				Describer: deps.describer(cfg),
 			})
 		}
 	}

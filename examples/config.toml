@@ -41,6 +41,15 @@ daily_cap = "10h0m0s"
 # nor `ticktack auto` is ever blocked by it.
 # daily_cap_enabled = true
 
+# Name the commits of the booked time in the work item text. `ticktack sync`
+# reads their subjects from the repository when it runs (never stored with the
+# events): the unique subjects in the order they were made, at most 5 of them
+# and 200 characters each, then "+N more". Merge commits and fixup!/squash!
+# commits are left out. Without commits, or with an unreadable repository, the
+# text stays the short summary. The booked text is kept in the local sync
+# history so `ticktack undo` can restore it. false always keeps the summary.
+# description_from_commits = true
+
 # Regular expression that extracts a ticket id from a branch name.
 ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 
