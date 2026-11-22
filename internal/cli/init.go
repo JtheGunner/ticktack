@@ -72,8 +72,12 @@ func newInitCommand() *cobra.Command {
 				_, err = io.WriteString(cmd.OutOrStdout(), script)
 				return err
 			}
-			deps := defaultInitDeps(cmd, bufio.NewReader(cmd.InOrStdin()))
-			return runInit(cmd.Context(), deps, opts, cmd.OutOrStdout())
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			deps := defaultInitDeps(ctx, cmd, bufio.NewReader(cmd.InOrStdin()))
+			return runInit(ctx, deps, opts, cmd.OutOrStdout())
 		},
 	}
 	f := cmd.Flags()
@@ -88,7 +92,7 @@ func newInitCommand() *cobra.Command {
 	return cmd
 }
 
-func defaultInitDeps(cmd *cobra.Command, in *bufio.Reader) initDeps {
+func defaultInitDeps(ctx context.Context, cmd *cobra.Command, in *bufio.Reader) initDeps {
 	return initDeps{
 		Doctor: defaultDoctorDeps(cmd),
 		Render: rendererFor(cmd, cmd.OutOrStdout()),
@@ -96,8 +100,7 @@ func defaultInitDeps(cmd *cobra.Command, in *bufio.Reader) initDeps {
 		ReadSecret: func() (string, error) {
 			fd := int(os.Stdin.Fd())
 			if term.IsTerminal(fd) {
-				b, err := term.ReadPassword(fd)
-				return string(b), err
+				return readTerminalSecret(ctx, fd)
 			}
 			line, err := in.ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
@@ -110,6 +113,44 @@ func defaultInitDeps(cmd *cobra.Command, in *bufio.Reader) initDeps {
 		Binary:    currentBinary,
 		Getenv:    os.Getenv,
 		LogPath:   paths.LogPath,
+	}
+}
+
+// readTerminalSecret reads the token from the terminal without echo and gives
+// up as soon as ctx is done. A blocked terminal read cannot be interrupted, so
+// it keeps running in its own goroutine and its result is dropped; the process
+// ends right after the cancellation. term.ReadPassword switches echo off and
+// would only switch it on again when it returns, so the saved terminal state is
+// restored here, before the caller gives up.
+func readTerminalSecret(ctx context.Context, fd int) (string, error) {
+	saved, err := term.GetState(fd)
+	if err != nil {
+		return "", fmt.Errorf("read terminal state: %w", err)
+	}
+	return readSecretUnlessCancelled(ctx,
+		func() ([]byte, error) { return term.ReadPassword(fd) },
+		func() { _ = term.Restore(fd, saved) })
+}
+
+// readSecretUnlessCancelled runs read and returns its result, or ctx.Err() as
+// soon as ctx is done, after calling restore. A cancelled read never yields
+// input.
+func readSecretUnlessCancelled(ctx context.Context, read func() ([]byte, error), restore func()) (string, error) {
+	type result struct {
+		secret []byte
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		secret, err := read()
+		done <- result{secret, err}
+	}()
+	select {
+	case <-ctx.Done():
+		restore()
+		return "", ctx.Err()
+	case res := <-done:
+		return string(res.secret), res.err
 	}
 }
 
@@ -162,13 +203,27 @@ func (r *initRun) confirm(question string) bool {
 }
 
 // runInit performs the four setup steps. Step failures are reported and do
-// not stop the remaining steps.
+// not stop the remaining steps. A cancelled ctx (SIGINT, SIGTERM) ends the run
+// after the step in progress with the cancellation as the error, so the exit
+// code is 130 and never 0; an answer cut short by the cancellation is never
+// taken as input or consent.
 func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer) error {
 	r := &initRun{deps: deps, opts: opts, out: out}
-	r.configStep()
-	r.tokenStep(ctx)
-	r.hookStep()
-	r.agentStep(ctx)
+	steps := []func(){
+		func() { r.configStep(ctx) },
+		func() { r.tokenStep(ctx) },
+		r.hookStep,
+		func() { r.agentStep(ctx) },
+	}
+	for _, step := range steps {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		step()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintln(out)
 	if r.failed {
 		r.say(render.StatusWarn, "%s", msgInitFinishedWithFailures)
@@ -178,7 +233,7 @@ func runInit(ctx context.Context, deps initDeps, opts initOptions, out io.Writer
 	return nil
 }
 
-func (r *initRun) configStep() {
+func (r *initRun) configStep(ctx context.Context) {
 	path, err := r.deps.Doctor.ConfigPath()
 	if err != nil {
 		r.step("%s", msgInitConfigIntroNoPath)
@@ -202,6 +257,11 @@ func (r *initRun) configStep() {
 	if address == "" && !r.opts.Yes {
 		_, _ = fmt.Fprint(r.out, msgInitConfigURL)
 		line, _ := r.deps.In.ReadString('\n')
+		if ctx.Err() != nil {
+			// A read cut short by the cancellation is not an empty answer.
+			_, _ = fmt.Fprintln(r.out)
+			return
+		}
 		address = strings.TrimSpace(line)
 	}
 	if address != "" {
@@ -251,6 +311,10 @@ func (r *initRun) tokenStep(ctx context.Context) {
 	_, _ = fmt.Fprint(r.out, msgInitTokenPrompt)
 	secret, err := r.deps.ReadSecret()
 	_, _ = fmt.Fprintln(r.out)
+	if ctx.Err() != nil {
+		// Cancelled while reading: whatever was typed is dropped, not stored.
+		return
+	}
 	secret = strings.TrimSpace(secret)
 	if err != nil {
 		// The reader error carries no input; the token is never formatted.
