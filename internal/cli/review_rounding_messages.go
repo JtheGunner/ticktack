@@ -27,6 +27,20 @@ func msgReviewRoundingDropped(ticket string, raw time.Duration) string {
 	return fmt.Sprintf("  %s: %s rounds to zero and is not booked.", ticket, formatExactDuration(raw))
 }
 
+// msgReviewRoundingShifted names one ticket whose booked minutes differ from
+// its tracked minutes, with the signed difference. The ticket is sanitised by
+// the caller.
+func msgReviewRoundingShifted(ticket string, trackedMinutes, bookedMinutes int) string {
+	delta := bookedMinutes - trackedMinutes
+	sign := "+"
+	if delta < 0 {
+		sign = "-"
+		delta = -delta
+	}
+	return fmt.Sprintf("  %s: tracked %s, booked %s (%s%s).",
+		ticket, formatMinutes(trackedMinutes), formatMinutes(bookedMinutes), sign, formatMinutes(delta))
+}
+
 // formatExactDuration formats d in whole minutes (nearest), but never shows
 // time that exists as "0m".
 func formatExactDuration(d time.Duration) string {

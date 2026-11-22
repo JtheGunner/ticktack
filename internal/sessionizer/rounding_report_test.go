@@ -1,6 +1,7 @@
 package sessionizer
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -84,6 +85,16 @@ func TestAggregateReportDifferenceCases(t *testing.T) {
 	}{
 		{"exact multiple, nothing lost", []Block{blockAt(base, 30*time.Minute, "AAA-1")}, 0, nil},
 		{"rounded up is a negative difference", []Block{blockAt(base, 10*time.Minute, "AAA-1")}, -5 * time.Minute, nil},
+		{
+			"several tickets plus unassigned, one of each rounds to zero",
+			[]Block{
+				blockAt(base, 40*time.Minute, "AAA-1"),
+				blockAt(base.Add(time.Hour), 6*time.Minute, "BBB-2"),
+				blockAt(base.Add(2*time.Hour), 30*time.Minute, "CCC-3"),
+				blockAt(base.Add(3*time.Hour), 6*time.Minute, ""),
+			},
+			7 * time.Minute, []string{"", "BBB-2"},
+		},
 		{"unassigned time rounds on its own", []Block{blockAt(base, 40*time.Minute, "AAA-1"), blockAt(base.Add(time.Hour), 6*time.Minute, "")}, time.Minute, []string{""}},
 	}
 	for _, tt := range tests {
@@ -97,7 +108,7 @@ func TestAggregateReportDifferenceCases(t *testing.T) {
 			for _, dr := range d.Dropped {
 				got = append(got, dr.Ticket)
 			}
-			if len(got) != len(tt.wantDropped) || (len(got) > 0 && got[0] != tt.wantDropped[0]) {
+			if !slices.Equal(got, tt.wantDropped) {
 				t.Fatalf("dropped = %v, want %v", got, tt.wantDropped)
 			}
 		})
