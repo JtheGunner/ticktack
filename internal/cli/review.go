@@ -23,6 +23,7 @@ import (
 // reviewStore is the store as the review command uses it.
 type reviewStore interface {
 	review.Store
+	ArchivedDay(ctx context.Context, day string) (store.ArchivedDay, bool, error)
 	ReplaceProjects(ctx context.Context, projects []store.Project, fetchedAt time.Time) error
 	Close() error
 }
@@ -101,6 +102,9 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	if err := refuseArchivedDay(ctx, st, day); err != nil {
+		return err
+	}
 
 	var opts []review.Option
 	if deps.NewIssueSource != nil {

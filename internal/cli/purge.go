@@ -11,19 +11,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/retention"
 )
 
 func newPurgeCommand() *cobra.Command {
-	var yes bool
+	var yes, expired, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "purge",
-		Short: "Delete all local ticktack data",
-		Args:  cobra.NoArgs,
+		Short: "Delete all local ticktack data, or only expired events",
+		Long: "Delete all local ticktack data. With --expired only the raw events of fully\n" +
+			"booked days older than retention_days are deleted; overrides, the ledger and\n" +
+			"the sync history stay. Those days can no longer be re-derived, reviewed,\n" +
+			"explained or synced. --dry-run prints how many events and days that would be\n" +
+			"without deleting anything.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if dryRun && !expired {
+				return errors.New(msgPurgeDryRunFlag)
+			}
+			if expired {
+				return runPurgeExpired(cmd.Context(), defaultDailyDeps(cmd), yes, dryRun)
+			}
 			return runPurge(cmd.Context(), defaultDailyDeps(cmd), yes)
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	cmd.Flags().BoolVar(&expired, "expired", false, "delete only the events of fully booked days older than retention_days")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "with --expired: print the number of events and days without deleting")
 	return cmd
 }
 
@@ -50,6 +64,65 @@ func runPurge(ctx context.Context, deps dailyDeps, yes bool) error {
 		return err
 	}
 	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgPurged))
+	return err
+}
+
+// runPurgeExpired runs the retention cleanup by hand. A dry run only prints
+// the counts. Otherwise it states what is lost and asks like purge does
+// (--yes skips the question); nothing is asked when nothing would be deleted.
+func runPurgeExpired(ctx context.Context, deps dailyDeps, yes, dryRun bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.RetentionDays <= 0 {
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgPurgeExpiredOff))
+		return err
+	}
+	if !dryRun && deps.AcquireLock != nil {
+		release, err := deps.AcquireLock()
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
+	st, err := deps.OpenStore()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	plan, err := retention.Run(ctx, st, cfg, deps.Now(), true)
+	if err != nil {
+		return err
+	}
+	if len(plan.Days) == 0 {
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgPurgeExpiredNone, cfg.RetentionDays)))
+		return err
+	}
+	line := msgPurgeExpiredPlan(plan.Events, len(plan.Days), cfg.RetentionDays, dryRun)
+	if dryRun {
+		_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, line))
+		return err
+	}
+	if _, err := fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, line)); err != nil {
+		return err
+	}
+	if !yes {
+		confirmed, err := confirmDeletion(deps.In, deps.Out, msgPurgeExpiredPrompt)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgPurgeAborted))
+			return err
+		}
+	}
+	done, err := retention.Run(ctx, st, cfg, deps.Now(), false)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgPurgeExpiredDone(done.Events, len(done.Days))))
 	return err
 }
 

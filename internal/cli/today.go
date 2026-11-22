@@ -52,6 +52,9 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	if err := refuseArchivedDay(ctx, st, civilDayOf(start, loc)); err != nil {
+		return err
+	}
 
 	derived, err := deriveDay(ctx, st, cfg, start)
 	if err != nil {

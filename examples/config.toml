@@ -57,6 +57,21 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # Time zone for day boundaries (default: the system zone).
 # time_zone = "Europe/Zurich"
 
+# Delete the raw events of a day (the signals ticktack derived it from) this
+# many days after it, but only once the day is fully booked: every confirmed
+# item is in the ledger with the same minutes and nothing of the day is
+# unconfirmed. "0" (the default) keeps all events.
+#
+# WARNING: a cleaned day can no longer be re-derived, reviewed, explained or
+# synced; it is frozen. Overrides, the ledger and the sync history stay, and
+# the bookings in YouTrack are not touched. Values from 1 to 6 are allowed but
+# leave little time to review and correct a week. The auto mode track record
+# only counts days that can still be derived, so keep the value well above
+# auto.trusted_days. Maximum 3650.
+# The agent cleans up once a day; `ticktack purge --expired --dry-run` shows
+# what would be deleted, `ticktack purge --expired` does it by hand.
+# retention_days = 0
+
 # Tables follow. Top-level keys such as the ones above must stay before the
 # first table.
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/store"
 )
 
 func newUndoCommand() *cobra.Command {
@@ -45,11 +46,20 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	if _, found, err := st.LastSyncRun(ctx); err != nil {
+	last, found, err := st.LastSyncRun(ctx)
+	if err != nil {
 		return err
-	} else if !found {
+	}
+	if !found {
 		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgNothingToUndo))
 		return nil
+	}
+	archivedDays, err := countArchivedDays(ctx, st, last)
+	if err != nil {
+		return err
+	}
+	if archivedDays > 0 {
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgUndoArchivedNote, archivedDays)))
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
 	if err != nil {
@@ -63,4 +73,25 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	line := msgUndoResult(res.Deleted, res.Restored, res.Recreated, res.Forgotten)
 	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
 	return err
+}
+
+// countArchivedDays returns how many distinct days of the run's entries were
+// archived by the retention cleanup.
+func countArchivedDays(ctx context.Context, st archivedDayReader, run store.SyncRun) (int, error) {
+	seen := map[string]bool{}
+	count := 0
+	for _, e := range run.Entries {
+		if seen[e.Date] {
+			continue
+		}
+		seen[e.Date] = true
+		_, archived, err := st.ArchivedDay(ctx, e.Date)
+		if err != nil {
+			return 0, err
+		}
+		if archived {
+			count++
+		}
+	}
+	return count, nil
 }

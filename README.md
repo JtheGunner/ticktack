@@ -223,6 +223,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `repo_paths`         | none                   | Repositories read by `ticktack scan` and the agent's periodic scan. Each entry is the root of one repository, as an absolute path or starting with `~/`; subdirectories are not searched. |
 | `repo_roots`         | none                   | Folders whose direct subfolders are scanned like `repo_paths` entries, for example `["~/Projects", "~/StudioProjects"]`. A subfolder counts when it contains `.git`. |
 | `time_zone`          | system zone            | Time zone for day boundaries, for example `"Europe/Zurich"`.     |
+| `retention_days`     | `0` (off)              | Delete the raw events of a day this many days after it, once the day is fully booked. `0` keeps all events; negative values and values above `3650` are rejected. Read [Retention](#retention) before you turn it on. |
 | `[[rules]]`          | none                   | Fixed mappings with `repo` (absolute path or starting with `~/`) and `ticket` (must match `ticket_pattern`). Repeatable. |
 | `[titlehint]`        | `enabled = false`      | Window-title hints; `[titlehint.projects]` maps IDE project name to repository path. |
 | `[app_classes]`      | empty                  | Maps a macOS bundle ID of the foreground app to a class, for example `"us.zoom.xos" = "neutral"`. `work` (the default for an unlisted app) keeps the ticket; `neutral` keeps it but only as `suggested`, with the reason `foreground app class neutral`; `personal` ends the time, which is not counted and does not show as unassigned. ticktack ships no app list. Only the bundle ID is used, never a window title. Bundle IDs are matched exactly and case-sensitively, as macOS reports them (surrounding spaces are ignored); listing one app twice, also with different case, is an error. |
@@ -232,6 +233,18 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. A duration of zero is rejected, except for `scan.interval` and `context_max_age`, where `"0"` means off; to turn the daily cap off, set `daily_cap_enabled = false`. Top-level keys such as `time_zone` must come before the first table (`[scan]`, `[[rules]]`, ...). Repository paths in `[[rules]]` and `[titlehint.projects]` are normalised when the config is loaded: a trailing slash is dropped and symlinks are resolved. The YouTrack token is never part of the config.
+
+### Retention
+
+By default ticktack keeps every raw event. With `retention_days = N` (N from 1 to 3650) the agent deletes, once a day, the raw events of a day that is older than N days **and fully booked**: re-deriving the day gives items that are all confirmed in review and booked in the ledger with the same minutes, and nothing is left unconfirmed, unassigned or stale. Any doubt keeps the events. A day older than N days that is not fully booked keeps its events until it is.
+
+> [!WARNING]
+> A cleaned day can no longer be re-derived. It is **archived and frozen**: `review`, `today`, `explain`, `sync` and `auto` refuse it with a message, because a day without events would otherwise look like a day without time and `sync` would delete the work items it booked. Overrides, the ledger, the sync history and the bookings in YouTrack stay untouched, and `undo` still reverts the last sync from the sync history. Events that arrive later for an archived day (for example from a re-scan of the git reflog) are ignored.
+
+- The newest repository, branch and pin context before the end of a cleaned day stays, because the following day starts from it. It is not counted as deleted.
+- Values from 1 to 6 are allowed but leave little time to review and correct a week. Auto mode counts only days that can still be derived, so keep `retention_days` well above `[auto] trusted_days`.
+- `ticktack purge --expired --dry-run` prints how many events and days the cleanup would delete and changes nothing. `ticktack purge --expired` runs it by hand after the same confirmation as `purge` (`--yes` skips it) and states plainly that the days cannot be re-derived afterwards.
+- The agent reads `retention_days` when it starts, so restart the agent after changing the value. It cleans at start and then every 24 hours, skips the run while a sync or auto run holds the booking lock, and logs failures without stopping.
 
 **Rule matching.** Rules (`[[rules]]` and learned rules) are deliberately simple. A repository matches that path and everything below it, on a path boundary (`/work/app` covers `/work/app/sub`, not `/work/application`). A learned rule's branch must equal the branch name exactly: there are no wildcards or globs, so `feature/*` only matches a branch literally named that. Add one rule per branch, or leave the branch out to cover the whole repository. `ticktack map` lists and edits learned rules.
 
@@ -273,7 +286,8 @@ Resolution order for a block:
 | 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
 | ⏸️ | `ticktack pause`                | Pause all capture.                                                                   |
 | ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
-| 🗑️ | `ticktack purge`                | Empty the local database: events, overrides, ledger and sync history, review state, learned rules, digests, the cached project list, standard tasks and the consent to create them (`--yes` skips the prompt). Config, token, agent and shell hook stay. |
+| 🗑️ | `ticktack purge`                | Empty the local database: events, overrides, ledger and sync history, review state, learned rules, digests, the cached project list, standard tasks, the consent to create them and the list of archived days (`--yes` skips the prompt). Config, token, agent and shell hook stay. |
+| 🧽 | `ticktack purge --expired`      | Delete only the raw events of fully booked days older than `retention_days` (`--dry-run` prints the number of events and days without deleting; `--yes` skips the prompt). The days can no longer be re-derived. See [Retention](#retention). |
 | 🧹 | `ticktack uninstall`            | Remove the launchd agent, the shell hook block, the keychain token and the log file (`--yes` skips the prompt). See [Uninstall](#uninstall). |
 | ✅ | `ticktack review`               | Review the day's blocks and confirm what may be booked (`--day`).                    |
 | 🔍 | `ticktack explain <N\|HH:MM>`   | Show the signal and rule behind a block (`--day`).                                   |
@@ -362,6 +376,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`). The database runs in WAL mode, so `events.db-wal` and `events.db-shm` appear next to it while it is in use; they hold the same data, carry the same `0600` mode and are removed with the database file when you delete the data directory. `ticktack purge` empties the tables and leaves no events behind in them. The bundled SQLite (3.54.1 in `modernc.org/sqlite` v1.62.0) contains the fix for the WAL-reset bug (3.51.3, backports 3.44.6 and 3.50.7); a test fails if a driver update falls below it.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
+- Raw events are kept until you delete them, unless you set `retention_days`: then the agent deletes the events of fully booked days older than that many days (see [Retention](#retention)). Those days can no longer be re-derived.
 - `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
 - `ticktack uninstall` removes the launchd agent, the shell hook, the keychain token and the log file.
 
@@ -388,6 +403,7 @@ make lint     # golangci-lint run ./...
 | `internal/config/`, `internal/paths/`, `internal/token/` | Config loading, file locations, keychain access. |
 | `internal/event/`, `internal/localday/`, `internal/ticketid/` | The event model, local calendar-day boundaries and ticket-id matching. `localday` and the shared interfaces use `cloud.google.com/go/civil.Date`: the dependency stays because only that subpackage is compiled and a custom date type would add risk at date boundaries. |
 | `internal/review/`, `internal/suggest/`, `internal/explain/`, `internal/auto/` | Review flow, ticket suggestions, block explanations and auto mode. |
+| `internal/retention/` | The retention cleanup: decides which days are fully booked and archives them. |
 | `internal/reporoots/`, `internal/shellhook/` | Repository discovery under `repo_roots` and the shell-hook snippets. |
 | `internal/logfile/`, `internal/runlock/`, `internal/loopback/` | Rotating log, single-run lock and the loopback-only address check. |
 

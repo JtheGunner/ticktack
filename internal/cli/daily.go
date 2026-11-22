@@ -15,6 +15,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
+	"github.com/JtheGunner/ticktack/internal/retention"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -37,6 +38,10 @@ type dailyStore interface {
 	InTx(ctx context.Context, fn func(tx store.Tx) error) error
 	Purge(ctx context.Context) error
 	Close() error
+	// retention.Store carries what the retention cleanup reads and writes;
+	// ArchivedDay lets commands refuse an archived day.
+	retention.Store
+	ArchivedDay(ctx context.Context, day string) (store.ArchivedDay, bool, error)
 }
 
 // dailyDeps holds everything the daily commands touch outside of pure logic.
@@ -57,6 +62,10 @@ type dailyDeps struct {
 	Out io.Writer
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
+	// AcquireLock takes the lock that admits one booking run at a time; the
+	// retention cleanup holds it so it never runs beside a sync. Nil runs
+	// without a lock.
+	AcquireLock func() (release func(), err error)
 }
 
 // defaultDailyDeps wires the real dependencies to the command's streams.
@@ -77,6 +86,8 @@ func defaultDailyDeps(cmd *cobra.Command) dailyDeps {
 		In:        cmd.InOrStdin(),
 		Out:       cmd.OutOrStdout(),
 		Render:    rendererFor(cmd, cmd.OutOrStdout()),
+
+		AcquireLock: acquireBookingLock,
 	}
 }
 

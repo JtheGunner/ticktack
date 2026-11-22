@@ -76,6 +76,9 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, titleStatusPath, interval, logger.Printf); collector != nil {
 			jobs = append(jobs, func(ctx context.Context) { _ = collector.Run(ctx) })
 		}
+		if job := newRetentionJob(cfg, st, acquireBookingLock, retentionInterval, func() time.Time { return time.Now().Round(0) }, logger.Printf); job != nil {
+			jobs = append(jobs, job)
+		}
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil {
 			logger.Printf("git scan disabled: %v", homeErr)

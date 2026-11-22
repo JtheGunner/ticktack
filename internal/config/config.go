@@ -41,6 +41,10 @@ const (
 	DefaultScanInterval time.Duration = 0
 	// MinScanInterval is the shortest accepted non-zero scan interval.
 	MinScanInterval = 5 * time.Minute
+	// DefaultRetentionDays turns the retention cleanup off: raw events stay.
+	DefaultRetentionDays = 0
+	// MaxRetentionDays is the largest accepted retention_days (ten years).
+	MaxRetentionDays = 3650
 )
 
 // Scan configures the optional periodic git reflog scan run by the agent.
@@ -109,6 +113,10 @@ type Config struct {
 	TitleHint     TitleHint
 	Auto          Auto
 	Scan          Scan
+	// RetentionDays is how many days after a day the raw events of a fully
+	// booked day are deleted; zero keeps them. A cleaned day can no longer be
+	// re-derived.
+	RetentionDays int
 	// AppClasses maps a bundle ID to the class of that foreground app. It is
 	// empty by default; an app that is not listed is ClassWork.
 	AppClasses map[string]AppClass
@@ -142,6 +150,7 @@ type fileConfig struct {
 	RepoPaths        []string `toml:"repo_paths"`
 	RepoRoots        []string `toml:"repo_roots"`
 	TimeZone         string   `toml:"time_zone"`
+	RetentionDays    *int     `toml:"retention_days"`
 
 	DefaultIssue *DefaultIssue `toml:"default_issue"`
 
@@ -331,6 +340,11 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AppClasses = appClasses
+	retention, err := buildRetentionDays(raw.RetentionDays)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RetentionDays = retention
 	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
 	if days := raw.Auto.TrustedDays; days != nil {
 		if *days < 1 {
@@ -395,6 +409,21 @@ func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 		hint.Projects[name] = resolvePath(repo)
 	}
 	return hint, nil
+}
+
+// buildRetentionDays validates retention_days: zero turns the cleanup off,
+// negative values and values above MaxRetentionDays are rejected.
+func buildRetentionDays(raw *int) (int, error) {
+	if raw == nil {
+		return DefaultRetentionDays, nil
+	}
+	if *raw < 0 {
+		return 0, fmt.Errorf("retention_days must not be negative, got %d: use 0 to keep events", *raw)
+	}
+	if *raw > MaxRetentionDays {
+		return 0, fmt.Errorf("retention_days must be at most %d, got %d", MaxRetentionDays, *raw)
+	}
+	return *raw, nil
 }
 
 // buildScan validates the [scan] table. Zero turns the periodic scan off;

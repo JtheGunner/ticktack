@@ -166,6 +166,12 @@ func TestEventsAreImmutable(t *testing.T) {
 		"DefaultTasks": true, "SetDefaultTask": true,
 		"ConsentedProjects": true, "SetConsent": true,
 		"RenameConfirmationIssue": true,
+		// ArchiveDay is the retention cleanup: the one deliberate event
+		// deletion besides Purge. It is scoped to a single local day, keeps the
+		// carried-context anchors and records the day in archived_days in the
+		// same transaction. The other two only read.
+		"ArchiveDay": true, "ArchivedDay": true, "ArchivedDays": true,
+		"EarliestEventAt": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -253,6 +259,11 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.SetConsent(ctx, "TICKT", base); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveStart := base.AddDate(0, 0, -5)
+	if _, err := s.ArchiveDay(ctx, ArchiveRequest{Day: "2026-01-01", From: archiveStart, To: archiveStart.Add(24 * time.Hour), ArchivedAt: base}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -24,7 +24,7 @@ const (
 	msgPurgePrompt = "Delete ALL local ticktack data? This empties the database: events, overrides, " +
 		"the booking ledger and sync history, review confirmations, cap acknowledgements, " +
 		"learned rules and their change log, the review log, digests, the cached YouTrack project list, " +
-		"standard tasks and the consent to create them. [y/N] "
+		"standard tasks and the consent to create them, and the list of archived days. [y/N] "
 	msgPurgeAborted = "Aborted. Nothing was deleted."
 	msgPurged       = "All local ticktack data deleted."
 	// msgNotInteractive is shared by every command that asks before deleting.
