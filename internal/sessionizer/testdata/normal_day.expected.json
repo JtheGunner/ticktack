@@ -5,6 +5,7 @@
     "Ticket": "APP-1",
     "Tier": "rule",
     "Reason": "repo rule for /work/example-app",
+    "Rule": "repo-rule",
     "Repo": "/work/example-app",
     "Branch": "main"
   },
@@ -14,6 +15,7 @@
     "Ticket": "APP-1",
     "Tier": "rule",
     "Reason": "repo rule for /work/example-app",
+    "Rule": "repo-rule",
     "Repo": "/work/example-app",
     "Branch": "main"
   }

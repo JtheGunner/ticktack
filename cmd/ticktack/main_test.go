@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/JtheGunner/ticktack/internal/cli"
+	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/runlock"
 )
 
 func isolate(t *testing.T) {
@@ -49,5 +54,40 @@ func TestRunReturnsZeroOnSuccessAndPrintsErrorsOnce(t *testing.T) {
 	}
 	if strings.Count(stderr.String(), "error:") != 1 {
 		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestBookingCommandsExitWithDefinedCodeWhileAnotherRunIsActive(t *testing.T) {
+	isolate(t)
+	lockPath, err := paths.BookingLockPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := runlock.Acquire(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Release() }()
+
+	// The lock is checked before the configuration, so no command gets as
+	// far as YouTrack.
+	for _, command := range []string{"sync", "auto", "undo"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run([]string{command}, &stdout, &stderr)
+			if code != cli.ExitBookingRunActive {
+				t.Errorf("exit code = %d, want %d", code, cli.ExitBookingRunActive)
+			}
+			want := "error: another ticktack booking run (sync, auto or undo) is active: try again when it has finished\n"
+			if stderr.String() != want {
+				t.Errorf("stderr = %q, want %q", stderr.String(), want)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want it empty", stdout.String())
+			}
+		})
 	}
 }

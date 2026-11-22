@@ -20,6 +20,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/localday"
 	"github.com/JtheGunner/ticktack/internal/reporoots"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
@@ -148,8 +149,7 @@ func location(cfg config.Config) *time.Location {
 // EventsWithCarriedContext); its time comes from the day's own presence only.
 func LoadDay(ctx context.Context, r Reader, cfg config.Config, day civil.Date) (Day, error) {
 	loc := location(cfg)
-	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, loc)
-	to := time.Date(day.Year, day.Month, day.Day+1, 0, 0, 0, 0, loc)
+	from, to := localday.Bounds(day, loc)
 	in, err := LoadDayInput(ctx, r, cfg, from, to)
 	if err != nil {
 		return Day{}, err
@@ -258,6 +258,9 @@ type Entry struct {
 	Ticket     string
 	Tier       resolver.Tier
 	Reason     string
+	// Rule is the kind of rule that decided the attribution (see
+	// sessionizer.Block.Rule).
+	Rule resolver.RuleKind
 	// Repo and Branch are the context the entry was derived from; empty for
 	// override entries and when no context existed.
 	Repo, Branch string
@@ -343,7 +346,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		start, end := maxTime(b.Start, d.Start), minTime(b.End, d.End)
 		e := Entry{
 			Index: len(list) + 1, Kind: KindBlock, Start: start, End: end,
-			Ticket: b.Ticket, Tier: b.Tier, Reason: b.Reason, Repo: b.Repo, Branch: b.Branch,
+			Ticket: b.Ticket, Tier: b.Tier, Reason: b.Reason, Rule: b.Rule, Repo: b.Repo, Branch: b.Branch,
 			Minutes: int((end.Sub(start) + 30*time.Second) / time.Minute),
 		}
 		if b.Ticket == "" {
@@ -490,10 +493,25 @@ func (s *Session) Reassign(ctx context.Context, n int, ticket string) error {
 	if err != nil {
 		return err
 	}
-	if e.Repo != "" && (e.Tier == resolver.TierUnknown || e.Tier == resolver.TierLearned) {
+	if e.Repo != "" && learnedRuleWouldApply(e.Rule) {
 		s.pending = &RememberOffer{Repo: e.Repo, Branch: e.Branch, Ticket: t}
 	}
 	return nil
+}
+
+// learnedRuleWouldApply reports whether a learned rule for the context of an
+// entry decided by rule would change its attribution next time. That holds
+// when nothing decided, or a learned rule or a standard task did: the resolver
+// checks learned rules before both standard-task steps. A ticket on the event
+// or in the branch, a repo rule, a manual switch and an override all rank
+// before learned rules, so remembering would have no effect there.
+func learnedRuleWouldApply(rule resolver.RuleKind) bool {
+	switch rule {
+	case resolver.RuleNone, resolver.RuleLearned, resolver.RuleProjectDefault, resolver.RuleGlobalDefault:
+		return true
+	default:
+		return false
+	}
 }
 
 // Discard drops the entry's interval from the day by writing a discard
