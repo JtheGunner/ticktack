@@ -5,9 +5,9 @@
   2  09:30-09:50  (unassigned)  [2munknown[0m   no ticket in branch and no …
 
   [1mTotals[0m
-  [2mTicket[0m        [2mTime[0m  [2mRaw[0m
-  (unassigned)   15m  20m
-  ABC-7          45m  40m
+  [2mTicket[0m        [2mTime[0m  [2mRaw[0m  [2mCertainty[0m
+  (unassigned)   15m  20m  unknown 15m
+  ABC-7          45m  40m  explicit 45m
 
   [2mTotal[0m  1h
   [33m⚠[0m  OVER DAILY CAP (30m0s)

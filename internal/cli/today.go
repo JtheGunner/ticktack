@@ -97,6 +97,7 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 			SanitizeForTerminal(ticketLabel(item.Ticket)),
 			formatMinutes(item.Minutes),
 			formatMinutes(item.RawMinutes),
+			formatCertainty(item.Certainty),
 		})
 	}
 	lines = append(lines, "", r.Heading(msgTotalsHeading))
@@ -104,6 +105,7 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 		{Header: msgColTicket},
 		{Header: msgColTime, Right: true},
 		{Header: msgColRaw, Right: true},
+		{Header: msgColCertainty, Flex: true},
 	}, totalRows)...)
 	lines = append(lines, "")
 	lines = append(lines, r.Labels([]render.LabelRow{{Label: msgLabelTotal, Value: formatMinutes(total)}}, 2)...)

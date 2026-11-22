@@ -231,6 +231,7 @@ func (r *reviewRun) show() {
 	}, rows) {
 		r.println(line)
 	}
+	r.showItems()
 	for _, e := range entries {
 		r.showSuggestions(e)
 	}
@@ -240,6 +241,31 @@ func (r *reviewRun) show() {
 	}
 	r.println("")
 	r.showLines(reviewKeyBarLines(r.render))
+}
+
+// showItems prints the rounded minutes per ticket with their tier breakdown.
+func (r *reviewRun) showItems() {
+	items := r.s.Day().Items
+	if len(items) == 0 {
+		return
+	}
+	rows := make([][]string, 0, len(items))
+	for _, it := range items {
+		rows = append(rows, []string{
+			SanitizeForTerminal(ticketLabel(it.Ticket)),
+			formatMinutes(it.Minutes),
+			formatCertainty(it.Certainty),
+		})
+	}
+	r.println("")
+	r.println(r.render.Heading(msgTotalsHeading))
+	for _, line := range r.render.Table([]render.Column{
+		{Header: msgColTicket},
+		{Header: msgColTime, Right: true},
+		{Header: msgColCertainty, Flex: true},
+	}, rows) {
+		r.println(line)
+	}
 }
 
 // showLines prints lines as they are. While an action runs they are held with
