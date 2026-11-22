@@ -411,6 +411,9 @@ func TestProvisionReportsAFailedProjectAndProvidesTheOthers(t *testing.T) {
 			if !reflect.DeepEqual(report.FailedTickets, []string{"B:default"}) {
 				t.Errorf("FailedTickets = %v, want [B:default]", report.FailedTickets)
 			}
+			if !reflect.DeepEqual(report.FailedProjects, []string{"B"}) {
+				t.Errorf("FailedProjects = %v, want [B]", report.FailedProjects)
+			}
 			if len(report.DroppedTickets) != 0 || len(report.Declined) != 0 {
 				t.Errorf("a failed project was reported as missing its task: dropped %v declined %v", report.DroppedTickets, report.Declined)
 			}

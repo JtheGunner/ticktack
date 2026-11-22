@@ -112,7 +112,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		if err != nil {
 			return err
 		}
-		provided, failed, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
+		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
 		switch {
 		case ledger.IsStopError(err):
 			// Nothing is sent; the digest lists every item as not sent.
@@ -121,9 +121,12 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 			return err
 		default:
 			sel = provided
+			// No booking of a project whose standard task could not be
+			// provided is reconciled away: its issue may be unknown here.
 			report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
 				Repo: st, DryRun: dryRun, Now: deps.Now,
-				Reconcile: []civil.Date{day}, Keep: keep, Failed: failed,
+				Reconcile: []civil.Date{day}, Keep: keep,
+				HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
 			})
 		}
 	}

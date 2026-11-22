@@ -224,10 +224,13 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return nil
 	}
 	// Items whose standard task could not be provided are not booked; their
-	// failure is listed in the report next to the items that were.
+	// failure is listed in the report next to the items that were. Which
+	// issue their time is booked on may be unknown, so no booking of their
+	// project is reconciled away in this run.
 	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{
 		Repo: st, DryRun: dryRun, Now: deps.Now,
-		Reconcile: []civil.Date{day}, Keep: keep, Failed: provisioned.Failed,
+		Reconcile: []civil.Date{day}, Keep: keep,
+		HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
 	})
 	printReport(out, deps.Render, report, dryRun)
 	return syncErr

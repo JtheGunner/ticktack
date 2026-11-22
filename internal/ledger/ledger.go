@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -81,6 +82,12 @@ type SyncOptions struct {
 	// Keep holds the keys of rows that stay booked without an item, for
 	// example items the day still has but that may not be booked right now.
 	Keep []string
+	// HoldProjects lists the projects whose booked rows are left out of
+	// reconciliation in this run, whatever the items and Keep say: nothing
+	// reliable is known about their time, for example because their standard
+	// task could not be provided (ProvisionReport.FailedProjects), so no
+	// booking of theirs may be deleted on that basis.
+	HoldProjects []string
 	// Failed holds the results of items that failed before the run and are
 	// not among the items, for example because their standard task could not
 	// be provided (ProvisionReport.Failed). They are reported as they are;
@@ -159,8 +166,9 @@ func Marker(key string) string { return markerPrefix + key + "]" }
 // missing.
 //
 // After the items, the days in opts.Reconcile are reconciled: booked rows the
-// items no longer cover are deleted. A run that stopped early reconciles
-// nothing, because its items were not all processed.
+// items no longer cover are deleted, except those of opts.HoldProjects. A run
+// that stopped early reconciles nothing, because its items were not all
+// processed.
 func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opts SyncOptions) (Report, error) {
 	if opts.Repo == nil {
 		return Report{}, errors.New("ledger: no repository configured")
@@ -219,7 +227,7 @@ func NotSentReport(items []sessionizer.DayItem) Report {
 }
 
 // reconcile deletes the booked rows of the reconciled days that no item and
-// no kept key covers. A failed deletion is reported and the others continue;
+// no kept key covers and that do not belong to a held project. A failed deletion is reported and the others continue;
 // a stop error ends the run with the remaining rows reported as not sent.
 func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, report *Report) error {
 	if len(r.opts.Reconcile) == 0 {
@@ -241,9 +249,10 @@ func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, re
 			return err
 		}
 		for _, row := range rows {
-			if !covered[Key(row.Issue, row.Date, row.Type)] {
-				stale = append(stale, row)
+			if covered[Key(row.Issue, row.Date, row.Type)] || inAnyProject(row.Issue, r.opts.HoldProjects) {
+				continue
 			}
+			stale = append(stale, row)
 		}
 	}
 	for i, row := range stale {
@@ -259,6 +268,23 @@ func (r *syncRun) reconcile(ctx context.Context, items []sessionizer.DayItem, re
 		}
 	}
 	return nil
+}
+
+// inAnyProject reports whether issue belongs to one of projects. An issue key
+// is its project key, a dash and a number; the comparison ignores case, as
+// the sink does when it searches a project, so a held project is never missed
+// over the spelling of its key.
+func inAnyProject(issue string, projects []string) bool {
+	i := strings.LastIndex(issue, "-")
+	if i <= 0 {
+		return false
+	}
+	for _, project := range projects {
+		if strings.EqualFold(issue[:i], project) {
+			return true
+		}
+	}
+	return false
 }
 
 func uniqueDates(dates []civil.Date) []civil.Date {

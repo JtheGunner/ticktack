@@ -68,6 +68,11 @@ type ProvisionReport struct {
 	// FailedTickets lists the tickets of the items in Failed. They are not
 	// part of DroppedTickets: whether their task exists is unknown.
 	FailedTickets []string
+	// FailedProjects lists, sorted, the projects whose standard task could not
+	// be looked up or created. Which issue their time is booked on is unknown
+	// in this run, so pass them to Sync as SyncOptions.HoldProjects: no booked
+	// row of theirs may be reconciled away.
+	FailedProjects []string
 }
 
 // Provision makes sure every standard task the items point at exists, and
@@ -207,6 +212,12 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 	}
 
 	report.Rewritten = rewrite
+	// projects is sorted, so FailedProjects is too.
+	for _, project := range projects {
+		if _, isFailed := failed[project]; isFailed {
+			report.FailedProjects = append(report.FailedProjects, project)
+		}
+	}
 	out := make([]sessionizer.DayItem, 0, len(items))
 	droppedSeen := map[string]bool{}
 	failedSeen := map[string]bool{}
