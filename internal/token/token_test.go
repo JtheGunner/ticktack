@@ -23,3 +23,28 @@ func TestTokenRoundTrip(t *testing.T) {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
+
+func TestDeleteRemovesTheToken(t *testing.T) {
+	keyring.MockInit()
+	if err := Delete(); !errors.Is(err, ErrNotSet) {
+		t.Fatalf("deleting a missing token: want ErrNotSet, got %v", err)
+	}
+	if err := Set("perm:secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(); !errors.Is(err, ErrNotSet) {
+		t.Fatalf("token still readable after Delete: %v", err)
+	}
+}
+
+func TestDeleteReportsKeychainFailure(t *testing.T) {
+	failure := errors.New("keychain locked")
+	keyring.MockInitWithError(failure)
+	t.Cleanup(keyring.MockInit)
+	if err := Delete(); !errors.Is(err, failure) || errors.Is(err, ErrNotSet) {
+		t.Fatalf("want the keychain failure, got %v", err)
+	}
+}

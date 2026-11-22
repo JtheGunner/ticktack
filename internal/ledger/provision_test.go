@@ -14,6 +14,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
+	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 var provisionDay = civil.Date{Year: 2026, Month: time.March, Day: 2}
@@ -21,19 +22,21 @@ var provisionDay = civil.Date{Year: 2026, Month: time.March, Day: 2}
 // fakeProvisioner is an in-memory YouTrack: issues[project] is the key of the
 // standard task that exists there.
 type fakeProvisioner struct {
-	issues   map[string]string
-	created  []string
-	findErr  error
-	nextKeys map[string]string
-	lastDesc string
-	lastSum  string
+	issues  map[string]string
+	created []string
+	// findErrs and createErrs fail the call for one project.
+	findErrs   map[string]error
+	createErrs map[string]error
+	nextKeys   map[string]string
+	lastDesc   string
+	lastSum    string
 }
 
 func (f *fakeProvisioner) Projects(context.Context) ([]sink.ProjectRef, error) { return nil, nil }
 
 func (f *fakeProvisioner) FindIssueByMarker(_ context.Context, project, marker string) (string, bool, error) {
-	if f.findErr != nil {
-		return "", false, f.findErr
+	if err := f.findErrs[project]; err != nil {
+		return "", false, err
 	}
 	if marker != DefaultIssueMarker {
 		return "", false, errors.New("unexpected marker " + marker)
@@ -43,6 +46,9 @@ func (f *fakeProvisioner) FindIssueByMarker(_ context.Context, project, marker s
 }
 
 func (f *fakeProvisioner) CreateIssue(_ context.Context, project, summary, description string) (string, error) {
+	if err := f.createErrs[project]; err != nil {
+		return "", err
+	}
 	f.created = append(f.created, project)
 	f.lastSum, f.lastDesc = summary, description
 	key := f.nextKeys[project]
@@ -331,17 +337,179 @@ func TestProvisionDeletedTaskIsRecreatedAfterConfirmation(t *testing.T) {
 	}
 }
 
-func TestProvisionPropagatesLookupErrors(t *testing.T) {
-	st := provisionStore(t)
-	boom := errors.New("youtrack down")
-	prov := &fakeProvisioner{findErr: boom}
-	var asked [][]string
-
-	_, _, err := Provision(context.Background(), []sessionizer.DayItem{item("A:default", 30)}, prov, st, provisionOpts(answer(true, &asked)))
-	if !errors.Is(err, boom) {
-		t.Fatalf("err = %v, want the lookup error", err)
+func TestProvisionStopErrorsEndTheRun(t *testing.T) {
+	tests := []struct {
+		name string
+		prov *fakeProvisioner
+		want error
+	}{
+		{"lookup unauthorized", &fakeProvisioner{findErrs: map[string]error{"A": youtrack.ErrUnauthorized}}, youtrack.ErrUnauthorized},
+		{"lookup rate limited", &fakeProvisioner{findErrs: map[string]error{"A": youtrack.ErrRateLimited}}, youtrack.ErrRateLimited},
+		{"create unauthorized", &fakeProvisioner{createErrs: map[string]error{"A": youtrack.ErrUnauthorized}}, youtrack.ErrUnauthorized},
+		{"create rate limited", &fakeProvisioner{createErrs: map[string]error{"A": youtrack.ErrRateLimited}}, youtrack.ErrRateLimited},
 	}
-	if len(asked) != 0 || len(prov.created) != 0 {
-		t.Errorf("a failed lookup must not lead to creation: asked %v created %v", asked, prov.created)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := provisionStore(t)
+			tt.prov.nextKeys = map[string]string{"A": "A-1", "B": "B-1"}
+			var asked [][]string
+			items := []sessionizer.DayItem{item("A:default", 30), item("B:default", 30)}
+
+			_, _, err := Provision(context.Background(), items, tt.prov, st, provisionOpts(answer(true, &asked)))
+			if !errors.Is(err, tt.want) || !IsStopError(err) {
+				t.Fatalf("err = %v, want the stop error %v", err, tt.want)
+			}
+			if len(tt.prov.created) != 0 {
+				t.Errorf("created %v after a stop error", tt.prov.created)
+			}
+		})
+	}
+}
+
+func TestProvisionReportsAFailedProjectAndProvidesTheOthers(t *testing.T) {
+	boom := errors.New("youtrack down")
+	tests := []struct {
+		name string
+		prov *fakeProvisioner
+		// wantAsked are the projects offered for creation: a project whose
+		// lookup failed is never among them.
+		wantAsked []string
+	}{
+		{"lookup fails", &fakeProvisioner{findErrs: map[string]error{"B": boom}}, []string{"A", "C"}},
+		{"create fails", &fakeProvisioner{createErrs: map[string]error{"B": boom}}, []string{"A", "B", "C"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := provisionStore(t)
+			tt.prov.nextKeys = map[string]string{"A": "A-1", "B": "B-1", "C": "C-1"}
+			var asked [][]string
+			items := []sessionizer.DayItem{item("A:default", 30), item("B:default", 45), item("C:default", 15), item("TICKT-9", 60)}
+
+			got, report, err := Provision(context.Background(), items, tt.prov, st, provisionOpts(answer(true, &asked)))
+			if err != nil {
+				t.Fatalf("a failing project must not abort the others: %v", err)
+			}
+			if want := []string{"A-1", "C-1", "TICKT-9"}; !reflect.DeepEqual(tickets(got), want) {
+				t.Errorf("tickets = %v, want %v", tickets(got), want)
+			}
+			if want := []string{"A", "C"}; !reflect.DeepEqual(tt.prov.created, want) {
+				t.Errorf("created = %v, want %v", tt.prov.created, want)
+			}
+			if len(asked) != 1 || !reflect.DeepEqual(asked[0], tt.wantAsked) {
+				t.Errorf("asked = %v, want one question for %v", asked, tt.wantAsked)
+			}
+			if len(report.Failed) != 1 {
+				t.Fatalf("Failed = %+v, want one item", report.Failed)
+			}
+			f := report.Failed[0]
+			if f.Key != Key("B:default", provisionDay.String(), "Development") || f.Action != ActionFailed || f.Minutes != 45 {
+				t.Errorf("Failed[0] = %+v", f)
+			}
+			if !strings.Contains(f.Error, "B") || !strings.Contains(f.Error, "youtrack down") {
+				t.Errorf("Failed[0].Error = %q, want the project and the cause", f.Error)
+			}
+			if !reflect.DeepEqual(report.FailedTickets, []string{"B:default"}) {
+				t.Errorf("FailedTickets = %v, want [B:default]", report.FailedTickets)
+			}
+			if !reflect.DeepEqual(report.FailedProjects, []string{"B"}) {
+				t.Errorf("FailedProjects = %v, want [B]", report.FailedProjects)
+			}
+			if len(report.DroppedTickets) != 0 || len(report.Declined) != 0 {
+				t.Errorf("a failed project was reported as missing its task: dropped %v declined %v", report.DroppedTickets, report.Declined)
+			}
+			tasks, err := st.DefaultTasks(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, known := tasks["B"]; known {
+				t.Errorf("a task was stored for the failed project: %v", tasks)
+			}
+		})
+	}
+}
+
+func TestProvisionDryRunReportsAFailedLookupWithoutPromisingTime(t *testing.T) {
+	st := provisionStore(t)
+	prov := &fakeProvisioner{findErrs: map[string]error{"B": errors.New("youtrack down")}}
+	o := provisionOpts(nil)
+	o.DryRun = true
+
+	got, report, err := Provision(context.Background(), []sessionizer.DayItem{item("A:default", 30), item("B:default", 45)}, prov, st, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 || len(report.Failed) != 1 {
+		t.Errorf("items %v, Failed %+v", tickets(got), report.Failed)
+	}
+	if !reflect.DeepEqual(report.WouldCreate, []string{"A"}) || report.WouldBook["B"] != 0 {
+		t.Errorf("WouldCreate = %v, WouldBook = %v", report.WouldCreate, report.WouldBook)
+	}
+}
+
+// One project fails, the rest of the day is still booked and the failure is
+// part of the sync report.
+func TestSyncBooksTheOtherItemsWhenOneProjectCannotBeProvided(t *testing.T) {
+	ctx := context.Background()
+	st := provisionStore(t)
+	prov := &fakeProvisioner{
+		findErrs: map[string]error{"B": errors.New("youtrack down")},
+		nextKeys: map[string]string{"A": "A-1"},
+	}
+	var asked [][]string
+	items := []sessionizer.DayItem{item("A:default", 30), item("B:default", 45), item("TICKT-9", 60)}
+
+	provided, provisioned, err := Provision(ctx, items, prov, st, provisionOpts(answer(true, &asked)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := newFakeSink()
+	report, err := Sync(ctx, provided, fs, SyncOptions{Repo: st, Failed: provisioned.Failed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Created != 2 || report.Failed != 1 || report.NotSent != 0 {
+		t.Errorf("report = %+v, want 2 created and 1 failed", report)
+	}
+	if len(fs.items) != 2 {
+		t.Errorf("booked %v, want A-1 and TICKT-9", fs.items)
+	}
+	for _, fi := range fs.items {
+		if fi.item.Issue != "A-1" && fi.item.Issue != "TICKT-9" {
+			t.Errorf("booked on %s", fi.item.Issue)
+		}
+	}
+	listed := false
+	for _, res := range report.Items {
+		if res.Action == ActionFailed && strings.HasPrefix(res.Key, "B:default") {
+			listed = true
+		}
+	}
+	if !listed {
+		t.Errorf("the failed project is not in the report: %+v", report.Items)
+	}
+}
+
+func TestNotSentReportMarksEveryItem(t *testing.T) {
+	report := NotSentReport([]sessionizer.DayItem{item("TICKT-9", 60), item("A:default", 30), item("", 15)})
+	if report.NotSent != 2 || report.Skipped != 1 || len(report.Items) != 3 {
+		t.Fatalf("report = %+v", report)
+	}
+	if report.Items[1].Key != Key("A:default", provisionDay.String(), "Development") || report.Items[1].Action != ActionNotSent {
+		t.Errorf("Items[1] = %+v", report.Items[1])
+	}
+}
+
+func TestProvisionCancelledContextEndsTheRun(t *testing.T) {
+	st := provisionStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	prov := &fakeProvisioner{findErrs: map[string]error{"A": context.Canceled}}
+
+	_, report, err := Provision(ctx, []sessionizer.DayItem{item("A:default", 30)}, prov, st, provisionOpts(nil))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation", err)
+	}
+	if len(report.Failed) != 0 {
+		t.Errorf("a cancelled run reported a failed project: %+v", report.Failed)
 	}
 }

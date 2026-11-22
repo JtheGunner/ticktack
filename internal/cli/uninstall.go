@@ -1,0 +1,234 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/token"
+	"github.com/JtheGunner/ticktack/launchd"
+)
+
+// ErrUninstallIncomplete is returned by `uninstall` when at least one step
+// failed. The failures are already explained on stdout.
+var ErrUninstallIncomplete = errors.New("uninstall incomplete")
+
+// uninstallDeps holds everything uninstall touches outside of pure logic.
+type uninstallDeps struct {
+	Home string
+	GOOS string
+	UID  int
+	// Launchctl runs launchctl with args and returns its combined output.
+	Launchctl func(ctx context.Context, args ...string) (string, error)
+	// DeleteToken removes the token from the keychain; token.ErrNotSet means
+	// there was none.
+	DeleteToken func() error
+	LogPath     func() (string, error)
+	In          io.Reader
+	Out         io.Writer
+	// Render styles the output; the zero value renders plain text.
+	Render render.Renderer
+}
+
+func newUninstallCommand() *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove the launchd agent, shell hook, token and log",
+		Long: "Reverses `ticktack init`: unloads and removes the launchd agent, removes the " +
+			"managed block from the shell startup files, deletes the YouTrack token from the " +
+			"OS keychain and deletes the log file. The config file, the database and the " +
+			"binary stay; `ticktack purge` deletes the data.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runUninstall(cmd.Context(), defaultUninstallDeps(cmd), yes)
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return cmd
+}
+
+func defaultUninstallDeps(cmd *cobra.Command) uninstallDeps {
+	doctor := defaultDoctorDeps(cmd)
+	return uninstallDeps{
+		Home:        doctor.Home,
+		GOOS:        doctor.GOOS,
+		UID:         doctor.UID,
+		Launchctl:   runLaunchctl,
+		DeleteToken: token.Delete,
+		LogPath:     paths.LogPath,
+		In:          cmd.InOrStdin(),
+		Out:         cmd.OutOrStdout(),
+		Render:      doctor.Render,
+	}
+}
+
+// uninstallRun carries the state shared by the uninstall steps.
+type uninstallRun struct {
+	deps uninstallDeps
+	// failed is set once any step reported a failure.
+	failed bool
+}
+
+// say prints one result line behind the gutter symbol of status.
+func (r *uninstallRun) say(status render.Status, format string, args ...any) {
+	if status == render.StatusFail {
+		r.failed = true
+	}
+	_, _ = fmt.Fprintln(r.deps.Out, r.deps.Render.Gutter(status, fmt.Sprintf(format, args...)))
+}
+
+// runUninstall removes what `init` installed after confirmation. Without
+// --yes it asks on deps.In; anything but y/yes aborts, and a closed input is
+// an error so scripts never remove by accident. A failing step is reported
+// and does not stop the remaining steps.
+func runUninstall(ctx context.Context, deps uninstallDeps, yes bool) error {
+	if deps.Home == "" {
+		return errors.New("cannot determine the home directory")
+	}
+	r := &uninstallRun{deps: deps}
+	if !yes {
+		confirmed, err := confirmDeletion(deps.In, deps.Out, uninstallPrompt(deps))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			r.say(render.StatusInfo, "%s", msgUninstallAborted)
+			return nil
+		}
+	}
+	r.agentStep(ctx)
+	r.hookStep()
+	r.tokenStep()
+	r.logStep()
+	if r.failed {
+		r.say(render.StatusWarn, "%s", msgUninstallIncomplete)
+		return ErrUninstallIncomplete
+	}
+	r.say(render.StatusOK, "%s", msgUninstallFinished)
+	return nil
+}
+
+// uninstallPrompt lists what is about to be removed: the files that exist
+// right now and the keychain entry.
+func uninstallPrompt(deps uninstallDeps) string {
+	lines := []string{msgUninstallPromptIntro}
+	if plist := agentPlistPath(deps.Home); fileExists(plist) {
+		lines = append(lines, fmt.Sprintf(msgUninstallPromptAgent, SanitizeForTerminal(plist)))
+	}
+	for _, rc := range rcFileCandidates(deps.Home) {
+		if data, err := os.ReadFile(rc); err == nil && strings.Contains(string(data), rcBlockBegin) {
+			lines = append(lines, fmt.Sprintf(msgUninstallPromptHook, SanitizeForTerminal(rc)))
+		}
+	}
+	lines = append(lines, msgUninstallPromptToken)
+	if logPath, err := deps.LogPath(); err == nil && fileExists(logPath) {
+		lines = append(lines, fmt.Sprintf(msgUninstallPromptLog, SanitizeForTerminal(logPath)))
+	}
+	lines = append(lines, msgUninstallPromptKept)
+	return strings.Join(lines, "\n") + "\n" + msgUninstallPromptAsk
+}
+
+// agentStep unloads the launchd agent and removes its plist. The plist goes
+// even when unloading failed, so the agent does not start at the next login.
+func (r *uninstallRun) agentStep(ctx context.Context) {
+	if r.deps.GOOS == "darwin" {
+		service := fmt.Sprintf("gui/%d/%s", r.deps.UID, launchd.Label)
+		if _, err := r.deps.Launchctl(ctx, "print", service); err == nil {
+			if out, err := r.deps.Launchctl(ctx, "bootout", service); err != nil {
+				r.say(render.StatusFail, msgUninstallAgentUnloadFailed,
+					SanitizeForTerminal(fmt.Sprintf("launchctl bootout: %v: %s", err, out)))
+			} else {
+				r.say(render.StatusOK, "%s", msgUninstallAgentUnloaded)
+			}
+		}
+	}
+	plist := agentPlistPath(r.deps.Home)
+	r.removeFile(plist, msgUninstallPlistRemoved, msgUninstallPlistMissing, msgUninstallPlistFailed)
+}
+
+// hookStep removes the managed block from every shell startup file holding
+// one.
+func (r *uninstallRun) hookStep() {
+	found := false
+	for _, rc := range rcFileCandidates(r.deps.Home) {
+		removed, err := removeHook(rc)
+		if err != nil {
+			found = true
+			r.say(render.StatusFail, msgUninstallHookFailed, SanitizeForTerminal(err.Error()))
+			continue
+		}
+		if removed {
+			found = true
+			r.say(render.StatusOK, msgUninstallHookRemoved, SanitizeForTerminal(rc))
+		}
+	}
+	if !found {
+		r.say(render.StatusSkip, "%s", msgUninstallHookMissing)
+	}
+}
+
+// removeHook cuts the managed block out of rc and reports whether the file
+// changed. A missing file holds no block.
+func removeHook(rc string) (bool, error) {
+	existing, err := os.ReadFile(rc)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", rc, err)
+	}
+	updated, removed, err := removeManagedBlock(string(existing))
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", rc, err)
+	}
+	if !removed {
+		return false, nil
+	}
+	if err := writeFileAtomic(rc, []byte(updated), 0o644); err != nil {
+		return false, fmt.Errorf("%s: %w", rc, err)
+	}
+	return true, nil
+}
+
+func (r *uninstallRun) tokenStep() {
+	err := r.deps.DeleteToken()
+	switch {
+	case errors.Is(err, token.ErrNotSet):
+		r.say(render.StatusSkip, "%s", msgUninstallTokenMissing)
+	case err != nil:
+		r.say(render.StatusFail, msgUninstallTokenFailed, SanitizeForTerminal(err.Error()))
+	default:
+		r.say(render.StatusOK, "%s", msgUninstallTokenRemoved)
+	}
+}
+
+func (r *uninstallRun) logStep() {
+	logPath, err := r.deps.LogPath()
+	if err != nil {
+		r.say(render.StatusFail, msgUninstallLogFailed, SanitizeForTerminal(err.Error()))
+		return
+	}
+	r.removeFile(logPath, msgUninstallLogRemoved, msgUninstallLogMissing, msgUninstallLogFailed)
+}
+
+// removeFile deletes path and reports the outcome with the given messages. A
+// missing file is skipped, not a failure.
+func (r *uninstallRun) removeFile(path, removedMsg, missingMsg, failedMsg string) {
+	err := os.Remove(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		r.say(render.StatusSkip, missingMsg, SanitizeForTerminal(path))
+	case err != nil:
+		r.say(render.StatusFail, failedMsg, SanitizeForTerminal(err.Error()))
+	default:
+		r.say(render.StatusOK, removedMsg, SanitizeForTerminal(path))
+	}
+}

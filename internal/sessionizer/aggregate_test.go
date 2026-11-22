@@ -131,3 +131,54 @@ func TestRoundingConfigFromHonoursDisabledDailyCap(t *testing.T) {
 		t.Fatalf("disabled cap flagged the day: %+v", items)
 	}
 }
+
+// TestAggregateWithoutLocalMidnight covers zones whose spring-forward
+// transition happens at 00:00, so the local day starts at 01:00 and has no
+// midnight.
+func TestAggregateWithoutLocalMidnight(t *testing.T) {
+	tests := []struct {
+		zone string
+		// gapStart is the instant the clock jumps from 00:00 to 01:00.
+		gapStart time.Time
+		day      civil.Date
+	}{
+		{"America/Santiago", time.Date(2026, 9, 6, 4, 0, 0, 0, time.UTC), civil.Date{Year: 2026, Month: 9, Day: 6}},
+		{"America/Havana", time.Date(2026, 3, 8, 5, 0, 0, 0, time.UTC), civil.Date{Year: 2026, Month: 3, Day: 8}},
+		{"Atlantic/Azores", time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC), civil.Date{Year: 2026, Month: 3, Day: 29}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.zone, func(t *testing.T) {
+			loc, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				t.Skipf("tzdata unavailable: %v", err)
+			}
+			if before, after := tc.gapStart.Add(-time.Minute).In(loc), tc.gapStart.In(loc); before.Format("15:04") != "23:59" || after.Format("15:04") != "01:00" {
+				t.Fatalf("fixture is not a missing midnight: %s -> %s", before, after)
+			}
+			// 90 minutes before the missing midnight, 26 hours long: it
+			// covers the whole 23-hour day and 90 minutes of the next one.
+			start := tc.gapStart.Add(-90 * time.Minute)
+			block := Block{Start: start, End: start.Add(26 * time.Hour), Ticket: "A-1"}
+
+			done := make(chan []DayItem, 1)
+			go func() { done <- Aggregate([]Block{block}, rounding(time.Minute, 0), loc) }()
+			var items []DayItem
+			select {
+			case items = <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Aggregate did not terminate")
+			}
+
+			if len(items) != 3 {
+				t.Fatalf("got %+v", items)
+			}
+			wantDates := []civil.Date{tc.day.AddDays(-1), tc.day, tc.day.AddDays(1)}
+			wantMinutes := []int{90, 23 * 60, 90}
+			for i, it := range items {
+				if it.Date != wantDates[i] || it.Minutes != wantMinutes[i] {
+					t.Errorf("item %d: got %s %d min, want %s %d min", i, it.Date, it.Minutes, wantDates[i], wantMinutes[i])
+				}
+			}
+		})
+	}
+}

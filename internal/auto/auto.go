@@ -104,6 +104,24 @@ func (s Selection) Resolve(rewritten map[string]string, dropped []string) Select
 	return out
 }
 
+// Without returns the selection without the items to book whose ticket is in
+// tickets. They are not moved to the skipped items: the caller reports them
+// itself, for example as failed. The receiver is not changed.
+func (s Selection) Without(tickets []string) Selection {
+	remove := make(map[string]bool, len(tickets))
+	for _, ticket := range tickets {
+		remove[ticket] = true
+	}
+	out := s
+	out.Book = nil
+	for _, e := range s.Book {
+		if !remove[e.Item.Ticket] {
+			out.Book = append(out.Book, e)
+		}
+	}
+	return out
+}
+
 // mergeEntries combines entries whose items share a ticket, date and type.
 // The merged entry keeps the lowest tier of its parts.
 func mergeEntries(entries []Entry) []Entry {

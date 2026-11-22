@@ -27,7 +27,7 @@ func newAutoCommandWith(deps syncDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auto",
 		Short: "Book the safe blocks of a day automatically (opt-in, needs a track record)",
-		Long:  msgAutoLong,
+		Long:  msgAutoLong + msgBookingLockHelpDryRun,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAuto(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
@@ -58,6 +58,12 @@ func newDigestCommandWith(deps syncDeps) *cobra.Command {
 }
 
 func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, dryRun bool) error {
+	// The lock comes first: nothing read below may change under another run.
+	release, err := deps.lockBookingRun(dryRun)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err
@@ -112,14 +118,23 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		if err != nil {
 			return err
 		}
-		sel, err = provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
-		if err != nil {
+		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
+		switch {
+		case ledger.IsStopError(err):
+			// Nothing is sent; the digest lists every item as not sent.
+			report, syncErr = ledger.NotSentReport(sel.Items()), err
+		case err != nil:
 			return err
+		default:
+			sel = provided
+			// No booking of a project whose standard task could not be
+			// provided is reconciled away: its issue may be unknown here.
+			report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
+				Repo: st, DryRun: dryRun, Now: deps.Now,
+				Reconcile: []civil.Date{day}, Keep: keep,
+				HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
+			})
 		}
-		report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
-			Repo: st, DryRun: dryRun, Now: deps.Now,
-			Reconcile: []civil.Date{day}, Keep: keep,
-		})
 	}
 	digest := auto.BuildDigest(day, sel, report, dryRun)
 	text := renderDigest(digest, storedDigestRenderer())

@@ -24,6 +24,29 @@ func TestSelectionResolveMergesItemsThatShareARewrittenTicket(t *testing.T) {
 	}
 }
 
+func TestSelectionWithoutRemovesTicketsWithoutSkippingThem(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: time.March, Day: 2}
+	entry := func(ticket string) Entry {
+		return Entry{Item: sessionizer.DayItem{Date: day, Ticket: ticket, Type: "Development", Minutes: 30}, Tier: resolver.TierRule}
+	}
+	sel := Selection{Book: []Entry{entry("A:default"), entry("B:default"), entry("ABC-1")}, TotalMinutes: 90}
+
+	got := sel.Without([]string{"B:default"})
+
+	if len(got.Book) != 2 || got.Book[0].Item.Ticket != "A:default" || got.Book[1].Item.Ticket != "ABC-1" {
+		t.Fatalf("Book = %+v, want A:default and ABC-1", got.Book)
+	}
+	if len(got.Skipped) != 0 || got.TotalMinutes != 90 {
+		t.Errorf("Skipped = %+v, TotalMinutes = %d, want neither changed", got.Skipped, got.TotalMinutes)
+	}
+	if len(sel.Book) != 3 {
+		t.Errorf("Without mutated its receiver: %+v", sel.Book)
+	}
+	if same := sel.Without(nil); len(same.Book) != 3 {
+		t.Errorf("Without(nil) removed items: %+v", same.Book)
+	}
+}
+
 func TestSelectionResolveRewritesAndSkips(t *testing.T) {
 	day := civil.Date{Year: 2026, Month: time.March, Day: 2}
 	entry := func(ticket string) Entry {

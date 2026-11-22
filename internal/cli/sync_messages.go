@@ -20,4 +20,14 @@ const (
 	// The totals are two box rows so they fit narrow terminals.
 	msgSyncTotalsBooked  = "Created %d, updated %d, recovered %d, repaired %d, deleted %d."
 	msgSyncTotalsOutcome = "Skipped %d, failed %d, not sent %d."
+
+	// The booking lock is shared by sync, auto and undo.
+	msgBookingRunActive  = "another ticktack booking run (sync, auto or undo) is active: try again when it has finished"
+	msgBookingLockFailed = "cannot take the booking lock: %w"
+	// msgBookingLockHelp closes the help text of the commands that take the lock.
+	msgBookingLockHelp = `
+
+Only one booking run (sync, auto or undo) is active at a time: while another
+one runs, this command changes nothing and exits with code 75.`
+	msgBookingLockHelpDryRun = msgBookingLockHelp + " --dry-run takes no lock."
 )
