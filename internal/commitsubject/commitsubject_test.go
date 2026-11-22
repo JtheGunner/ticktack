@@ -216,6 +216,49 @@ func TestGitReaderRejectsUnsafeInput(t *testing.T) {
 	}
 }
 
+// A commit that is missing locally but present on a promisor remote must not
+// be fetched: the read fails and no network call is made. The remote is a
+// local path that holds the commit, so a lazy fetch would succeed.
+func TestGitReaderDoesNotLazyFetchFromPromisorRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	remote := t.TempDir()
+	runGit(t, remote, "init", "-q", "-b", "main")
+	runGit(t, remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+	runGit(t, remote, "commit", "-q", "--allow-empty", "-m", "only on the remote")
+	hash := runGit(t, remote, "rev-parse", "HEAD")
+
+	local := t.TempDir()
+	runGit(t, local, "init", "-q", "-b", "main")
+	runGit(t, local, "config", "remote.origin.url", remote)
+	runGit(t, local, "config", "remote.origin.promisor", "true")
+	runGit(t, local, "config", "remote.origin.partialclonefilter", "blob:none")
+	runGit(t, local, "config", "extensions.partialClone", "origin")
+
+	// Control: without the guard git fetches the commit, which proves the
+	// setup would reach the remote.
+	control := exec.Command("git", "-C", local, "log", "-1", "--no-walk", "--format=%s", hash, "--")
+	control.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := control.CombinedOutput(); err != nil {
+		t.Skipf("this git does not lazy-fetch commits here: %v\n%s", err, out)
+	}
+	runGit(t, local, "gc", "-q", "--prune=now") // keeps the fetched pack; drop it again below
+	for _, p := range []string{"objects/pack", "objects/" + hash[:2]} {
+		if err := os.RemoveAll(filepath.Join(local, ".git", p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(local, ".git", "objects", "pack"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := GitReader{}.Read(context.Background(), local, hash)
+	if err == nil {
+		t.Fatalf("Read fetched the commit from the promisor remote: %+v", got)
+	}
+}
+
 func TestGitReaderMissingRepositoryFails(t *testing.T) {
 	_, err := GitReader{}.Read(context.Background(), filepath.Join(t.TempDir(), "gone"), strings.Repeat("a", 40))
 	if err == nil {

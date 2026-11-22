@@ -20,14 +20,18 @@ var repositoryEnv = map[string]bool{
 
 // CommandEnv returns the environment for a read-only git child process: the
 // current environment without the variables that select a repository, plus
-// GIT_OPTIONAL_LOCKS=0 so the call never blocks other git work. Every git
-// call of ticktack that names its directory with `-C` must use it.
+// GIT_OPTIONAL_LOCKS=0 so the call never blocks other git work, and two
+// settings that keep git off the network: GIT_NO_LAZY_FETCH=1 makes a missing
+// object of a partial clone a read error instead of a fetch from the promisor
+// remote, and GIT_TERMINAL_PROMPT=0 stops credential prompts. ticktack talks
+// only to YouTrack and ActivityWatch. Every git call of ticktack that names
+// its directory with `-C` must use it.
 func CommandEnv() []string {
 	return commandEnv(os.Environ())
 }
 
 func commandEnv(environ []string) []string {
-	env := make([]string, 0, len(environ)+1)
+	env := make([]string, 0, len(environ)+3)
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		if repositoryEnv[name] {
@@ -35,5 +39,5 @@ func commandEnv(environ []string) []string {
 		}
 		env = append(env, kv)
 	}
-	return append(env, "GIT_OPTIONAL_LOCKS=0")
+	return append(env, "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0")
 }

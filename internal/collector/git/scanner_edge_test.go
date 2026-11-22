@@ -299,6 +299,7 @@ func TestCommandEnv(t *testing.T) {
 	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", "/elsewhere/alt")
 	t.Setenv("GIT_DIRECTORY_LOOKALIKE", "kept")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_NO_LAZY_FETCH", "0")
 
 	env := map[string]string{}
 	for _, kv := range CommandEnv() {
@@ -318,6 +319,8 @@ func TestCommandEnv(t *testing.T) {
 		"GIT_DIRECTORY_LOOKALIKE": "kept",
 		"GIT_CONFIG_GLOBAL":       os.DevNull,
 		"GIT_OPTIONAL_LOCKS":      "0",
+		"GIT_NO_LAZY_FETCH":       "1",
+		"GIT_TERMINAL_PROMPT":     "0",
 	} {
 		if env[name] != want {
 			t.Errorf("%s = %q, want %q", name, env[name], want)

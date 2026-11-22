@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Work item text no longer takes commit subjects from commits of another ticket or from a branch without a ticket: a commit is used only when it was made during the item's time and its own ticket (from its branch) equals the item's ticket, so pinned, reassigned or folded time cannot leak subjects from an unrelated or private repository.
+- Reading commit subjects, and every other `git` call, no longer lazily fetches missing objects from the promisor remote of a partial clone (`GIT_NO_LAZY_FETCH=1`, `GIT_TERMINAL_PROMPT=0`); a missing commit is skipped, keeping network calls limited to YouTrack and ActivityWatch.
 - Splitting an override block in `ticktack review` without a different ticket reported success and changed nothing; it is refused with a message.
 - Ending the input (or pressing Ctrl-C) at the ticket question of a split no longer carries out the split; it is cancelled.
 - Concurrent writers (agent, shell hook, CLI) no longer lose events or fail with `SQLITE_BUSY`. The database now uses WAL mode and waits up to 5 s for a lock, every transaction takes the write lock when it starts, and the check for applied migrations runs inside the migration transaction. The two events of a shell prompt and every scan or import pass are stored in one transaction, so a failure stores none of them instead of a part. The `-wal` and `-shm` side files are created with mode `0600`.
