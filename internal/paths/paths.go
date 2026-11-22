@@ -30,6 +30,10 @@ func StateDir() (string, error) { return resolve("XDG_STATE_HOME", ".local", "st
 // DBPath returns the path of the SQLite event database.
 func DBPath() (string, error) { return inDir(DataDir, "events.db") }
 
+// BookingLockPath returns the path of the lock file that keeps booking runs
+// (sync, auto, undo) apart. It sits next to the database they write to.
+func BookingLockPath() (string, error) { return inDir(DataDir, "booking.lock") }
+
 // PausePath returns the path of the pause flag. Tracking is paused while a
 // file exists there.
 func PausePath() (string, error) { return inDir(StateDir, "paused") }
