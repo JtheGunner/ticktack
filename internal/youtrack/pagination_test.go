@@ -54,7 +54,9 @@ func TestFindByMarkerPaginates(t *testing.T) {
 		wantCalls int32
 	}{
 		{"marker on page 2", 100, true, 2},
-		{"marker absent, last page short", 50, false, 2},
+		// A short last page does not end the search: only an empty page
+		// does, so the server's page cap need not equal $top.
+		{"marker absent, last page short", 50, false, 3},
 		{"exact multiple of page size ends on empty page", 42, false, 2},
 		{"empty collection", 0, false, 1},
 	}
@@ -71,6 +73,85 @@ func TestFindByMarkerPaginates(t *testing.T) {
 			}
 			if calls.Load() != tc.wantCalls {
 				t.Errorf("calls = %d, want %d", calls.Load(), tc.wantCalls)
+			}
+		})
+	}
+}
+
+func TestFindByMarkerWithServerCapBelowTop(t *testing.T) {
+	const path = "/api/issues/ABC-1/timeTracking/workItems"
+	entry := func(i int) string {
+		text := "plain"
+		if i == 25 {
+			text = "x [ticktack:k]"
+		}
+		return fmt.Sprintf(`{"id":"1-%d","text":%q,"author":{"login":"me"}}`, i, text)
+	}
+	var calls atomic.Int32
+	c := newTestClient(t, pagedServer(t, path, 40, 10, entry, &calls))
+	id, found, err := c.FindByMarker(context.Background(), "ABC-1", "[ticktack:k]")
+	if err != nil || !found || id != "ABC-1/1-25" {
+		t.Fatalf("id=%q found=%v err=%v", id, found, err)
+	}
+	if calls.Load() != 3 {
+		t.Errorf("calls = %d, want 3", calls.Load())
+	}
+}
+
+func TestGetAllPagesVisitsEntriesWithoutKey(t *testing.T) {
+	var calls atomic.Int32
+	entry := func(i int) string { return fmt.Sprintf(`{"name":"t%d"}`, i) }
+	c := newTestClient(t, pagedServer(t, "/api/tags", 100, 42, entry, &calls))
+	type tag struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	visited := 0
+	err := getAllPages(context.Background(), c, "/api/tags", nil, func(t tag) string { return t.ID }, func(tag) bool {
+		visited++
+		return false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visited != 100 {
+		t.Errorf("visited = %d, want 100", visited)
+	}
+}
+
+func TestFindByMarkerFailsOnMisbehavingServer(t *testing.T) {
+	const path = "/api/issues/ABC-1/timeTracking/workItems"
+	tests := []struct {
+		name  string
+		total int
+		entry func(i int) string
+	}{
+		{"page larger than $top", 100, func(i int) string {
+			return fmt.Sprintf(`{"id":"1-%d","text":"t","author":{"login":"me"}}`, i)
+		}},
+		{"overlong id", 3, func(int) string {
+			return fmt.Sprintf(`{"id":%q,"text":"t","author":{"login":"me"}}`, strings.Repeat("x", maxEntryKeyBytes+1))
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			limit := 42
+			if tc.total == 100 {
+				limit = 100 // server ignores the requested $top
+			}
+			h := pagedServer(t, path, tc.total, limit, tc.entry, &calls)
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == path {
+					q := r.URL.Query()
+					q.Set("$top", strconv.Itoa(limit))
+					r.URL.RawQuery = q.Encode()
+				}
+				h.ServeHTTP(w, r)
+			}))
+			_, found, err := c.FindByMarker(context.Background(), "ABC-1", "[m]")
+			if err == nil || found {
+				t.Fatalf("found=%v err=%v, want an error", found, err)
 			}
 		})
 	}
