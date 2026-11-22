@@ -2,6 +2,7 @@ package title
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"time"
 
@@ -42,8 +43,12 @@ type Collector struct {
 	Logf func(format string, args ...any)
 	// Ticks optionally replaces the internal ticker (for tests).
 	Ticks <-chan time.Time
+	// Status, when set, receives the outcome of every title read (not the
+	// title) so `ticktack doctor` can report what the agent experienced.
+	Status StatusRecorder
 
-	failing bool
+	failing       bool
+	statusFailing bool
 }
 
 // Run samples once immediately and then on every tick until ctx is cancelled.
@@ -84,6 +89,7 @@ func (c *Collector) Tick(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, sampleTimeout)
 	window, err := c.Source.Frontmost(readCtx)
 	cancel()
+	c.recordProbe(err)
 	if err != nil {
 		// Log the first failure of a streak only: a missing permission would
 		// otherwise fill the log every interval.
@@ -106,6 +112,30 @@ func (c *Collector) Tick(ctx context.Context) {
 	if err := c.Sink.Append(ctx, e); err != nil {
 		c.logf("append %s event failed: %v", EventSource, err)
 	}
+}
+
+// recordProbe stores the outcome of one title read in the status file. Only
+// the outcome is stored, never the window. A failing write is logged once per
+// streak.
+func (c *Collector) recordProbe(readErr error) {
+	if c.Status == nil {
+		return
+	}
+	state := ProbeOK
+	switch {
+	case errors.Is(readErr, ErrPermission):
+		state = ProbeDenied
+	case readErr != nil:
+		state = ProbeFailed
+	}
+	if err := c.Status.Record(state, c.Now()); err != nil {
+		if !c.statusFailing {
+			c.logf("title probe status not written: %v", err)
+		}
+		c.statusFailing = true
+		return
+	}
+	c.statusFailing = false
 }
 
 func (c *Collector) logf(format string, args ...any) {

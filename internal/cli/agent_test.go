@@ -87,7 +87,7 @@ func TestNewTitleCollectorIsOffUnlessEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := newTitleCollector(cfg, &title.Fake{}, &titleRecorder{}, "", time.Second, nil); c != nil {
+	if c := newTitleCollector(cfg, &title.Fake{}, &titleRecorder{}, "", "", time.Second, nil); c != nil {
 		t.Fatal("collector must not exist while the feature is disabled")
 	}
 }
@@ -99,7 +99,7 @@ func TestNewTitleCollectorHonoursPauseFlag(t *testing.T) {
 	src.Push("com.jetbrains.goland", "proj – main.go")
 	src.Push("com.jetbrains.goland", "proj – main.go")
 	sink := &titleRecorder{}
-	c := newTitleCollector(cfg, src, sink, pausePath, time.Second, nil)
+	c := newTitleCollector(cfg, src, sink, pausePath, "", time.Second, nil)
 	if c == nil {
 		t.Fatal("collector expected")
 	}
@@ -116,6 +116,22 @@ func TestNewTitleCollectorHonoursPauseFlag(t *testing.T) {
 	c.Tick(context.Background())
 	if len(sink.events) != 1 || sink.events[0].Repo != "/work/proj" || sink.events[0].Source != "title" {
 		t.Fatalf("events = %+v", sink.events)
+	}
+}
+
+func TestNewTitleCollectorRecordsTheProbeStatus(t *testing.T) {
+	cfg := config.Config{TitleHint: config.TitleHint{Enabled: true}}
+	statusPath := filepath.Join(t.TempDir(), "title-status.json")
+	src := &title.Fake{}
+	src.PushError(title.ErrPermission)
+	c := newTitleCollector(cfg, src, &titleRecorder{}, "", statusPath, time.Second, nil)
+	if c == nil {
+		t.Fatal("collector expected")
+	}
+	c.Tick(context.Background())
+	got, err := title.ReadStatus(statusPath)
+	if err != nil || got.State != title.ProbeDenied {
+		t.Fatalf("status = %+v, %v; want denied", got, err)
 	}
 }
 

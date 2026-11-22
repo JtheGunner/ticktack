@@ -38,6 +38,10 @@ func BookingLockPath() (string, error) { return inDir(DataDir, "booking.lock") }
 // file exists there.
 func PausePath() (string, error) { return inDir(StateDir, "paused") }
 
+// TitleStatusPath returns the path of the file in which the agent records the
+// outcome of its last window title probe.
+func TitleStatusPath() (string, error) { return inDir(StateDir, "title-status.json") }
+
 // LogPath returns the path of the log file.
 func LogPath() (string, error) { return inDir(StateDir, "ticktack.log") }
 
