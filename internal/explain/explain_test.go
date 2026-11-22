@@ -186,3 +186,205 @@ func TestBlockMergedFromDifferentRulesListsSignals(t *testing.T) {
 		t.Errorf("merged rules = %v, %v", ex.Merged[0].Decision.Rule, ex.Merged[1].Decision.Rule)
 	}
 }
+
+func TestBlockNamesTheAgeOfStaleContext(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 2 * time.Hour
+	shell := func(at time.Time) event.Event {
+		return event.Event{At: at, Kind: event.KindContext, Source: "shell", Repo: "/x", Branch: "ABC-2-fix"}
+	}
+	pin := event.Event{At: t0.Add(-10 * time.Hour), Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}
+	tests := []struct {
+		name       string
+		events     []event.Event
+		block      int
+		wantStale  bool
+		wantAge    time.Duration
+		wantPinned bool
+		wantRule   resolver.RuleKind
+		wantEvent  time.Time
+	}{
+		{"below the limit", append([]event.Event{shell(t0)}, presenceRun(t0, 150)...), 0, false, 0, false, resolver.RuleBranchTicket, t0},
+		{"above the limit", append([]event.Event{shell(t0)}, presenceRun(t0, 150)...), 1, true, 2 * time.Hour, false, resolver.RuleBranchTicket, t0},
+		{
+			"carried across midnight", append([]event.Event{shell(t0.Add(-15 * time.Hour))}, presenceRun(t0, 30)...),
+			0, true, 15 * time.Hour, false, resolver.RuleBranchTicket, t0.Add(-15 * time.Hour),
+		},
+		{"pin of an earlier day", append([]event.Event{pin}, presenceRun(t0, 30)...), 0, true, 10 * time.Hour, true, sessionizer.ManualRule, pin.At},
+		{
+			"pin of the same day", append([]event.Event{{At: t0, Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}}, presenceRun(t0, 300)...),
+			0, false, 0, false, sessionizer.ManualRule, t0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := sessionizer.Derive(tc.events, nil, cfg, resolver.Rules{})
+			if tc.block >= len(blocks) {
+				t.Fatalf("blocks = %+v", blocks)
+			}
+			ex := Block(Input{Block: blocks[tc.block], Events: tc.events, Config: cfg})
+			if ex.Source != SourceContext || ex.Decision.Rule != tc.wantRule || !ex.Event.At.Equal(tc.wantEvent) {
+				t.Fatalf("explanation = %+v", ex)
+			}
+			if ex.Stale != tc.wantStale || ex.Age != tc.wantAge || ex.Pinned != tc.wantPinned {
+				t.Errorf("stale = %v, age = %v, pinned = %v", ex.Stale, ex.Age, ex.Pinned)
+			}
+			if !tc.wantStale {
+				return
+			}
+			if !ex.ConfirmedAt.Equal(tc.wantEvent) || ex.MaxAge != 2*time.Hour {
+				t.Errorf("confirmed at %v, limit %v", ex.ConfirmedAt, ex.MaxAge)
+			}
+			if blocks[tc.block].Reason != sessionizer.StaleReason(ex.Age) {
+				t.Errorf("block reason %q does not name the age %v", blocks[tc.block].Reason, ex.Age)
+			}
+		})
+	}
+}
+
+// A short confirmed block that merged into a stale neighbour of its ticket
+// starts before the context went stale, or under a later confirmation; the
+// tier still comes from the stale context, so the age is named.
+func TestBlockNamesTheAgeOfStaleContextMergedWithConfirmedTime(t *testing.T) {
+	cfg := shortCfg()
+	cfg.ContextMaxAge = 2 * time.Hour
+	shell := func(at time.Time) event.Event { return ctxAt(at, "/x", "ABC-2-fix", "") }
+	tests := []struct {
+		name            string
+		events          []event.Event
+		wantAge         time.Duration
+		wantConfirmedAt time.Time
+	}{
+		{
+			"confirmed head shorter than the stale tail",
+			append([]event.Event{shell(t0)}, presenceRun(t0.Add(115*time.Minute), 12)...),
+			2 * time.Hour, t0,
+		},
+		{
+			"confirmed head longer than the stale tail",
+			append([]event.Event{shell(t0)}, presenceRun(t0.Add(113*time.Minute), 12)...),
+			2 * time.Hour, t0,
+		},
+		{
+			"stale head before a short confirmed tail",
+			append([]event.Event{shell(t0.Add(-15 * time.Hour)), shell(t0.Add(7 * time.Minute))}, presenceRun(t0, 12)...),
+			15 * time.Hour, t0.Add(-15 * time.Hour),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := sessionizer.Derive(tc.events, nil, cfg, resolver.Rules{})
+			if len(blocks) != 1 || blocks[0].Tier != resolver.TierSuggested || blocks[0].Duration() != 12*time.Minute {
+				t.Fatalf("blocks = %+v", blocks)
+			}
+			ex := Block(Input{Block: blocks[0], Events: tc.events, Config: cfg})
+			if ex.Source != SourceContext || ex.Decision.Rule != resolver.RuleBranchTicket {
+				t.Fatalf("explanation = %+v", ex)
+			}
+			if !ex.Stale || ex.Age != tc.wantAge || !ex.ConfirmedAt.Equal(tc.wantConfirmedAt) || ex.Pinned {
+				t.Errorf("stale = %v, age = %v, confirmed at %v, pinned = %v", ex.Stale, ex.Age, ex.ConfirmedAt, ex.Pinned)
+			}
+			if blocks[0].Reason != sessionizer.StaleReason(ex.Age) {
+				t.Errorf("block reason %q does not name the age %v", blocks[0].Reason, ex.Age)
+			}
+		})
+	}
+}
+
+// An override that removes part of a stale block leaves pieces that keep the
+// reason of the whole block, so the age is the one at the start of the stale
+// time before the cut, not at the start of the piece.
+func TestBlockNamesTheAgeOfStaleContextCutByAnOverride(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 2 * time.Hour
+	events := append([]event.Event{ctxAt(t0, "/x", "ABC-2-fix", "")}, presenceRun(t0, 300)...)
+	minute := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	tests := []struct {
+		name      string
+		override  event.Override
+		wantStart []time.Time
+	}{
+		{
+			"front reassigned",
+			event.Override{Start: minute(120), End: minute(180), Ticket: "OTH-1"},
+			[]time.Time{minute(180)},
+		},
+		{
+			"split in the middle",
+			event.Override{Start: minute(150), End: minute(200), Ticket: "OTH-1"},
+			[]time.Time{minute(120), minute(200)},
+		},
+		{
+			"front discarded",
+			event.Override{Start: minute(100), End: minute(240), Discard: true},
+			[]time.Time{minute(240)},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			overrides := []event.Override{tc.override}
+			var stale []sessionizer.Block
+			for _, b := range sessionizer.Derive(events, overrides, cfg, resolver.Rules{}) {
+				if b.Tier == resolver.TierSuggested {
+					stale = append(stale, b)
+				}
+			}
+			if len(stale) != len(tc.wantStart) {
+				t.Fatalf("stale blocks = %+v", stale)
+			}
+			for i, b := range stale {
+				if !b.Start.Equal(tc.wantStart[i]) {
+					t.Fatalf("stale block %d starts %v, want %v", i, b.Start, tc.wantStart[i])
+				}
+				ex := Block(Input{Block: b, Events: events, Overrides: overrides, Config: cfg})
+				if ex.Source != SourceContext || ex.Decision.Rule != resolver.RuleBranchTicket || !ex.Event.At.Equal(t0) {
+					t.Fatalf("explanation of block %d = %+v", i, ex)
+				}
+				if !ex.Stale || ex.Age != 2*time.Hour || !ex.ConfirmedAt.Equal(t0) || ex.Pinned {
+					t.Errorf("block %d: stale = %v, age = %v, confirmed at %v, pinned = %v", i, ex.Stale, ex.Age, ex.ConfirmedAt, ex.Pinned)
+				}
+				if b.Reason != sessionizer.StaleReason(ex.Age) {
+					t.Errorf("block %d reason %q does not name the age %v", i, b.Reason, ex.Age)
+				}
+			}
+		})
+	}
+}
+
+// A pin of an earlier day is stale whatever the age limit is, also when the
+// limit is switched off.
+func TestBlockNamesStalePinWithTheAgeLimitOff(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 0
+	pin := event.Event{At: t0.Add(-10 * time.Hour), Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}
+	events := append([]event.Event{pin}, presenceRun(t0, 30)...)
+	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[0], Events: events, Config: cfg})
+	if ex.Source != SourceContext || !ex.Stale || !ex.Pinned || ex.Age != 10*time.Hour || ex.MaxAge != 0 {
+		t.Fatalf("explanation = %+v", ex)
+	}
+	if blocks[0].Reason != sessionizer.StaleReason(ex.Age) {
+		t.Errorf("block reason %q does not name the age %v", blocks[0].Reason, ex.Age)
+	}
+}
+
+// The age is counted from the last confirmation, not from the event that
+// first set the context.
+func TestBlockCountsAgeFromTheLastConfirmation(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	ctx := event.Event{At: t0, Kind: event.KindContext, Source: "shell", Repo: "/x", Branch: "ABC-2-fix"}
+	again := ctx
+	again.At = t0.Add(30 * time.Minute)
+	events := append([]event.Event{ctx, again}, presenceRun(t0, 200)...)
+	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[1], Events: events, Config: cfg})
+	if !ex.Stale || !ex.ConfirmedAt.Equal(again.At) || ex.Age != 2*time.Hour {
+		t.Fatalf("explanation = %+v", ex)
+	}
+}

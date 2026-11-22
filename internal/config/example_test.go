@@ -24,6 +24,7 @@ func TestExampleConfigLoadsWithDefaults(t *testing.T) {
 	}
 	if example.GapThreshold != defaults.GapThreshold ||
 		example.MinBlockDuration != defaults.MinBlockDuration ||
+		example.ContextMaxAge != defaults.ContextMaxAge ||
 		example.Rounding != defaults.Rounding ||
 		example.DailyCap != defaults.DailyCap {
 		t.Errorf("durations differ from defaults: %+v vs %+v", example, defaults)
@@ -60,7 +61,7 @@ func TestExampleConfigDocumentsEveryKey(t *testing.T) {
 	}
 	data := string(raw)
 	keys := []string{
-		"youtrack_url", "gap_threshold", "min_block_duration", "rounding", "daily_cap", "daily_cap_enabled",
+		"youtrack_url", "gap_threshold", "min_block_duration", "context_max_age", "rounding", "daily_cap", "daily_cap_enabled",
 		"ticket_pattern", "repo_paths", "time_zone", "[[rules]]", "repo =", "ticket =",
 		"[titlehint]", "enabled", "[titlehint.projects]", "[activitywatch]", "url", "hostname",
 		"[auto]", "trusted_days", "[scan]", "interval",

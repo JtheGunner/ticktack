@@ -36,6 +36,15 @@ func msgExplainEventSignal(source, kind, at, repo, branch, ticket string) string
 	return fmt.Sprintf("%s event from %s at %s (repo %s, branch %s, ticket %s)", kind, source, at, repo, branch, ticket)
 }
 
+// msgExplainStale names the age of the context as the reason a block is only
+// a suggestion. confirmedAt is when the context was last confirmed.
+func msgExplainStale(reason, confirmedAt, maxAge string, pinned bool) string {
+	if pinned {
+		return fmt.Sprintf("%s: the manual switch was set at %s and is exempt from context_max_age only on that day; confirm the ticket in review", reason, confirmedAt)
+	}
+	return fmt.Sprintf("%s: last confirmed at %s, limit %s (context_max_age); confirm the ticket in review", reason, confirmedAt, maxAge)
+}
+
 func msgExplainOverrideSignal(start, end string) string {
 	return fmt.Sprintf("manual override %s-%s", start, end)
 }

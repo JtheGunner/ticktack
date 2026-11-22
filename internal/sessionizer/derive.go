@@ -34,12 +34,39 @@
 //     context is already in leaves the git branch ticket in place.
 //   - A non-manual context event without repo, branch and ticket (an app-only
 //     hint) carries no attribution signal and is ignored.
+//   - Carried context loses certainty with age. The age of a context is the
+//     time since it was last confirmed: by the context event that set it, by
+//     any later context event of the same source (a shell prompt, a checkout,
+//     a commit), or by a context event of another source that names the same
+//     repository and branch. A title hint that names only the repository the
+//     git context is in confirms that context while its app is frontmost.
+//     Presence from Config.ContextMaxAge after the last confirmation on keeps
+//     the ticket but is only tier suggested, with the reason "context
+//     unconfirmed for <age>", so it is confirmed in review instead of being
+//     booked silently. Context that resolves to no ticket is left as it is.
+//   - A manual pin is exempt from that limit on the day it was set (a
+//     calendar day in Config.Location). From the following midnight on it
+//     still applies, but only as tier suggested. A new pin starts a new day
+//     of exemption. Clearing a pin confirms nothing: the automatic context
+//     returns with the age it has.
+//   - The two rules are independent. A ContextMaxAge of zero turns off the
+//     age limit of automatic context only: a pin carried over from an earlier
+//     day is only tier suggested whatever the limit is.
 //   - Blocks are split whenever the attributed ticket or the context changes;
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
 //     neighbour with the same ticket; if there is none it is kept as unknown.
 //     Touching unknown blocks of that kind merge into one, so a burst of short
 //     context flips shows as a single block that needs a ticket.
+//   - Merging never raises a tier. A short suggested block (stale context)
+//     next to confirmed time of its ticket stays a suggested block of its own,
+//     however short, so stale minutes never end up in a block that is booked
+//     without review. A short confirmed block that merges into a suggested
+//     neighbour takes that neighbour's tier and reason. With no longer
+//     neighbour of its ticket to join, it merges into a touching suggestion
+//     of its ticket even when that one is shorter, so a short stretch of
+//     presence that context going stale cuts in two keeps its ticket as one
+//     suggested block instead of losing it.
 //   - Events are sorted by time (then ID) first, so backwards clock jumps
 //     never produce a block with End <= Start.
 //   - Overrides are applied last: the override interval is cut out of the
@@ -69,6 +96,14 @@ type Config struct {
 	// MinBlock is the minimum length of a block before it is merged or
 	// demoted to unknown.
 	MinBlock time.Duration
+	// ContextMaxAge is how long automatic context is carried at its own tier
+	// after it was last confirmed. Zero means no limit; unlike the thresholds
+	// above it does not fall back to the default. It does not affect a manual
+	// pin, which is carried at its own tier until the end of its day.
+	ContextMaxAge time.Duration
+	// Location is the zone whose calendar days bound the time a manual pin
+	// is carried at its own tier. Nil means UTC.
+	Location *time.Location
 }
 
 // DefaultConfig returns the default derivation thresholds.
@@ -77,11 +112,13 @@ func DefaultConfig() Config {
 		GapThreshold:  config.DefaultGapThreshold,
 		IdleThreshold: config.DefaultIdleThreshold,
 		MinBlock:      config.DefaultMinBlockDuration,
+		ContextMaxAge: config.DefaultContextMaxAge,
 	}
 }
 
-// ConfigFrom builds a Config from the user configuration. The sample interval
-// is not user-configurable and uses its default.
+// ConfigFrom builds a Config from the user configuration. The context age
+// limit and the zone are taken as they are: a zero context_max_age means no
+// age limit for automatic context.
 func ConfigFrom(c config.Config) Config {
 	cfg := DefaultConfig()
 	if c.GapThreshold > 0 {
@@ -93,6 +130,8 @@ func ConfigFrom(c config.Config) Config {
 	if c.MinBlockDuration > 0 {
 		cfg.MinBlock = c.MinBlockDuration
 	}
+	cfg.ContextMaxAge = c.ContextMaxAge
+	cfg.Location = c.Location
 	return cfg
 }
 
@@ -106,6 +145,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MinBlock < 0 {
 		c.MinBlock = 0
+	}
+	if c.ContextMaxAge < 0 {
+		c.ContextMaxAge = 0
+	}
+	if c.Location == nil {
+		c.Location = time.UTC
 	}
 	return c
 }
@@ -148,7 +193,7 @@ func Derive(events []event.Event, ov []event.Override, cfg Config, rules resolve
 		return nil
 	}
 	steps, _ := contextTimeline(sorted)
-	blocks := attribute(spans, steps, rules)
+	blocks := attribute(spans, steps, rules, cfg)
 	blocks = mergeTouching(blocks)
 	blocks = resolveShortBlocks(blocks, cfg.MinBlock)
 	blocks = mergeTouching(blocks)
@@ -232,6 +277,9 @@ type contextStep struct {
 	signal resolver.ContextSignal
 	// manualTicket is set while a manual switch is in effect.
 	manualTicket string
+	// confirmedAt is when the context of the step was last confirmed, which
+	// can be earlier than at. It is zero when the step carries no context.
+	confirmedAt time.Time
 }
 
 // decision resolves the step and names the deciding rule. A manual switch is
@@ -270,17 +318,31 @@ type contextSource struct {
 	event  event.Event
 	signal resolver.ContextSignal
 	ok     bool
+	// confirmedAt is the time of the latest context event that set or
+	// confirmed the signal.
+	confirmedAt time.Time
+}
+
+// confirmedBy records e as a confirmation when it names the repository and
+// branch of the source.
+func (s *contextSource) confirmedBy(e event.Event) {
+	if s.ok && s.signal.Repo == e.Repo && s.signal.Branch == e.Branch {
+		s.confirmedAt = maxTime(s.confirmedAt, e.At)
+	}
 }
 
 // current returns the effective automatic signal and the event behind it. A
 // title hint that names its app applies only while that app is frontmost; a
 // hint that is only a repository does not hide the branch of the same
 // repository from git. Hints without an app are treated as plain git/shell
-// context events (latest wins), as before apps were recorded on hints.
+// context events (latest wins), as before apps were recorded on hints. A
+// repository-only hint that yields to git still confirms the git context.
 func (a autoContext) current() contextSource {
 	if a.hint.ok && a.hint.event.App == a.front {
 		if a.hint.signal.Ticket == "" && a.git.ok && a.git.signal.Repo == a.hint.signal.Repo {
-			return a.git
+			confirmed := a.git
+			confirmed.confirmedAt = maxTime(a.git.confirmedAt, a.hint.confirmedAt)
+			return confirmed
 		}
 		return a.hint
 	}
@@ -301,6 +363,10 @@ func (a autoContext) current() contextSource {
 // Presence samples take part only to track the frontmost app: they add a step
 // when a change of frontmost app changes the effective automatic signal. It
 // also returns the effective automatic signal at the end.
+//
+// Every step records when its context was last confirmed (see the package
+// comment); a step that only repeats the context in effect moves that time
+// forward.
 func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSignal) {
 	var steps []contextStep
 	var auto autoContext
@@ -315,29 +381,39 @@ func contextTimeline(sorted []event.Event) ([]contextStep, resolver.ContextSigna
 			auto.front = e.App
 			after := auto.current()
 			if manualTicket == "" && after.ok && (!before.ok || after.signal != before.signal) {
-				steps = append(steps, contextStep{at: e.At, event: after.event, signal: after.signal})
+				steps = append(steps, contextStep{at: e.At, event: after.event, signal: after.signal, confirmedAt: after.confirmedAt})
 			}
 			continue
 		case e.Kind != event.KindContext:
 			continue
 		case e.Source == ManualSource:
 			manualTicket = strings.ToUpper(strings.TrimSpace(e.Ticket))
-			steps = append(steps, contextStep{at: e.At, event: e, signal: before.signal, manualTicket: manualTicket})
+			// A pin is confirmed by its own event; clearing it confirms nothing.
+			confirmedAt := before.confirmedAt
+			if manualTicket != "" {
+				confirmedAt = e.At
+			}
+			steps = append(steps, contextStep{at: e.At, event: e, signal: before.signal, manualTicket: manualTicket, confirmedAt: confirmedAt})
 			continue
 		case e.Repo == "" && e.Branch == "" && e.Ticket == "":
 			// An app-only hint (for example from ActivityWatch) carries no
 			// attribution signal and must not wipe the current context.
 			continue
 		}
-		src := contextSource{event: e, signal: resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket}, ok: true}
+		src := contextSource{
+			event: e, signal: resolver.ContextSignal{Repo: e.Repo, Branch: e.Branch, Ticket: e.Ticket},
+			ok: true, confirmedAt: e.At,
+		}
 		if e.Source == TitleSource && e.App != "" {
 			auto.hint = src
+			auto.git.confirmedBy(e)
 		} else {
 			auto.git = src
+			auto.hint.confirmedBy(e)
 		}
 		if manualTicket == "" {
 			now := auto.current()
-			steps = append(steps, contextStep{at: e.At, event: now.event, signal: now.signal})
+			steps = append(steps, contextStep{at: e.At, event: now.event, signal: now.signal, confirmedAt: now.confirmedAt})
 		}
 	}
 	return steps, auto.current().signal
@@ -372,41 +448,54 @@ func LatestContext(events []event.Event, rules resolver.Rules) (CurrentContext, 
 	}, true
 }
 
-// attribute intersects every span with the context timeline.
-func attribute(spans []interval, steps []contextStep, rules resolver.Rules) []Block {
+// attribute intersects every span with the context timeline. A span is cut
+// at every context step and at the moment the context in effect goes stale.
+func attribute(spans []interval, steps []contextStep, rules resolver.Rules, cfg Config) []Block {
 	var blocks []Block
 	for _, span := range spans {
 		// idx is the number of steps at or before the span start.
 		idx := sort.Search(len(steps), func(i int) bool { return steps[i].at.After(span.start) })
 		from := span.start
-		for {
+		for from.Before(span.end) {
 			to := span.end
-			if idx < len(steps) && steps[idx].at.Before(to) {
+			reachesNextStep := idx < len(steps) && steps[idx].at.Before(to)
+			if reachesNextStep {
 				to = steps[idx].at
 			}
-			if to.After(from) {
-				blocks = append(blocks, blockFor(from, to, idx, steps, rules))
+			if idx > 0 {
+				if stale, ok := steps[idx-1].staleFrom(cfg); ok && stale.After(from) && stale.Before(to) {
+					to = stale
+					reachesNextStep = false
+				}
 			}
-			if !to.Before(span.end) {
-				break
+			if to.After(from) {
+				blocks = append(blocks, blockFor(from, to, idx, steps, rules, cfg))
 			}
 			from = to
-			idx++
+			if reachesNextStep {
+				idx++
+			}
 		}
 	}
 	return blocks
 }
 
 // blockFor builds the block for [from, to) under the context in effect after
-// the first n steps.
-func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rules) Block {
+// the first n steps. The caller cuts at the moment the context goes stale, so
+// the block is stale as a whole or not at all.
+func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rules, cfg Config) Block {
 	if n == 0 {
 		return Block{Start: from, End: to, Tier: resolver.TierUnknown, Reason: noContextReason, Rule: resolver.RuleNone}
 	}
 	step := steps[n-1]
 	d := step.decision(rules)
+	a := d.Attribution
+	if stale, ok := step.staleFrom(cfg); ok && !from.Before(stale) {
+		// The rule that produced the ticket stays: staleness only lowers the tier.
+		a = StaleAttribution(a, from.Sub(step.confirmedAt))
+	}
 	return Block{
-		Start: from, End: to, Ticket: d.Ticket, Tier: d.Tier, Reason: d.Reason, Rule: d.Rule,
+		Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Rule: d.Rule,
 		Repo: step.signal.Repo, Branch: step.signal.Branch,
 	}
 }
@@ -430,7 +519,8 @@ func mergeTouching(blocks []Block) []Block {
 }
 
 // resolveShortBlocks merges blocks shorter than minBlock into the longer
-// touching same-ticket neighbour and demotes the rest to unknown.
+// touching same-ticket neighbour and demotes the rest to unknown, except for
+// suggestions that were kept apart from confirmed time of their ticket.
 func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 	if minBlock <= 0 {
 		return blocks
@@ -460,7 +550,7 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 		}
 	}
 	for i := range blocks {
-		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) {
+		if blocks[i].Duration() < minBlock && !isDemoted(blocks[i]) && !touchesConfirmedTime(blocks, i) {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
 			blocks[i].Reason = minBlockReason
@@ -478,15 +568,43 @@ func isDemoted(b Block) bool {
 	return b.Tier == resolver.TierUnknown && b.Ticket == ""
 }
 
+// upgrades reports whether merging short into target would raise the tier of
+// its time: a suggested block, which is what stale context yields, joins only
+// another suggested block. The other way round is allowed, the combined block
+// then carries the lower tier of the target.
+func upgrades(short, target Block) bool {
+	return short.Tier == resolver.TierSuggested && target.Tier != resolver.TierSuggested
+}
+
+// touchesConfirmedTime reports whether block i is a suggestion next to a
+// block of its own ticket that it must not merge into. Such a block is kept
+// as it is: the ticket is not in doubt, only the minutes need confirming.
+func touchesConfirmedTime(blocks []Block, i int) bool {
+	refused := func(j int) bool {
+		return blocks[j].Ticket == blocks[i].Ticket && upgrades(blocks[i], blocks[j])
+	}
+	if i > 0 && blocks[i-1].End.Equal(blocks[i].Start) && refused(i-1) {
+		return true
+	}
+	return i+1 < len(blocks) && blocks[i].End.Equal(blocks[i+1].Start) && refused(i+1)
+}
+
 // mergeTarget returns the index of the longer touching neighbour of block i
-// with the same ticket, or -1. A tie prefers the previous block.
+// with the same ticket that the block may merge into, or -1. A tie prefers
+// the previous block.
+//
+// A shorter neighbour is a target too when it is a suggestion that may not
+// merge into block i: the two would otherwise both lose a ticket that is not
+// in doubt, as when the moment context goes stale cuts one short stretch of
+// presence in two. Such a neighbour is shorter than any regular target, so it
+// is chosen only when there is none.
 func mergeTarget(blocks []Block, i int) int {
 	best := -1
 	candidate := func(j int) {
-		if j < 0 || j >= len(blocks) || blocks[j].Ticket != blocks[i].Ticket {
+		if j < 0 || j >= len(blocks) || blocks[j].Ticket != blocks[i].Ticket || upgrades(blocks[i], blocks[j]) {
 			return
 		}
-		if blocks[j].Duration() < blocks[i].Duration() {
+		if blocks[j].Duration() < blocks[i].Duration() && !upgrades(blocks[j], blocks[i]) {
 			return
 		}
 		if best < 0 || blocks[j].Duration() > blocks[best].Duration() {

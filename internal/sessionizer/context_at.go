@@ -19,8 +19,14 @@ type ContextDecision struct {
 	Signal resolver.ContextSignal
 	// ManualTicket is set while a manual switch pins the attribution.
 	ManualTicket string
+	// ConfirmedAt is when the context was last confirmed, which can be
+	// earlier than At (see the package comment on context age). It is zero
+	// when the step carries no context.
+	ConfirmedAt time.Time
 	// Decision is the resolver's verdict; for a manual switch it is explicit
-	// with the reason "manual switch to <ID>" and rule kind ManualRule.
+	// with the reason "manual switch to <ID>" and rule kind ManualRule. It
+	// ignores the age of the context: Config.StaleFrom tells from when on
+	// Derive turns it into a suggestion (StaleAttribution).
 	Decision resolver.Decision
 }
 
@@ -35,7 +41,7 @@ func ContextSteps(events []event.Event, rules resolver.Rules) []ContextDecision 
 	for _, step := range steps {
 		out = append(out, ContextDecision{
 			At: step.at, Event: step.event, Signal: step.signal, ManualTicket: step.manualTicket,
-			Decision: step.decision(rules),
+			ConfirmedAt: step.confirmedAt, Decision: step.decision(rules),
 		})
 	}
 	return out

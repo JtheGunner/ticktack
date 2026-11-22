@@ -77,7 +77,22 @@ type Explanation struct {
 	// Override is the deciding override (SourceOverride only).
 	Override event.Override
 	// Signal is the repo, branch and ticket the resolver saw.
-	Signal   resolver.ContextSignal
+	Signal resolver.ContextSignal
+	// Stale reports that the deciding context was unconfirmed for too long
+	// (SourceContext only): the block keeps the ticket of Decision, but only
+	// as a suggestion.
+	Stale bool
+	// Age is how long the context was unconfirmed when its stale time in the
+	// block began (the block start, unless a short confirmed block was merged
+	// in front of it or an override cut the front of the block off) and
+	// ConfirmedAt when it was last confirmed (both set when Stale). Age is the
+	// age the block reason names.
+	Age         time.Duration
+	ConfirmedAt time.Time
+	// Pinned reports that the stale context is a manual pin from an earlier
+	// day, which does not depend on MaxAge; otherwise it outlived MaxAge.
+	Pinned   bool
+	MaxAge   time.Duration
 	Presence Presence
 }
 
@@ -104,6 +119,17 @@ func Block(in Input) Explanation {
 		return ex
 	}
 	cd, ok := matchingStep(steps, in.Block)
+	if !ok {
+		var age time.Duration
+		cd, age, ok = staleStep(in)
+		if ok {
+			ex.Stale = true
+			ex.Age = age
+			ex.ConfirmedAt = cd.ConfirmedAt
+			ex.Pinned = cd.ManualTicket != ""
+			ex.MaxAge = in.Config.Normalized().ContextMaxAge
+		}
+	}
 	if !ok {
 		ex.Source = SourceMerged
 		ex.Merged = distinctSteps(steps)
@@ -155,6 +181,71 @@ func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (ses
 		}
 	}
 	return sessionizer.ContextDecision{}, false
+}
+
+// staleStep returns the first step whose context was stale during the block
+// and whose stale attribution (see sessionizer.StaleAttribution) equals the
+// block's own, together with the age of that context when its stale time in
+// the block began. That moment is not always the block start: a short
+// confirmed block that merged into a stale neighbour takes the neighbour's
+// tier and reason, so the block can begin before its context went stale.
+//
+// The block is looked at as Derive built it before the overrides: a piece
+// that an override left of a stale block keeps the reason of the whole block,
+// which names the age at the start of the whole block's stale time.
+func staleStep(in Input) (sessionizer.ContextDecision, time.Duration, bool) {
+	in.Block = uncutBlock(in)
+	b := in.Block
+	steps := stepsOf(in)
+	for i, s := range steps {
+		staleFrom, ok := in.Config.StaleFrom(s)
+		if !ok {
+			continue
+		}
+		// The step is in effect inside the block from from to until.
+		from, until := laterOf(b.Start, s.At), b.End
+		if i+1 < len(steps) {
+			until = steps[i+1].At
+		}
+		staleStart := laterOf(from, staleFrom)
+		if !staleStart.Before(until) {
+			continue
+		}
+		age := staleStart.Sub(s.ConfirmedAt)
+		a := sessionizer.StaleAttribution(s.Decision.Attribution, age)
+		if a != s.Decision.Attribution && a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+			return s, age, true
+		}
+	}
+	return sessionizer.ContextDecision{}, 0, false
+}
+
+// uncutBlock returns the block in.Block was part of before the overrides were
+// applied. Overrides only cut blocks and never change what is left of them, so
+// that is the block of the derivation without overrides that contains
+// in.Block and carries its attribution. Without overrides, or without such a
+// block, it is in.Block itself.
+func uncutBlock(in Input) sessionizer.Block {
+	piece := in.Block
+	if len(in.Overrides) == 0 {
+		return piece
+	}
+	for _, b := range sessionizer.Derive(in.Events, nil, in.Config, in.Rules) {
+		if b.Start.After(piece.Start) || b.End.Before(piece.End) {
+			continue
+		}
+		if b.Ticket == piece.Ticket && b.Tier == piece.Tier && b.Reason == piece.Reason && b.Repo == piece.Repo && b.Branch == piece.Branch {
+			return b
+		}
+	}
+	return piece
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // distinctSteps drops steps that repeat an earlier attribution.

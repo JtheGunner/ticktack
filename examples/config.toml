@@ -21,6 +21,14 @@ idle_threshold = "3m0s"
 # Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.
 min_block_duration = "10m0s"
 
+# Context (repository, branch) that was not confirmed for this long is only a
+# suggestion to confirm in review. Any context event on the same repository
+# and branch confirms it: a shell prompt, a checkout, a commit, a title hint.
+# "0" turns this limit off. A manual pin (`ticktack switch`) does not depend
+# on it: on the day it was set it counts in full, on the following days it is
+# only a suggestion, also with "0".
+context_max_age = "2h0m0s"
+
 # Booked durations are rounded to a multiple of this. Must be whole minutes;
 # "1m" books exact minutes.
 rounding = "15m0s"

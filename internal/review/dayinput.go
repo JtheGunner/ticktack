@@ -50,13 +50,13 @@ type DayInput struct {
 // reads the current day rather than a longer window, in which a hint of an
 // earlier day would still apply once its app is frontmost again.
 //
-// Carried context has no age limit here: a branch or pin from any earlier
-// day keeps its normal tier (a pin stays explicit). A separate change
-// (TICKT-69) adds an age limit after which carried context is only tier
-// suggested, which then also demotes a pin carried from an earlier day. That
-// limit can be applied because the timestamps are passed through unchanged:
-// the age of a carried event is the distance between its At and the presence
-// it is attributed to. This loader must keep passing them through unchanged.
+// This loader applies no age limit itself: a branch or pin from any earlier
+// day is carried. sessionizer.Derive decides what it is still worth: context
+// unconfirmed for longer than context_max_age, and a pin from an earlier day,
+// keep their ticket but only as tier suggested. Derive can tell because the
+// timestamps are passed through unchanged: the age of a carried event is the
+// distance between its At and the presence it is attributed to. This loader
+// must keep passing them through unchanged.
 func EventsWithCarriedContext(ctx context.Context, r EventReader, from, to time.Time) ([]event.Event, error) {
 	carried, err := r.CarriedContext(ctx, from, store.CarrySources{
 		Manual:  sessionizer.ManualSource,

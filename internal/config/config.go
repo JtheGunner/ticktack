@@ -25,9 +25,12 @@ const (
 	// longer counts as activity.
 	DefaultIdleThreshold    = 3 * time.Minute
 	DefaultMinBlockDuration = 10 * time.Minute
-	DefaultRounding         = 15 * time.Minute
-	DefaultDailyCap         = 10 * time.Hour
-	DefaultTicketPattern    = `[A-Z][A-Z0-9]+-\d+`
+	// DefaultContextMaxAge is how long context is carried at its own tier
+	// after it was last confirmed.
+	DefaultContextMaxAge = 2 * time.Hour
+	DefaultRounding      = 15 * time.Minute
+	DefaultDailyCap      = 10 * time.Hour
+	DefaultTicketPattern = `[A-Z][A-Z0-9]+-\d+`
 	// DefaultActivityWatchURL is where a local ActivityWatch server listens.
 	DefaultActivityWatchURL = "http://localhost:5600"
 	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
@@ -83,8 +86,13 @@ type Config struct {
 	GapThreshold     time.Duration
 	IdleThreshold    time.Duration
 	MinBlockDuration time.Duration
-	Rounding         time.Duration
-	DailyCap         time.Duration
+	// ContextMaxAge is how long context is carried at its own tier after it
+	// was last confirmed; older context is only a suggestion. Zero turns the
+	// limit off for automatic context. A manual pin does not depend on it: it
+	// is only a suggestion from the day after it was set.
+	ContextMaxAge time.Duration
+	Rounding      time.Duration
+	DailyCap      time.Duration
 	// DailyCapDisabled turns the daily cap off: no warning, no acknowledgement,
 	// and no block on sync or auto.
 	DailyCapDisabled bool
@@ -122,6 +130,7 @@ type fileConfig struct {
 	GapThreshold     string   `toml:"gap_threshold"`
 	IdleThreshold    string   `toml:"idle_threshold"`
 	MinBlockDuration string   `toml:"min_block_duration"`
+	ContextMaxAge    string   `toml:"context_max_age"`
 	Rounding         string   `toml:"rounding"`
 	DailyCap         string   `toml:"daily_cap"`
 	DailyCapEnabled  *bool    `toml:"daily_cap_enabled"`
@@ -244,6 +253,13 @@ func build(raw fileConfig) (Config, error) {
 		}
 		*d.target = parsed
 	}
+	// Unlike the durations above, zero is a valid value here: it turns the
+	// age limit of automatic context off.
+	contextMaxAge, err := parseDuration("context_max_age", raw.ContextMaxAge, DefaultContextMaxAge)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ContextMaxAge = contextMaxAge
 	if cfg.Rounding%time.Minute != 0 {
 		return Config{}, fmt.Errorf(msgRoundingNotMinutes, raw.Rounding)
 	}

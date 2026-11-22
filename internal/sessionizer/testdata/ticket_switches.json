@@ -2,7 +2,8 @@
  "config": {
   "gapThreshold": "5m",
   "idleThreshold": "5m",
-  "minBlock": "5m"
+  "minBlock": "5m",
+  "contextMaxAge": "2h"
  },
  "rules": {
   "repos": [
