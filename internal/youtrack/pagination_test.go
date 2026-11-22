@@ -38,6 +38,16 @@ func pagedServer(t *testing.T, path string, total, limit int, entry func(i int) 
 	})
 }
 
+// writeFirstPageOnly answers a collection request with body for $skip=0 and an
+// empty page afterwards, like a server that holds exactly the entries in body.
+func writeFirstPageOnly(w http.ResponseWriter, r *http.Request, body string) {
+	if r.URL.Query().Get("$skip") != "0" {
+		_, _ = io.WriteString(w, `[]`)
+		return
+	}
+	_, _ = io.WriteString(w, body)
+}
+
 func TestFindByMarkerPaginates(t *testing.T) {
 	const path = "/api/issues/ABC-1/timeTracking/workItems"
 	entry := func(i int) string {
@@ -177,7 +187,26 @@ func TestFindByMarkerRequestsFieldsAndPageParams(t *testing.T) {
 	}
 }
 
-func TestFindByMarkerStopsWhenServerIgnoresPaging(t *testing.T) {
+func TestFindByMarkerFailsAfterPageCap(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/users/me" {
+			_, _ = io.WriteString(w, `{"login":"me"}`)
+			return
+		}
+		n := calls.Add(1)
+		_, _ = io.WriteString(w, fmt.Sprintf(`[{"id":"1-%d","text":"t","author":{"login":"me"}}]`, n))
+	}))
+	_, found, err := c.FindByMarker(context.Background(), "ABC-1", "[m]")
+	if err == nil || found {
+		t.Fatalf("found=%v err=%v, want an error", found, err)
+	}
+	if calls.Load() > maxCollectionPages {
+		t.Errorf("calls = %d, want at most %d", calls.Load(), maxCollectionPages)
+	}
+}
+
+func TestFindByMarkerFailsWhenServerIgnoresPaging(t *testing.T) {
 	var calls atomic.Int32
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/users/me" {
@@ -191,9 +220,12 @@ func TestFindByMarkerStopsWhenServerIgnoresPaging(t *testing.T) {
 		}
 		_, _ = io.WriteString(w, "["+strings.Join(parts, ",")+"]")
 	}))
+	// A repeated page is inconsistent paging, not the end of the collection.
+	// Reporting "not found" here would let the caller create a duplicate, so
+	// the search must fail.
 	_, found, err := c.FindByMarker(context.Background(), "ABC-1", "[m]")
-	if err != nil || found {
-		t.Fatalf("found=%v err=%v", found, err)
+	if err == nil || found {
+		t.Fatalf("found=%v err=%v, want an error", found, err)
 	}
 	if calls.Load() != 2 {
 		t.Errorf("calls = %d, want 2", calls.Load())

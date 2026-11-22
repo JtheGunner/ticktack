@@ -24,10 +24,11 @@ const (
 
 // getAllPages reads a collection page by page with $top and $skip and calls
 // visit for every entry until visit reports stop or the collection ends. The
-// collection ends at an empty page or a page that holds only entries already
-// seen (a server that ignores $skip). A short page does not end it: the server
-// may cap pages below $top, so $skip advances by the entries received. key
-// identifies an entry for the seen check; an empty key counts as always new.
+// collection ends only at an empty page. A non-empty page that holds only
+// entries already seen (a server that ignores $skip) is an error, because the
+// end was not reached. A short page does not end it: the server may cap pages
+// below $top, so $skip advances by the entries received. key identifies an
+// entry for the seen check; an empty key counts as always new.
 // The query is not modified.
 func getAllPages[T any](ctx context.Context, c *Client, path string, query url.Values, key func(T) string, visit func(T) (stop bool)) error {
 	seen := map[string]struct{}{}
@@ -63,8 +64,13 @@ func getAllPages[T any](ctx context.Context, c *Client, path string, query url.V
 				return nil
 			}
 		}
-		if !fresh {
+		if len(items) == 0 {
 			return nil
+		}
+		if !fresh {
+			// Inconsistent paging (e.g. $skip ignored): the end of the
+			// collection was not seen, so fail rather than report absence.
+			return fmt.Errorf("youtrack: %s: page at skip %d repeats entries already seen", path, skip)
 		}
 		skip += len(items)
 	}
