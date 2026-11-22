@@ -161,6 +161,9 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 				sessionizer.StaleReason(ex.Age), eventTime(ex.ConfirmedAt), sessionizer.FormatAge(ex.MaxAge), ex.Pinned))))
 		}
 	}
+	for _, f := range ex.Folded {
+		rows = append(rows, render.LabelRow{Label: msgLabelFolded, Value: SanitizeForTerminal(msgExplainFolded(clock(f.Start), clock(f.End), ticketLabel(f.Ticket)))})
+	}
 	p := ex.Presence
 	if p.Samples == 0 {
 		rows = append(rows, render.LabelRow{Label: msgLabelPresence, Value: msgExplainNoSamples})

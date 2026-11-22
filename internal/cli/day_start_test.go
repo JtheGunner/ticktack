@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -81,7 +82,7 @@ func TestDeriveDayAndLoadDayShareWindowWithoutLocalMidnight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(derived.Blocks) != 1 || len(d.Blocks) != 1 || derived.Blocks[0] != d.Blocks[0] {
+	if len(derived.Blocks) != 1 || len(d.Blocks) != 1 || !reflect.DeepEqual(derived.Blocks[0], d.Blocks[0]) {
 		t.Fatalf("today blocks %+v, review blocks %+v", derived.Blocks, d.Blocks)
 	}
 	if b := derived.Blocks[0]; !b.Start.Equal(gapStart) || !b.End.Equal(gapStart.Add(time.Hour)) {

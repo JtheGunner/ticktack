@@ -1,0 +1,35 @@
+{
+ "config": {
+  "gapThreshold": "5m",
+  "idleThreshold": "5m",
+  "minBlock": "10m",
+  "contextMaxAge": "2h"
+ },
+ "rules": {
+  "repos": []
+ },
+ "events": [
+  {"At": "2026-03-02T08:00:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-2-login", "ID": 1},
+  {"At": "2026-03-02T08:00:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 2},
+  {"At": "2026-03-02T08:04:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 3},
+  {"At": "2026-03-02T08:08:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 4},
+  {"At": "2026-03-02T08:12:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 5},
+  {"At": "2026-03-02T08:16:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 6},
+  {"At": "2026-03-02T08:20:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-9-hotfix", "ID": 7},
+  {"At": "2026-03-02T08:20:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 8},
+  {"At": "2026-03-02T08:24:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 9},
+  {"At": "2026-03-02T08:28:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-2-login", "ID": 10},
+  {"At": "2026-03-02T08:28:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 11},
+  {"At": "2026-03-02T08:32:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 12},
+  {"At": "2026-03-02T08:36:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 13},
+  {"At": "2026-03-02T08:40:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-5-docs", "ID": 14},
+  {"At": "2026-03-02T08:40:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 15},
+  {"At": "2026-03-02T08:44:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 16},
+  {"At": "2026-03-02T08:46:00Z", "Kind": "context", "Source": "git", "Repo": "/work/example-app", "Branch": "feat/APP-6-api", "ID": 17},
+  {"At": "2026-03-02T08:48:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 18},
+  {"At": "2026-03-02T08:52:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 19},
+  {"At": "2026-03-02T08:56:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 20},
+  {"At": "2026-03-02T09:00:00Z", "Kind": "presence", "Source": "presence", "IdleSeconds": 1, "ID": 21}
+ ],
+ "overrides": []
+}

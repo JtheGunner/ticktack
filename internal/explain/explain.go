@@ -28,7 +28,8 @@ const (
 	// different rules (Merged lists them).
 	SourceMerged Source = "merged"
 	// SourceTooShort: the block was shorter than the minimum duration and
-	// could not be merged into a same-ticket neighbour.
+	// could neither be merged into a same-ticket neighbour nor folded between
+	// two blocks of one ticket.
 	SourceTooShort Source = "too-short"
 )
 
@@ -94,6 +95,10 @@ type Explanation struct {
 	Pinned   bool
 	MaxAge   time.Duration
 	Presence Presence
+	// Folded lists the short blocks of other attributions that were folded
+	// into the block because blocks of its ticket enclose them. Their time
+	// carries the attribution the explanation names.
+	Folded []sessionizer.Fold
 }
 
 var resolutionOrder = []resolver.RuleKind{
@@ -103,7 +108,7 @@ var resolutionOrder = []resolver.RuleKind{
 // Block explains in.Block, which must come from sessionizer.Derive over the
 // same events, overrides, config and rules.
 func Block(in Input) Explanation {
-	ex := Explanation{Block: in.Block, Presence: presenceFor(in)}
+	ex := Explanation{Block: in.Block, Presence: presenceFor(in), Folded: in.Block.Folded}
 	switch in.Block.Reason {
 	case sessionizer.OverrideReason:
 		ex.Source = SourceOverride

@@ -28,7 +28,8 @@ const (
 	msgExplainMergedSignal = "none single: the block was merged from several signals with different rules"
 	msgExplainMergedItem   = "- %s -> %s"
 	msgExplainNoContext    = "none: presence without any earlier context event"
-	msgExplainTooShort     = "none: the block is shorter than the minimum duration and has no same-ticket neighbour"
+	msgExplainTooShort     = "none: the block is shorter than the minimum duration and has no same-ticket neighbour, nor blocks of one ticket on both sides"
+	msgLabelFolded         = "Folded"
 	msgExplainNoRule       = "no rule matched (no ticket on the event or in the branch, no configured or learned rule)"
 )
 
@@ -43,6 +44,12 @@ func msgExplainStale(reason, confirmedAt, maxAge string, pinned bool) string {
 		return fmt.Sprintf("%s: the manual switch was set at %s and is exempt from context_max_age only on that day; confirm the ticket in review", reason, confirmedAt)
 	}
 	return fmt.Sprintf("%s: last confirmed at %s, limit %s (context_max_age); confirm the ticket in review", reason, confirmedAt, maxAge)
+}
+
+// msgExplainFolded names the rule that put a short block of another ticket
+// into this block. ticket is the display label of the folded block's ticket.
+func msgExplainFolded(start, end, ticket string) string {
+	return fmt.Sprintf("%s-%s (%s) was shorter than the minimum duration and lies between blocks of this ticket; folded in (rule: confirmed short block between two blocks of one ticket; the tier is the lower of the two)", start, end, ticket)
 }
 
 func msgExplainOverrideSignal(start, end string) string {
