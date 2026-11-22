@@ -203,8 +203,13 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 	return report, nil
 }
 
-// inFlightTimeout bounds one item that is finished after a cancellation.
-const inFlightTimeout = 2 * time.Minute
+// inFlightTimeout bounds the work on one item, with or without a signal. It is
+// a variable only so that tests can lower it. The YouTrack client has its own
+// per-request timeout (30 seconds), which normally ends a hung call first; this
+// bound is the backstop for a sink that does not honour one, and it is larger
+// than a request so that a slow but healthy call plus its retry lookup and the
+// ledger write fit in.
+var inFlightTimeout = 2 * time.Minute
 
 // inFlight returns the context of one item's work: the sink call and the
 // ledger write that follows it. It is detached from ctx on purpose. A signal

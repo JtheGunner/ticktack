@@ -88,6 +88,47 @@ func TestSyncCancelledMidRunFinishesTheItemInFlight(t *testing.T) {
 	}
 }
 
+// hangingSink blocks Create for the hung issue until its context ends, like a
+// server that accepts the connection and never answers.
+type hangingSink struct {
+	*fakeSink
+	hung string
+}
+
+func (h *hangingSink) Create(ctx context.Context, w sink.WorkItem) (string, error) {
+	if w.Issue != h.hung {
+		return h.fakeSink.Create(ctx, w)
+	}
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func TestSyncBoundsAHungSinkCallAndKeepsTheLedgerConsistent(t *testing.T) {
+	previous := inFlightTimeout
+	inFlightTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { inFlightTimeout = previous })
+	s, repo := &hangingSink{fakeSink: newFakeSink(), hung: "ABC-1"}, newFakeRepo()
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30)}
+
+	rep, err := Sync(context.Background(), items, s, opts(repo))
+
+	if err != nil {
+		t.Fatalf("err = %v, a hung item must fail alone", err)
+	}
+	if rep.Failed != 1 || rep.Created != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if got := rep.Items[0]; got.Key != Key("ABC-1", "2026-01-05", "Development") || got.Action != ActionFailed {
+		t.Fatalf("hung item = %+v", got)
+	}
+	if len(s.items) != 1 || len(repo.rows) != 1 {
+		t.Fatalf("sink has %d items, ledger %d rows; want 1 each", len(s.items), len(repo.rows))
+	}
+	if _, ok := repo.rows[Key("ABC-1", "2026-01-05", "Development")]; ok {
+		t.Fatal("the hung item has a ledger row")
+	}
+}
+
 func TestSyncCancelledMidReconcileFinishesTheDeletionInFlight(t *testing.T) {
 	base, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30)}, base, opts(repo))

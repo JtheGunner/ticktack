@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,7 +19,10 @@ func TestExitCodeOfACancelledRun(t *testing.T) {
 		want int
 	}{
 		{"cancelled", context.Canceled, ExitInterrupted},
-		{"wrapped cancellation", errors.Join(errors.New("abc-1"), context.Canceled), ExitInterrupted},
+		{"wrapped cancellation", fmt.Errorf("undo: %w", context.Canceled), ExitInterrupted},
+		{"joined cancellations", errors.Join(context.Canceled, context.Canceled), ExitInterrupted},
+		{"failure plus cancellation", errors.Join(errors.New("abc-1"), context.Canceled), 1},
+		{"booking run active and cancelled", errors.Join(ErrBookingRunActive, context.Canceled), ExitBookingRunActive},
 		{"booking run active", ErrBookingRunActive, ExitBookingRunActive},
 		{"other failure", errors.New("boom"), 1},
 	}

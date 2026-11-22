@@ -36,13 +36,29 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	root.SetErr(stderr)
 	// A prompt blocked on stdin must give up on the first signal as well.
 	root.SetIn(cli.NewContextReader(ctx, os.Stdin))
-	err := root.ExecuteContext(ctx)
+	return finish(root.ExecuteContext(ctx), stderr)
+}
+
+// finish reports the error of a command on stderr and returns the exit code.
+func finish(err error, stderr io.Writer) int {
 	code := cli.ExitCode(err)
-	if errors.Is(err, context.Canceled) {
-		err = cli.ErrInterrupted
+	if err == nil || cli.IsSilent(err) {
+		return code
 	}
-	if err != nil && !cli.IsSilent(err) {
-		_, _ = fmt.Fprintln(stderr, "error:", cli.SanitizeForTerminal(err.Error()))
+	if code == cli.ExitBookingRunActive || !errors.Is(err, context.Canceled) {
+		printError(stderr, err)
+		return code
 	}
+	// A cancelled run: the real failures joined with the cancellation come
+	// first, then the interruption notice. They decide the exit code (see
+	// cli.ExitCode), so none of them may be hidden behind the notice.
+	for _, failure := range cli.Failures(err) {
+		printError(stderr, failure)
+	}
+	printError(stderr, cli.ErrInterrupted)
 	return code
+}
+
+func printError(stderr io.Writer, err error) {
+	_, _ = fmt.Fprintln(stderr, "error:", cli.SanitizeForTerminal(err.Error()))
 }

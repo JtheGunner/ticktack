@@ -25,7 +25,11 @@ const ExitInterrupted = 130
 // ErrInterrupted is the error text of a cancelled run.
 var ErrInterrupted = errors.New(msgInterrupted)
 
-// ExitCode maps an error returned by the root command to a process exit code.
+// ExitCode maps an error returned by the root command to a process exit code:
+// 75 while another booking run is active, 130 when the only error is the
+// cancellation, and 1 for any other failure. A real failure joined with the
+// cancellation (for example an undo entry that failed before Ctrl-C) exits 1,
+// so a script never mistakes it for a clean interruption.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
@@ -33,10 +37,38 @@ func ExitCode(err error) int {
 	if errors.Is(err, ErrBookingRunActive) {
 		return ExitBookingRunActive
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) && len(Failures(err)) == 0 {
 		return ExitInterrupted
 	}
 	return 1
+}
+
+// Failures returns the leaf errors of err without the cancellation: it walks
+// errors.Join trees and drops every error that is only a cancellation, so the
+// real failures of a cancelled run can be reported next to the interruption.
+func Failures(err error) []error {
+	if err == nil || errors.Is(err, context.Canceled) && errors.Unwrap(err) == nil && !isJoin(err) {
+		return nil
+	}
+	if join, ok := err.(interface{ Unwrap() []error }); ok {
+		var kept []error
+		for _, child := range join.Unwrap() {
+			kept = append(kept, Failures(child)...)
+		}
+		return kept
+	}
+	if errors.Is(err, context.Canceled) {
+		// A wrapper around the cancellation: a failure only if it wraps more.
+		if len(Failures(errors.Unwrap(err))) == 0 {
+			return nil
+		}
+	}
+	return []error{err}
+}
+
+func isJoin(err error) bool {
+	_, ok := err.(interface{ Unwrap() []error })
+	return ok
 }
 
 // endsRun reports whether err ends a booking run before anything was sent: a
