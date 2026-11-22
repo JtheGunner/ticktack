@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
@@ -83,6 +84,11 @@ type Explanation struct {
 	// (SourceContext only): the block keeps the ticket of Decision, but only
 	// as a suggestion.
 	Stale bool
+	// AppClass is config.ClassNeutral when the foreground app lowered the block
+	// to a suggestion (SourceContext only), empty otherwise. App is the bundle
+	// ID of that app, taken from the presence samples; it can be empty.
+	AppClass config.AppClass
+	App      string
 	// Age is how long the context was unconfirmed when its stale time in the
 	// block began (the block start, unless a short confirmed block was merged
 	// in front of it or an override cut the front of the block off) and
@@ -123,8 +129,9 @@ func Block(in Input) Explanation {
 		ex.Source = SourceNoContext
 		return ex
 	}
-	cd, ok := matchingStep(steps, in.Block)
-	if !ok {
+	neutral := in.Block.Reason == sessionizer.NeutralAppReason
+	cd, ok := matchingStep(steps, in.Block, neutral)
+	if !ok && !neutral {
 		var age time.Duration
 		cd, age, ok = staleStep(in)
 		if ok {
@@ -141,6 +148,10 @@ func Block(in Input) Explanation {
 		return ex
 	}
 	ex.Source = SourceContext
+	if neutral {
+		ex.AppClass = config.ClassNeutral
+		ex.App = neutralApp(in)
+	}
 	ex.Event = cd.Event
 	ex.Signal = cd.Signal
 	ex.Decision = cd.Decision
@@ -177,15 +188,49 @@ func stepsOf(in Input) []sessionizer.ContextDecision {
 
 // matchingStep returns the first step whose attribution equals the block's
 // own ticket, tier and reason; a merged short block keeps the neighbour's
-// reason, so the step at its start does not always match.
-func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (sessionizer.ContextDecision, bool) {
+// reason, so the step at its start does not always match. Time in a neutral
+// app has the tier and reason of the app class instead of the step's, so it
+// matches by ticket only (ticketOnly).
+func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block, ticketOnly bool) (sessionizer.ContextDecision, bool) {
 	for _, s := range steps {
 		a := s.Decision.Attribution
-		if a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+		if a.Ticket != b.Ticket {
+			continue
+		}
+		if ticketOnly || (a.Tier == b.Tier && a.Reason == b.Reason) {
 			return s, true
 		}
 	}
 	return sessionizer.ContextDecision{}, false
+}
+
+// neutralApp returns the bundle ID of the first neutral foreground app seen
+// in the block, from the presence samples already in the events; empty when
+// none is found. A sample belongs to the block by its moment of activity (its
+// time minus its idle time), as in Derive, so a sample stamped after the block
+// end still counts when its activity lies inside.
+func neutralApp(in Input) string {
+	idleLimit := in.Config.Normalized().IdleThreshold
+	for _, e := range sortedByTime(in.Events) {
+		if e.Kind != event.KindPresence {
+			continue
+		}
+		idle := time.Duration(e.IdleSeconds) * time.Second
+		active := e.At.Add(-idle)
+		if idle >= idleLimit || active.Before(in.Block.Start) || active.After(in.Block.End) {
+			continue
+		}
+		if in.Config.AppClasses[e.App] == config.ClassNeutral {
+			return e.App
+		}
+	}
+	return ""
+}
+
+func sortedByTime(events []event.Event) []event.Event {
+	out := append([]event.Event(nil), events...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	return out
 }
 
 // staleStep returns the first step whose context was stale during the block
@@ -300,6 +345,10 @@ func presenceFor(in Input) Presence {
 			// A sample is evidence of activity at the last input, the same
 			// moment Derive uses; judging it by its own timestamp would place
 			// the sample that ends a block outside of it.
+			if in.Config.AppClasses[e.App] == config.ClassPersonal {
+				// Time in a personal app is not presence evidence.
+				continue
+			}
 			active := e.At.Add(-idle)
 			switch {
 			case active.Before(b.Start):

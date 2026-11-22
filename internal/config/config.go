@@ -109,6 +109,9 @@ type Config struct {
 	TitleHint     TitleHint
 	Auto          Auto
 	Scan          Scan
+	// AppClasses maps a bundle ID to the class of that foreground app. It is
+	// empty by default; an app that is not listed is ClassWork.
+	AppClasses map[string]AppClass
 }
 
 // TitleHint configures the optional window-title collector. It is off unless
@@ -149,6 +152,8 @@ type fileConfig struct {
 	} `toml:"activitywatch"`
 
 	TitleHint titleHintFile `toml:"titlehint"`
+
+	AppClasses map[string]string `toml:"app_classes"`
 
 	Scan struct {
 		Interval string `toml:"interval"`
@@ -321,6 +326,11 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Scan = scan
+	appClasses, err := buildAppClasses(raw.AppClasses)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AppClasses = appClasses
 	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
 	if days := raw.Auto.TrustedDays; days != nil {
 		if *days < 1 {
