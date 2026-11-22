@@ -190,7 +190,7 @@ func TestCreateIssueTagsTheStandardTaskManual(t *testing.T) {
 				case r.Method == http.MethodGet && r.URL.Path == "/api/users/me":
 					_, _ = io.WriteString(w, `{"login":"jane"}`)
 				case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
-					_, _ = io.WriteString(w, tt.tagsOnServer)
+					writeFirstPageOnly(w, r, tt.tagsOnServer)
 				case r.Method == http.MethodPost && r.URL.Path == "/api/tags":
 					created = true
 					_ = json.NewDecoder(r.Body).Decode(&tagBody)
