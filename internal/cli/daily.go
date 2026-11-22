@@ -22,6 +22,7 @@ import (
 // dailyStore is the part of the store the daily commands use.
 type dailyStore interface {
 	Append(ctx context.Context, e event.Event) error
+	AppendBatch(ctx context.Context, events []event.Event) error
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
 	CarriedContext(ctx context.Context, before time.Time, src store.CarrySources) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)

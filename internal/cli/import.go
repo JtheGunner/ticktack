@@ -105,10 +105,10 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 	imp := &activitywatch.Importer{Source: source, Now: func() time.Time { return now }, Hostname: cfg.ActivityWatch.Hostname}
 	events, collectErr := imp.Collect(ctx, from)
 	var presence, gaps, hints int
+	if err := st.AppendBatch(ctx, events); err != nil {
+		return err
+	}
 	for _, e := range events {
-		if err := st.Append(ctx, e); err != nil {
-			return err
-		}
 		switch e.Kind {
 		case event.KindPresence:
 			presence++
