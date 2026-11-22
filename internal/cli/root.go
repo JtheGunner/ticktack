@@ -26,6 +26,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newUndoCommand())
 	addDailyCommands(root)
 	root.AddCommand(newInitCommand())
+	root.AddCommand(newUninstallCommand())
 	root.AddCommand(newDoctorCommand())
 	root.AddCommand(newImportCommand())
 	root.AddCommand(newScanCommand())

@@ -21,7 +21,7 @@ func newUndoCommandWith(deps syncDeps) *cobra.Command {
 		Short: "Revert the last sync",
 		Long: `Revert the last booking run: items it created are deleted from YouTrack,
 items it updated are restored to their previous minutes and items it deleted
-are booked again. Running undo again reverts the run before it.`,
+are booked again. Running undo again reverts the run before it.` + msgBookingLockHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
@@ -30,6 +30,12 @@ are booked again. Running undo again reverts the run before it.`,
 }
 
 func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
+	// The lock comes first: nothing read below may change under another run.
+	release, err := deps.lockBookingRun(false)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err

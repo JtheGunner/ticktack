@@ -39,13 +39,10 @@ func ContextSteps(events []event.Event, rules resolver.Rules) []ContextDecision 
 	steps, _ := contextTimeline(sortedEvents(events))
 	out := make([]ContextDecision, 0, len(steps))
 	for _, step := range steps {
-		cd := ContextDecision{At: step.at, Event: step.event, Signal: step.signal, ManualTicket: step.manualTicket, ConfirmedAt: step.confirmedAt}
-		if step.manualTicket != "" {
-			cd.Decision = resolver.Decision{Attribution: step.attribution(rules), Rule: ManualRule}
-		} else {
-			cd.Decision = resolver.Decide(step.signal, rules)
-		}
-		out = append(out, cd)
+		out = append(out, ContextDecision{
+			At: step.at, Event: step.event, Signal: step.signal, ManualTicket: step.manualTicket,
+			ConfirmedAt: step.confirmedAt, Decision: step.decision(rules),
+		})
 	}
 	return out
 }

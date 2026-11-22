@@ -32,7 +32,7 @@ func TestBlockNamesDecidingRule(t *testing.T) {
 		wantSkipped int
 		wantID      int64
 	}{
-		{"event ticket", event.Event{Repo: "/x", Branch: "main", Ticket: "evt-1"}, resolver.RuleEventTicket, SourceContext, 0, 0},
+		{"event ticket", event.Event{Repo: "/x", Ticket: "evt-1"}, resolver.RuleEventTicket, SourceContext, 0, 0},
 		{"branch ticket", event.Event{Repo: "/x", Branch: "ABC-2-fix"}, resolver.RuleBranchTicket, SourceContext, 1, 0},
 		{"repo rule", event.Event{Repo: "/cfg/sub", Branch: "main"}, resolver.RuleRepo, SourceContext, 2, 0},
 		{"learned rule", event.Event{Repo: "/learn", Branch: "dev"}, resolver.RuleLearned, SourceContext, 3, 7},
@@ -140,9 +140,9 @@ func ctxAt(at time.Time, repo, branch, ticket string) event.Event {
 func TestBlockMergedShortBlockUsesMatchingStep(t *testing.T) {
 	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}}}
 	cfg := shortCfg()
-	// A 4 min block with an explicit CFG-1 ticket precedes a 20 min repo-rule
+	// A 4 min block with an explicit CFG-1 ticket (no branch) precedes a 20 min repo-rule
 	// block for CFG-1: they merge under the longer block's tier and reason.
-	events := []event.Event{ctxAt(t0, "/cfg", "main", "CFG-1"), ctxAt(t0.Add(4*time.Minute), "/cfg", "main", "")}
+	events := []event.Event{ctxAt(t0, "/cfg", "", "CFG-1"), ctxAt(t0.Add(4*time.Minute), "/cfg", "main", "")}
 	events = append(events, presenceRun(t0, 24)...)
 	blocks := sessionizer.Derive(events, nil, cfg, rules)
 	if len(blocks) != 1 || blocks[0].Tier != resolver.TierRule {
@@ -174,7 +174,7 @@ func TestBlockSpanningTwoStepsWithSameAttribution(t *testing.T) {
 
 func TestBlockMergedFromDifferentRulesListsSignals(t *testing.T) {
 	rules := resolver.Rules{Repos: []resolver.RepoRule{{Repo: "/cfg", Ticket: "CFG-1"}}}
-	events := []event.Event{ctxAt(t0, "/cfg", "main", ""), ctxAt(t0.Add(10*time.Minute), "/x", "main", "CFG-1")}
+	events := []event.Event{ctxAt(t0, "/cfg", "main", ""), ctxAt(t0.Add(10*time.Minute), "/x", "", "CFG-1")}
 	// A block whose attribution matches none of its steps (as after a merge
 	// that no single signal explains).
 	b := sessionizer.Block{Start: t0, End: t0.Add(20 * time.Minute), Ticket: "CFG-1", Tier: resolver.TierLearned, Reason: "learned rule for /y"}

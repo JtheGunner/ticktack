@@ -32,7 +32,7 @@ func newPurgeCommand() *cobra.Command {
 // scripts never delete by accident.
 func runPurge(ctx context.Context, deps dailyDeps, yes bool) error {
 	if !yes {
-		confirmed, err := confirmPurge(deps)
+		confirmed, err := confirmDeletion(deps.In, deps.Out, msgPurgePrompt)
 		if err != nil {
 			return err
 		}
@@ -53,16 +53,19 @@ func runPurge(ctx context.Context, deps dailyDeps, yes bool) error {
 	return err
 }
 
-func confirmPurge(deps dailyDeps) (bool, error) {
-	if _, err := fmt.Fprint(deps.Out, msgPurgePrompt); err != nil {
+// confirmDeletion prints prompt on out and reads a [y/N] answer from in. Only
+// y/yes confirms. A closed input is an error, not a "no", so a script learns
+// that nothing was asked.
+func confirmDeletion(in io.Reader, out io.Writer, prompt string) (bool, error) {
+	if _, err := fmt.Fprint(out, prompt); err != nil {
 		return false, err
 	}
-	line, err := bufio.NewReader(deps.In).ReadString('\n')
+	line, err := bufio.NewReader(in).ReadString('\n')
 	// A final answer without a trailing newline still counts.
 	partialAnswer := errors.Is(err, io.EOF) && strings.TrimSpace(line) != ""
 	if err != nil && !partialAnswer {
 		if errors.Is(err, io.EOF) {
-			_, _ = fmt.Fprintln(deps.Out)
+			_, _ = fmt.Fprintln(out)
 			return false, errors.New(msgNotInteractive)
 		}
 		return false, fmt.Errorf("read confirmation: %w", err)

@@ -104,7 +104,10 @@ func TestPurgeOutput(t *testing.T) {
 }
 
 func TestPurgePromptTextIsFixed(t *testing.T) {
-	const want = "Delete ALL local ticktack data (events, overrides, ledger)? [y/N] "
+	const want = "Delete ALL local ticktack data? This empties the database: events, overrides, " +
+		"the booking ledger and sync history, review confirmations, cap acknowledgements, " +
+		"learned rules and their change log, the review log, digests, the cached YouTrack project list, " +
+		"standard tasks and the consent to create them. [y/N] "
 	if msgPurgePrompt != want {
 		t.Errorf("prompt = %q, want %q", msgPurgePrompt, want)
 	}

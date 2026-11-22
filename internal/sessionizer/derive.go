@@ -162,6 +162,10 @@ type Block struct {
 	Ticket string
 	Tier   resolver.Tier
 	Reason string
+	// Rule is the kind of rule that decided the attribution: a resolver rule
+	// kind, ManualRule for a manual switch or OverrideRule for a user
+	// override. It is resolver.RuleNone when nothing decided.
+	Rule resolver.RuleKind
 	// Repo is the repository of the context the block was derived from; it
 	// is empty for override blocks and when no context existed.
 	Repo string
@@ -278,16 +282,25 @@ type contextStep struct {
 	confirmedAt time.Time
 }
 
-// attribution resolves the step. A manual switch is explicit by definition.
-func (s contextStep) attribution(rules resolver.Rules) resolver.Attribution {
+// decision resolves the step and names the deciding rule. A manual switch is
+// explicit by definition.
+func (s contextStep) decision(rules resolver.Rules) resolver.Decision {
 	if s.manualTicket != "" {
-		return resolver.Attribution{
-			Ticket: s.manualTicket,
-			Tier:   resolver.TierExplicit,
-			Reason: "manual switch to " + s.manualTicket,
+		return resolver.Decision{
+			Attribution: resolver.Attribution{
+				Ticket: s.manualTicket,
+				Tier:   resolver.TierExplicit,
+				Reason: "manual switch to " + s.manualTicket,
+			},
+			Rule: ManualRule,
 		}
 	}
-	return resolver.Resolve(s.signal, rules)
+	return resolver.Decide(s.signal, rules)
+}
+
+// attribution is the verdict of decision without the deciding rule.
+func (s contextStep) attribution(rules resolver.Rules) resolver.Attribution {
+	return s.decision(rules).Attribution
 }
 
 // TitleSource is the event source of window-title hints.
@@ -472,18 +485,24 @@ func attribute(spans []interval, steps []contextStep, rules resolver.Rules, cfg 
 // the block is stale as a whole or not at all.
 func blockFor(from, to time.Time, n int, steps []contextStep, rules resolver.Rules, cfg Config) Block {
 	if n == 0 {
-		return Block{Start: from, End: to, Tier: resolver.TierUnknown, Reason: noContextReason}
+		return Block{Start: from, End: to, Tier: resolver.TierUnknown, Reason: noContextReason, Rule: resolver.RuleNone}
 	}
 	step := steps[n-1]
-	a := step.attribution(rules)
+	d := step.decision(rules)
+	a := d.Attribution
 	if stale, ok := step.staleFrom(cfg); ok && !from.Before(stale) {
+		// The rule that produced the ticket stays: staleness only lowers the tier.
 		a = StaleAttribution(a, from.Sub(step.confirmedAt))
 	}
-	return Block{Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Repo: step.signal.Repo, Branch: step.signal.Branch}
+	return Block{
+		Start: from, End: to, Ticket: a.Ticket, Tier: a.Tier, Reason: a.Reason, Rule: d.Rule,
+		Repo: step.signal.Repo, Branch: step.signal.Branch,
+	}
 }
 
 func sameAttribution(a, b Block) bool {
-	return a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason && a.Repo == b.Repo && a.Branch == b.Branch
+	return a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason && a.Rule == b.Rule &&
+		a.Repo == b.Repo && a.Branch == b.Branch
 }
 
 // mergeTouching joins neighbours that touch and carry the same attribution.
@@ -535,6 +554,7 @@ func resolveShortBlocks(blocks []Block, minBlock time.Duration) []Block {
 			blocks[i].Ticket = ""
 			blocks[i].Tier = resolver.TierUnknown
 			blocks[i].Reason = minBlockReason
+			blocks[i].Rule = resolver.RuleNone
 			// The old context no longer describes the block; keeping it would
 			// stop neighbouring demoted blocks from merging into one.
 			blocks[i].Repo = ""
@@ -602,6 +622,10 @@ func mergeTarget(blocks []Block, i int) int {
 
 const overrideReason = "manual override"
 
+// OverrideRule is the rule kind reported for a block created by a user
+// override.
+const OverrideRule resolver.RuleKind = "override"
+
 // applyOverrides cuts every override out of the blocks in input order (later
 // overrides win) and, unless it discards, covers the part of it that lies in
 // presence time with an explicit block.
@@ -619,7 +643,7 @@ func applyOverrides(base []Block, ov []event.Override) []Block {
 			for _, b := range base {
 				start, end := maxTime(b.Start, o.Start), minTime(b.End, o.End)
 				if end.After(start) {
-					next = append(next, Block{Start: start, End: end, Ticket: o.Ticket, Tier: resolver.TierExplicit, Reason: overrideReason})
+					next = append(next, Block{Start: start, End: end, Ticket: o.Ticket, Tier: resolver.TierExplicit, Reason: overrideReason, Rule: OverrideRule})
 				}
 			}
 		}

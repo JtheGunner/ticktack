@@ -57,8 +57,22 @@ type ProvisionReport struct {
 	WouldBook map[string]int
 	// Rewritten maps every ticket that was replaced to its real issue key.
 	Rewritten map[string]string
-	// DroppedTickets lists the tickets whose items were left out.
+	// DroppedTickets lists the tickets whose items were left out because the
+	// task does not exist: its creation was declined or a dry run creates
+	// nothing.
 	DroppedTickets []string
+	// Failed holds one failed result per item that was left out because the
+	// standard task of its project could not be looked up or created. Pass it
+	// to Sync as SyncOptions.Failed so the failure is part of the sync report.
+	Failed []ItemResult
+	// FailedTickets lists the tickets of the items in Failed. They are not
+	// part of DroppedTickets: whether their task exists is unknown.
+	FailedTickets []string
+	// FailedProjects lists, sorted, the projects whose standard task could not
+	// be looked up or created. Which issue their time is booked on is unknown
+	// in this run, so pass them to Sync as SyncOptions.HoldProjects: no booked
+	// row of theirs may be reconciled away.
+	FailedProjects []string
 }
 
 // Provision makes sure every standard task the items point at exists, and
@@ -67,6 +81,11 @@ type ProvisionReport struct {
 // found nor created are left out, never booked on a guess. Confirmations
 // given on the old key move to the new one so nothing has to be reviewed
 // twice.
+//
+// A lookup or creation that fails for one project does not stop the others:
+// the items of that project are left out and reported in Failed. Unauthorized
+// and rate-limit errors (see IsStopError) and a cancelled context end the run
+// with the error, as they would fail every following call as well.
 func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskProvisioner, st ProvisionStore, o ProvisionOptions) ([]sessionizer.DayItem, ProvisionReport, error) {
 	var report ProvisionReport
 	tasks, err := st.DefaultTasks(ctx)
@@ -129,11 +148,20 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 		return nil
 	}
 
+	// failed maps a project whose task could not be provided to the reason.
+	failed := map[string]error{}
 	var missing []string
 	for _, project := range projects {
 		key, found, err := prov.FindIssueByMarker(ctx, project, DefaultIssueMarker)
 		if err != nil {
-			return nil, report, fmt.Errorf("look up the standard task of %s: %w", project, err)
+			err = fmt.Errorf("look up the standard task of %s: %w", project, err)
+			if endsRun(ctx, err) {
+				return nil, report, err
+			}
+			// A failed lookup says nothing about whether the task exists, so
+			// the project is never offered for creation.
+			failed[project] = err
+			continue
 		}
 		if found {
 			if err := adopt(project, key, false); err != nil {
@@ -166,7 +194,12 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 				}
 				key, err := prov.CreateIssue(ctx, project, o.Summary, defaultIssueDescription())
 				if err != nil {
-					return nil, report, fmt.Errorf("create the standard task of %s: %w", project, err)
+					err = fmt.Errorf("create the standard task of %s: %w", project, err)
+					if endsRun(ctx, err) {
+						return nil, report, err
+					}
+					failed[project] = err
+					continue
 				}
 				if err := adopt(project, key, true); err != nil {
 					return nil, report, err
@@ -179,10 +212,26 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 	}
 
 	report.Rewritten = rewrite
+	// projects is sorted, so FailedProjects is too.
+	for _, project := range projects {
+		if _, isFailed := failed[project]; isFailed {
+			report.FailedProjects = append(report.FailedProjects, project)
+		}
+	}
 	out := make([]sessionizer.DayItem, 0, len(items))
 	droppedSeen := map[string]bool{}
+	failedSeen := map[string]bool{}
 	for _, it := range items {
-		if project, isTask := projectOf[it.Ticket]; isTask && dropped[project] {
+		project, isTask := projectOf[it.Ticket]
+		if err, isFailed := failed[project]; isTask && isFailed {
+			report.Failed = append(report.Failed, ItemResult{Key: itemKey(it), Action: ActionFailed, Minutes: it.Minutes, Error: err.Error()})
+			if !failedSeen[it.Ticket] {
+				failedSeen[it.Ticket] = true
+				report.FailedTickets = append(report.FailedTickets, it.Ticket)
+			}
+			continue
+		}
+		if isTask && dropped[project] {
 			if o.DryRun {
 				if report.WouldBook == nil {
 					report.WouldBook = map[string]int{}
@@ -201,6 +250,13 @@ func Provision(ctx context.Context, items []sessionizer.DayItem, prov sink.TaskP
 		out = append(out, it)
 	}
 	return sessionizer.MergeItems(out), report, nil
+}
+
+// endsRun reports whether err ends the whole provisioning run instead of
+// failing one project: a stop error or a cancelled context would fail every
+// following call too.
+func endsRun(ctx context.Context, err error) bool {
+	return IsStopError(err) || ctx.Err() != nil
 }
 
 func markDropped(dropped map[string]bool, projects []string) {

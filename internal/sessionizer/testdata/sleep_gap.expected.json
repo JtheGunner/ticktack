@@ -5,6 +5,7 @@
     "Ticket": "APP-2",
     "Tier": "explicit",
     "Reason": "ticket APP-2 found in branch \"feat/APP-2-login\"",
+    "Rule": "branch-ticket",
     "Repo": "/work/example-app",
     "Branch": "feat/APP-2-login"
   },
@@ -14,6 +15,7 @@
     "Ticket": "APP-2",
     "Tier": "explicit",
     "Reason": "ticket APP-2 found in branch \"feat/APP-2-login\"",
+    "Rule": "branch-ticket",
     "Repo": "/work/example-app",
     "Branch": "feat/APP-2-login"
   },
@@ -23,6 +25,7 @@
     "Ticket": "APP-2",
     "Tier": "suggested",
     "Reason": "context unconfirmed for 2h",
+    "Rule": "branch-ticket",
     "Repo": "/work/example-app",
     "Branch": "feat/APP-2-login"
   }
