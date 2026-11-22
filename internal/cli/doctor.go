@@ -45,6 +45,9 @@ const (
 	// statusWarn marks something worth a look that does not count as a failed
 	// check and does not change the exit code.
 	statusWarn
+	// statusInfo marks an informational hint: printed, but not counted as a
+	// check and never a failure.
+	statusInfo
 )
 
 // checkResult is what a single check reports. Hint is set on failure and
@@ -70,6 +73,10 @@ func warnResult(name, detail, hint string) checkResult {
 
 func skipResult(name, detail string) checkResult {
 	return checkResult{Name: name, Status: statusSkip, Detail: detail}
+}
+
+func infoResult(name, detail string) checkResult {
+	return checkResult{Name: name, Status: statusInfo, Detail: detail}
 }
 
 // meClient is the part of the YouTrack client the token check needs.
@@ -186,6 +193,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkRepositories,
 		checkRepoRoots,
 		checkStandardTasks,
+		checkAlias,
 	}
 	results := make([]checkResult, 0, len(checks))
 	for _, check := range checks {
@@ -202,9 +210,13 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 // the outcome, so it reads without colour. It returns the number of failed
 // checks.
 func writeDoctorReport(out io.Writer, r render.Renderer, results []checkResult) int {
-	failed, warned := 0, 0
+	failed, warned, checks := 0, 0, 0
 	for _, res := range results {
 		printResult(out, r, res)
+		if res.Status == statusInfo {
+			continue
+		}
+		checks++
 		switch res.Status {
 		case statusFail:
 			failed++
@@ -212,14 +224,14 @@ func writeDoctorReport(out io.Writer, r render.Renderer, results []checkResult) 
 			warned++
 		}
 	}
-	summary := fmt.Sprintf(msgDoctorSummaryOK, len(results))
+	summary := fmt.Sprintf(msgDoctorSummaryOK, checks)
 	status, paint := render.StatusOK, r.Colors.OK
 	switch {
 	case failed > 0:
-		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, len(results))
+		summary = fmt.Sprintf(msgDoctorSummaryFailed, failed, checks)
 		status, paint = render.StatusFail, r.Colors.Fail
 	case warned > 0:
-		summary = fmt.Sprintf(msgDoctorSummaryWarned, warned, len(results))
+		summary = fmt.Sprintf(msgDoctorSummaryWarned, warned, checks)
 		status, paint = render.StatusWarn, r.Colors.Warn
 	}
 	_, _ = fmt.Fprintln(out)
@@ -239,6 +251,8 @@ func printResult(out io.Writer, r render.Renderer, res checkResult) {
 		status = render.StatusWarn
 	case statusSkip:
 		status = render.StatusSkip
+	case statusInfo:
+		status = render.StatusInfo
 	}
 	detail := ": " + SanitizeForTerminal(res.Detail)
 	if res.Status != statusFail && res.Status != statusWarn {

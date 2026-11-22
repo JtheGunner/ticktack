@@ -5,7 +5,9 @@
   -  skipped
 
   Step 3/4 - shell hook: add a managed block to <HOME>/.zshrc
+  i  The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)
   +  shell hook written: <HOME>/.zshrc (open a new shell to activate it)
+  +  alias tt set (open a new shell to use it)
 
   Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist
   +  plist written: <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist

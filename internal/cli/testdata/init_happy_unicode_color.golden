@@ -6,7 +6,9 @@ Proceed? [Y/n] Token (input hidden, empty to skip):
   [32m✓[0m  token stored in the keychain
 Validate the token against YouTrack now? [Y/n] 
   [1mStep 3/4 - shell hook: add a managed block to <HOME>/.zshrc[0m
+  [36mℹ[0m  The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)
 Proceed? [Y/n]   [32m✓[0m  shell hook written: <HOME>/.zshrc (open a new shell to activate it)
+  [32m✓[0m  alias tt set (open a new shell to use it)
 
   [1mStep 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist[0m
 Proceed? [Y/n]   [32m✓[0m  plist written: <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist

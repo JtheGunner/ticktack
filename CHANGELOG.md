@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional alias `tt` for `ticktack`: `ticktack init` adds it to the managed shell hook block (`alias tt=ticktack`, fish: `alias tt ticktack`) unless `tt` already exists as a command on `PATH` or as an alias or function in the rc file, or `--skip-alias` is given. Rerunning `init` upgrades an older block in place; `ticktack uninstall` removes the alias with the block. `ticktack doctor` reports the state as an informational line that is not counted as a check. The release ships no `tt` binary or symlink.
 - `ticktack uninstall` reverses `ticktack init`: after one confirmation (`--yes` skips it) it unloads and removes the launchd agent, removes the managed block from the shell startup files, deletes the YouTrack token from the OS keychain and deletes the log file and the title probe status file (`title-status.json`, with any temporary file of an interrupted write). Config file, database and binary stay.
 - New setting `context_max_age` (default `"2h"`; `"0"` turns the age limit for repository and branch context off, a pin from an earlier day stays `suggested`).
 
