@@ -9,12 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- New setting `context_max_age` (default `"2h"`, `"0"` turns it off).
+- New setting `context_max_age` (default `"2h"`; `"0"` turns the age limit for repository and branch context off, a pin from an earlier day stays `suggested`).
 
 ### Changed
 
 - Context no longer vouches for time without limit. Time under a repository and branch that were not confirmed for longer than `context_max_age` keeps its ticket but is only tier `suggested`, with the reason `context unconfirmed for <age>`: confirm it in `ticktack review`; `ticktack auto` does not book it. A shell prompt, checkout, commit or title hint on the same repository and branch confirms the context again. This also applies to the branch a day starts with from the day before.
-- A pin (`ticktack switch`) is exempt from that limit on the day it was set. On the following days it still decides the ticket, but only as `suggested`, so a forgotten pin no longer books as `explicit` for days.
+- A pin (`ticktack switch`) is exempt from that limit on the day it was set. On the following days it still decides the ticket, but only as `suggested`, so a forgotten pin no longer books as `explicit` for days. This does not depend on `context_max_age` and also holds with `"0"`.
 - `ticktack explain` names the age of the context and its last confirmation for such a block.
 
 ### Fixed

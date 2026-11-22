@@ -12,25 +12,29 @@ import (
 const staleReasonPrefix = "context unconfirmed for "
 
 // staleFrom returns the moment from which the context of the step is stale.
-// ok is false when the step never goes stale: the limit is off or the step
-// carries no context.
+// ok is false when the step never goes stale: it carries no context, or it is
+// automatic context and the age limit is off.
 func (s contextStep) staleFrom(cfg Config) (time.Time, bool) {
 	return staleFrom(cfg, s.confirmedAt, s.manualTicket != "")
 }
 
 // staleFrom is the single rule for when context goes stale: automatic context
 // ContextMaxAge after its last confirmation, a manual pin at the end of the
-// calendar day it was set on.
+// calendar day it was set on. The two are independent: a ContextMaxAge of
+// zero switches off the limit for automatic context only.
 func staleFrom(cfg Config, confirmedAt time.Time, pinned bool) (time.Time, bool) {
 	cfg = cfg.withDefaults()
-	if cfg.ContextMaxAge <= 0 || confirmedAt.IsZero() {
+	if confirmedAt.IsZero() {
 		return time.Time{}, false
 	}
-	if !pinned {
-		return confirmedAt.Add(cfg.ContextMaxAge), true
+	if pinned {
+		local := confirmedAt.In(cfg.Location)
+		return time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, cfg.Location), true
 	}
-	local := confirmedAt.In(cfg.Location)
-	return time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, cfg.Location), true
+	if cfg.ContextMaxAge <= 0 {
+		return time.Time{}, false
+	}
+	return confirmedAt.Add(cfg.ContextMaxAge), true
 }
 
 // StaleFrom returns the moment from which Derive treats the context of d as

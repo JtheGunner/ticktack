@@ -48,8 +48,10 @@
 //     calendar day in Config.Location). From the following midnight on it
 //     still applies, but only as tier suggested. A new pin starts a new day
 //     of exemption. Clearing a pin confirms nothing: the automatic context
-//     returns with the age it has. A ContextMaxAge of zero turns both limits
-//     off.
+//     returns with the age it has.
+//   - The two rules are independent. A ContextMaxAge of zero turns off the
+//     age limit of automatic context only: a pin carried over from an earlier
+//     day is only tier suggested whatever the limit is.
 //   - Blocks are split whenever the attributed ticket or the context changes;
 //     touching blocks with the same ticket, tier, reason and repo are merged.
 //   - A block shorter than Config.MinBlock is merged into the longer touching
@@ -94,12 +96,13 @@ type Config struct {
 	// MinBlock is the minimum length of a block before it is merged or
 	// demoted to unknown.
 	MinBlock time.Duration
-	// ContextMaxAge is how long context is carried at its own tier after it
-	// was last confirmed. Zero means no limit; unlike the thresholds above it
-	// does not fall back to the default.
+	// ContextMaxAge is how long automatic context is carried at its own tier
+	// after it was last confirmed. Zero means no limit; unlike the thresholds
+	// above it does not fall back to the default. It does not affect a manual
+	// pin, which is carried at its own tier until the end of its day.
 	ContextMaxAge time.Duration
-	// Location is the zone whose calendar days bound the exemption of a
-	// manual pin from ContextMaxAge. Nil means UTC.
+	// Location is the zone whose calendar days bound the time a manual pin
+	// is carried at its own tier. Nil means UTC.
 	Location *time.Location
 }
 
@@ -114,7 +117,8 @@ func DefaultConfig() Config {
 }
 
 // ConfigFrom builds a Config from the user configuration. The context age
-// limit and the zone are taken as they are: a zero context_max_age means off.
+// limit and the zone are taken as they are: a zero context_max_age means no
+// age limit for automatic context.
 func ConfigFrom(c config.Config) Config {
 	cfg := DefaultConfig()
 	if c.GapThreshold > 0 {

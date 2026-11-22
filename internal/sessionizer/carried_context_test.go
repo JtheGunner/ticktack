@@ -11,28 +11,34 @@ import (
 // ordinary leading events. These tests pin down what Derive makes of them.
 
 func TestDeriveLeadingContextStartsAtFirstPresence(t *testing.T) {
+	// testConfig has no age limit for automatic context. A pin of an earlier
+	// day still decides the ticket, but only as a suggestion.
 	tests := []struct {
 		name    string
 		leading []event.Event
 		ticket  string
+		tier    resolver.Tier
 		reason  string
 	}{
 		{
 			name:    "branch from the day before",
 			leading: []event.Event{ctx(-900, "/r/a", "ABC-1-work")},
 			ticket:  "ABC-1",
+			tier:    resolver.TierExplicit,
 		},
 		{
 			name:    "pin from the evening before beats the branch",
 			leading: []event.Event{ctx(-900, "/r/a", "ABC-1-work"), manual(-600, "pin-1")},
 			ticket:  "PIN-1",
-			reason:  "manual switch to PIN-1",
+			tier:    resolver.TierSuggested,
+			reason:  "context unconfirmed for 10h",
 		},
 		{
 			name:    "pin older than the branch still pins",
 			leading: []event.Event{manual(-900, "pin-1"), ctx(-600, "/r/a", "ABC-1-work")},
 			ticket:  "PIN-1",
-			reason:  "manual switch to PIN-1",
+			tier:    resolver.TierSuggested,
+			reason:  "context unconfirmed for 15h",
 		},
 	}
 	for _, tt := range tests {
@@ -45,7 +51,7 @@ func TestDeriveLeadingContextStartsAtFirstPresence(t *testing.T) {
 			if !b.Start.Equal(at(0)) || !b.End.Equal(at(30)) {
 				t.Errorf("block range = %v..%v, want first to last presence", b.Start, b.End)
 			}
-			if b.Ticket != tt.ticket || b.Tier != resolver.TierExplicit {
+			if b.Ticket != tt.ticket || b.Tier != tt.tier {
 				t.Errorf("block = %+v", b)
 			}
 			if tt.reason != "" && b.Reason != tt.reason {

@@ -88,7 +88,8 @@ type Config struct {
 	MinBlockDuration time.Duration
 	// ContextMaxAge is how long context is carried at its own tier after it
 	// was last confirmed; older context is only a suggestion. Zero turns the
-	// limit off.
+	// limit off for automatic context. A manual pin does not depend on it: it
+	// is only a suggestion from the day after it was set.
 	ContextMaxAge time.Duration
 	Rounding      time.Duration
 	DailyCap      time.Duration
@@ -253,7 +254,7 @@ func build(raw fileConfig) (Config, error) {
 		*d.target = parsed
 	}
 	// Unlike the durations above, zero is a valid value here: it turns the
-	// limit off.
+	// age limit of automatic context off.
 	contextMaxAge, err := parseDuration("context_max_age", raw.ContextMaxAge, DefaultContextMaxAge)
 	if err != nil {
 		return Config{}, err

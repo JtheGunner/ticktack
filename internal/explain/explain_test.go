@@ -291,6 +291,86 @@ func TestBlockNamesTheAgeOfStaleContextMergedWithConfirmedTime(t *testing.T) {
 	}
 }
 
+// An override that removes part of a stale block leaves pieces that keep the
+// reason of the whole block, so the age is the one at the start of the stale
+// time before the cut, not at the start of the piece.
+func TestBlockNamesTheAgeOfStaleContextCutByAnOverride(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 2 * time.Hour
+	events := append([]event.Event{ctxAt(t0, "/x", "ABC-2-fix", "")}, presenceRun(t0, 300)...)
+	minute := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	tests := []struct {
+		name      string
+		override  event.Override
+		wantStart []time.Time
+	}{
+		{
+			"front reassigned",
+			event.Override{Start: minute(120), End: minute(180), Ticket: "OTH-1"},
+			[]time.Time{minute(180)},
+		},
+		{
+			"split in the middle",
+			event.Override{Start: minute(150), End: minute(200), Ticket: "OTH-1"},
+			[]time.Time{minute(120), minute(200)},
+		},
+		{
+			"front discarded",
+			event.Override{Start: minute(100), End: minute(240), Discard: true},
+			[]time.Time{minute(240)},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			overrides := []event.Override{tc.override}
+			var stale []sessionizer.Block
+			for _, b := range sessionizer.Derive(events, overrides, cfg, resolver.Rules{}) {
+				if b.Tier == resolver.TierSuggested {
+					stale = append(stale, b)
+				}
+			}
+			if len(stale) != len(tc.wantStart) {
+				t.Fatalf("stale blocks = %+v", stale)
+			}
+			for i, b := range stale {
+				if !b.Start.Equal(tc.wantStart[i]) {
+					t.Fatalf("stale block %d starts %v, want %v", i, b.Start, tc.wantStart[i])
+				}
+				ex := Block(Input{Block: b, Events: events, Overrides: overrides, Config: cfg})
+				if ex.Source != SourceContext || ex.Decision.Rule != resolver.RuleBranchTicket || !ex.Event.At.Equal(t0) {
+					t.Fatalf("explanation of block %d = %+v", i, ex)
+				}
+				if !ex.Stale || ex.Age != 2*time.Hour || !ex.ConfirmedAt.Equal(t0) || ex.Pinned {
+					t.Errorf("block %d: stale = %v, age = %v, confirmed at %v, pinned = %v", i, ex.Stale, ex.Age, ex.ConfirmedAt, ex.Pinned)
+				}
+				if b.Reason != sessionizer.StaleReason(ex.Age) {
+					t.Errorf("block %d reason %q does not name the age %v", i, b.Reason, ex.Age)
+				}
+			}
+		})
+	}
+}
+
+// A pin of an earlier day is stale whatever the age limit is, also when the
+// limit is switched off.
+func TestBlockNamesStalePinWithTheAgeLimitOff(t *testing.T) {
+	cfg := sessionizer.DefaultConfig()
+	cfg.ContextMaxAge = 0
+	pin := event.Event{At: t0.Add(-10 * time.Hour), Kind: event.KindContext, Source: sessionizer.ManualSource, Ticket: "MAN-1"}
+	events := append([]event.Event{pin}, presenceRun(t0, 30)...)
+	blocks := sessionizer.Derive(events, nil, cfg, resolver.Rules{})
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	ex := Block(Input{Block: blocks[0], Events: events, Config: cfg})
+	if ex.Source != SourceContext || !ex.Stale || !ex.Pinned || ex.Age != 10*time.Hour || ex.MaxAge != 0 {
+		t.Fatalf("explanation = %+v", ex)
+	}
+	if blocks[0].Reason != sessionizer.StaleReason(ex.Age) {
+		t.Errorf("block reason %q does not name the age %v", blocks[0].Reason, ex.Age)
+	}
+}
+
 // The age is counted from the last confirmation, not from the event that
 // first set the context.
 func TestBlockCountsAgeFromTheLastConfirmation(t *testing.T) {

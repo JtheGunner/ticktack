@@ -59,7 +59,9 @@ func TestLoadDayCarriesPinAcrossMidnight(t *testing.T) {
 		t.Fatalf("blocks = %+v", d.Blocks)
 	}
 	b := d.Blocks[0]
-	if b.Ticket != "PIN-1" || b.Tier != resolver.TierExplicit || b.Reason != "manual switch to PIN-1" {
+	// The pin is from the day before: it still decides the ticket, but only
+	// as a suggestion, whatever context_max_age is.
+	if b.Ticket != "PIN-1" || b.Tier != resolver.TierSuggested || b.Reason != "context unconfirmed for 10h" {
 		t.Errorf("block = %+v", b)
 	}
 	if !b.Start.Equal(dayStart) || !b.End.Equal(dayStart.Add(time.Hour)) {
@@ -123,7 +125,7 @@ func TestLoadDayCarriedContextCases(t *testing.T) {
 		{
 			name:   "pin older than the branch still pins",
 			before: []event.Event{manualSwitch(yesterday(10), "PIN-1"), shellContext(yesterday(15), "/work/api", "ABC-7-fix")},
-			ticket: "PIN-1", tier: resolver.TierExplicit,
+			ticket: "PIN-1", tier: resolver.TierSuggested, reasons: "context unconfirmed for 23h",
 		},
 		{
 			name:   "context from several days ago is carried",
@@ -221,9 +223,14 @@ func TestLoadDayAppliesContextAgeLimitToCarriedContext(t *testing.T) {
 			ticket: "ABC-7", tier: resolver.TierExplicit,
 		},
 		{
-			name: "limit switched off", maxAge: 0,
+			name: "limit switched off keeps the branch of the previous day", maxAge: 0,
+			events: []event.Event{shellContext(yesterday(17), "/work/api", "ABC-7-fix")},
+			ticket: "ABC-7", tier: resolver.TierExplicit,
+		},
+		{
+			name: "limit switched off still demotes the pin of the previous day", maxAge: 0,
 			events: []event.Event{manualSwitch(yesterday(23), "PIN-1")},
-			ticket: "PIN-1", tier: resolver.TierExplicit, reason: "manual switch to PIN-1",
+			ticket: "PIN-1", tier: resolver.TierSuggested, reason: "context unconfirmed for 10h",
 		},
 	}
 	for _, tt := range tests {

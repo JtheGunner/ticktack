@@ -24,8 +24,9 @@ min_block_duration = "10m0s"
 # Context (repository, branch) that was not confirmed for this long is only a
 # suggestion to confirm in review. Any context event on the same repository
 # and branch confirms it: a shell prompt, a checkout, a commit, a title hint.
-# A manual pin (`ticktack switch`) is exempt on the day it was set and only a
-# suggestion on the following days. "0" turns the limit off.
+# "0" turns this limit off. A manual pin (`ticktack switch`) does not depend
+# on it: on the day it was set it counts in full, on the following days it is
+# only a suggestion, also with "0".
 context_max_age = "2h0m0s"
 
 # Booked durations are rounded to a multiple of this. Must be whole minutes;

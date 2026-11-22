@@ -306,14 +306,54 @@ func TestDeriveContextAgeLimitKeepsRepoAndBranchOnTheSuggestion(t *testing.T) {
 	}
 }
 
+// A limit of zero switches off the age limit of automatic context only. The
+// day rule of a pin does not depend on it.
 func TestDeriveContextAgeLimitOff(t *testing.T) {
-	events := join([]event.Event{ctx(-900, "/r/a", "ABC-1-work"), manual(-600, "PIN-1")}, presence(0, 30, 1))
+	tests := []struct {
+		name   string
+		events []event.Event
+		want   []wantBlock
+	}{
+		{
+			name:   "automatic context of the day before stays at its tier",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work")}, presence(0, 300, 1)),
+			want:   []wantBlock{{0, 300, "ABC-1", resolver.TierExplicit, ""}},
+		},
+		{
+			name:   "a pin is explicit on its own day",
+			events: join([]event.Event{manual(0, "PIN-1")}, presence(0, 300, 1)),
+			want:   []wantBlock{{0, 300, "PIN-1", resolver.TierExplicit, "manual switch to PIN-1"}},
+		},
+		{
+			name:   "a pin carried from the day before is only suggested",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work"), manual(-600, "PIN-1")}, presence(0, 30, 1)),
+			want:   []wantBlock{{0, 30, "PIN-1", resolver.TierSuggested, "context unconfirmed for 10h"}},
+		},
+		{
+			name:   "a pin stops being explicit at midnight",
+			events: join([]event.Event{manual(midnight-30, "PIN-1")}, presence(midnight-30, midnight+30, 1)),
+			want: []wantBlock{
+				{midnight - 30, midnight, "PIN-1", resolver.TierExplicit, "manual switch to PIN-1"},
+				{midnight, midnight + 30, "PIN-1", resolver.TierSuggested, "context unconfirmed for 30m"},
+			},
+		},
+		{
+			name:   "clearing a pin of the day before restores automatic context at its tier",
+			events: join([]event.Event{ctx(-900, "/r/a", "ABC-1-work"), manual(-600, "PIN-1"), manual(10, "")}, presence(0, 30, 1)),
+			want: []wantBlock{
+				{0, 10, "PIN-1", resolver.TierSuggested, "context unconfirmed for 10h"},
+				{10, 30, "ABC-1", resolver.TierExplicit, ""},
+			},
+		},
+	}
 	for _, maxAge := range []time.Duration{0, -time.Hour} {
-		cfg := agedConfig(nil)
-		cfg.ContextMaxAge = maxAge
-		assertBlocks(t, Derive(events, nil, cfg, resolver.Rules{}), []wantBlock{
-			{0, 30, "PIN-1", resolver.TierExplicit, "manual switch to PIN-1"},
-		})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cfg := agedConfig(nil)
+				cfg.ContextMaxAge = maxAge
+				assertBlocks(t, Derive(tt.events, nil, cfg, resolver.Rules{}), tt.want)
+			})
+		}
 	}
 }
 

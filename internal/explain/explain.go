@@ -84,12 +84,13 @@ type Explanation struct {
 	Stale bool
 	// Age is how long the context was unconfirmed when its stale time in the
 	// block began (the block start, unless a short confirmed block was merged
-	// in front of it) and ConfirmedAt when it was last confirmed (both set
-	// when Stale).
+	// in front of it or an override cut the front of the block off) and
+	// ConfirmedAt when it was last confirmed (both set when Stale). Age is the
+	// age the block reason names.
 	Age         time.Duration
 	ConfirmedAt time.Time
 	// Pinned reports that the stale context is a manual pin from an earlier
-	// day; otherwise it outlived MaxAge.
+	// day, which does not depend on MaxAge; otherwise it outlived MaxAge.
 	Pinned   bool
 	MaxAge   time.Duration
 	Presence Presence
@@ -120,7 +121,7 @@ func Block(in Input) Explanation {
 	cd, ok := matchingStep(steps, in.Block)
 	if !ok {
 		var age time.Duration
-		cd, age, ok = staleStep(steps, in)
+		cd, age, ok = staleStep(in)
 		if ok {
 			ex.Stale = true
 			ex.Age = age
@@ -188,8 +189,14 @@ func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (ses
 // the block began. That moment is not always the block start: a short
 // confirmed block that merged into a stale neighbour takes the neighbour's
 // tier and reason, so the block can begin before its context went stale.
-func staleStep(steps []sessionizer.ContextDecision, in Input) (sessionizer.ContextDecision, time.Duration, bool) {
+//
+// The block is looked at as Derive built it before the overrides: a piece
+// that an override left of a stale block keeps the reason of the whole block,
+// which names the age at the start of the whole block's stale time.
+func staleStep(in Input) (sessionizer.ContextDecision, time.Duration, bool) {
+	in.Block = uncutBlock(in)
 	b := in.Block
+	steps := stepsOf(in)
 	for i, s := range steps {
 		staleFrom, ok := in.Config.StaleFrom(s)
 		if !ok {
@@ -211,6 +218,27 @@ func staleStep(steps []sessionizer.ContextDecision, in Input) (sessionizer.Conte
 		}
 	}
 	return sessionizer.ContextDecision{}, 0, false
+}
+
+// uncutBlock returns the block in.Block was part of before the overrides were
+// applied. Overrides only cut blocks and never change what is left of them, so
+// that is the block of the derivation without overrides that contains
+// in.Block and carries its attribution. Without overrides, or without such a
+// block, it is in.Block itself.
+func uncutBlock(in Input) sessionizer.Block {
+	piece := in.Block
+	if len(in.Overrides) == 0 {
+		return piece
+	}
+	for _, b := range sessionizer.Derive(in.Events, nil, in.Config, in.Rules) {
+		if b.Start.After(piece.Start) || b.End.Before(piece.End) {
+			continue
+		}
+		if b.Ticket == piece.Ticket && b.Tier == piece.Tier && b.Reason == piece.Reason && b.Repo == piece.Repo && b.Branch == piece.Branch {
+			return b
+		}
+	}
+	return piece
 }
 
 func laterOf(a, b time.Time) time.Time {
