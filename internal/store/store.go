@@ -197,15 +197,31 @@ func (s *Store) Overrides(ctx context.Context, from, to time.Time) ([]event.Over
 	return out, nil
 }
 
-// Purge deletes all events, overrides, learned rules, ledger rows, the review log and digests in one transaction.
+// migrationsTable records the applied migrations. It is bookkeeping, not user
+// data, and the only table Purge keeps.
+const migrationsTable = "schema_migrations"
+
+// Purge empties every data table in one transaction. The tables are read from
+// the schema, so a table added by a later migration is covered without a
+// change here. The migration bookkeeping stays, which keeps the database
+// usable afterwards.
 func (s *Store) Purge(ctx context.Context) error {
 	tx, err := s.root.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin purge: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, table := range []string{"events", "overrides", "ledger", "sync_entries", "sync_runs", "confirmations", "cap_acknowledgements", "learned_rules", "rule_changes", "review_log", "digests"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+	tables, err := dataTables(ctx, tx)
+	if err != nil {
+		return err
+	}
+	// Tables are emptied in schema order, not dependency order; references
+	// between them are only checked once everything is gone.
+	if _, err := tx.ExecContext(ctx, "PRAGMA defer_foreign_keys = ON"); err != nil {
+		return fmt.Errorf("defer foreign keys for purge: %w", err)
+	}
+	for _, table := range tables {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+quoteIdentifier(table)); err != nil {
 			return fmt.Errorf("purge %s: %w", table, err)
 		}
 	}
@@ -213,6 +229,36 @@ func (s *Store) Purge(ctx context.Context) error {
 		return fmt.Errorf("commit purge: %w", err)
 	}
 	return nil
+}
+
+// dataTables lists the tables holding user data: every table of the schema
+// except SQLite's internal ones and the migration bookkeeping.
+func dataTables(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list tables for purge: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("list tables for purge: %w", err)
+		}
+		if name == migrationsTable || strings.HasPrefix(name, "sqlite_") {
+			continue
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list tables for purge: %w", err)
+	}
+	return tables, nil
+}
+
+// quoteIdentifier quotes a table name taken from the schema for use in SQL.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 // ErrBusy is returned by CheckWritable when another connection holds the
