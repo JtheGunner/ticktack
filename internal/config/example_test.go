@@ -62,7 +62,7 @@ func TestExampleConfigDocumentsEveryKey(t *testing.T) {
 	data := string(raw)
 	keys := []string{
 		"youtrack_url", "gap_threshold", "min_block_duration", "context_max_age", "rounding", "daily_cap", "daily_cap_enabled",
-		"ticket_pattern", "repo_paths", "time_zone", "[[rules]]", "repo =", "ticket =",
+		"description_from_commits", "ticket_pattern", "repo_paths", "time_zone", "[[rules]]", "repo =", "ticket =",
 		"[titlehint]", "enabled", "[titlehint.projects]", "[activitywatch]", "url", "hostname",
 		"[auto]", "trusted_days", "[scan]", "interval",
 		"idle_threshold", "repo_roots", "[default_issue]", "project =", "summary =",

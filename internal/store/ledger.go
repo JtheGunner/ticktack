@@ -32,6 +32,10 @@ type SyncEntry struct {
 	NewMinutes      int
 	// Text is the work item text that was sent.
 	Text string
+	// PreviousText is the booked text before an update, so undo can restore
+	// it; empty when it is unknown (entries of earlier versions) or when
+	// nothing was replaced.
+	PreviousText string
 }
 
 // SyncRun is a sync run together with its entries.
@@ -142,9 +146,9 @@ func (s *Store) RecordDeletion(ctx context.Context, runID int64, row LedgerRow, 
 func insertSyncEntry(ctx context.Context, tx *sql.Tx, runID int64, e SyncEntry) error {
 	_, err := tx.ExecContext(ctx,
 		`INSERT OR REPLACE INTO sync_entries
-		 (run_id, issue, date, type, action, work_item_id, previous_minutes, new_minutes, text)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		runID, e.Issue, e.Date, e.Type, e.Action, e.WorkItemID, e.PreviousMinutes, e.NewMinutes, e.Text)
+		 (run_id, issue, date, type, action, work_item_id, previous_minutes, new_minutes, text, previous_text)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		runID, e.Issue, e.Date, e.Type, e.Action, e.WorkItemID, e.PreviousMinutes, e.NewMinutes, e.Text, e.PreviousText)
 	if err != nil {
 		return fmt.Errorf("record sync entry: %w", err)
 	}
@@ -177,7 +181,7 @@ func (s *Store) LastSyncRun(ctx context.Context) (SyncRun, bool, error) {
 	}
 	run.StartedAt = time.Unix(0, started).UTC()
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT issue, date, type, action, work_item_id, previous_minutes, new_minutes, text
+		`SELECT issue, date, type, action, work_item_id, previous_minutes, new_minutes, text, previous_text
 		 FROM sync_entries WHERE run_id = ? ORDER BY date, issue, type`, run.ID)
 	if err != nil {
 		return SyncRun{}, false, fmt.Errorf("read sync entries: %w", err)
@@ -185,7 +189,7 @@ func (s *Store) LastSyncRun(ctx context.Context) (SyncRun, bool, error) {
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var e SyncEntry
-		if err := rows.Scan(&e.Issue, &e.Date, &e.Type, &e.Action, &e.WorkItemID, &e.PreviousMinutes, &e.NewMinutes, &e.Text); err != nil {
+		if err := rows.Scan(&e.Issue, &e.Date, &e.Type, &e.Action, &e.WorkItemID, &e.PreviousMinutes, &e.NewMinutes, &e.Text, &e.PreviousText); err != nil {
 			return SyncRun{}, false, fmt.Errorf("scan sync entry: %w", err)
 		}
 		run.Entries = append(run.Entries, e)
@@ -194,6 +198,24 @@ func (s *Store) LastSyncRun(ctx context.Context) (SyncRun, bool, error) {
 		return SyncRun{}, false, fmt.Errorf("iterate sync entries: %w", err)
 	}
 	return run, true, nil
+}
+
+// LastBookedText returns the text most recently booked for (issue, date, typ),
+// as the sync history recorded it. It reports false when the history holds no
+// booking of that item, for example after the history was purged.
+func (s *Store) LastBookedText(ctx context.Context, issue, date, typ string) (string, bool, error) {
+	var text string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT text FROM sync_entries
+		 WHERE issue = ? AND date = ? AND type = ? AND action IN ('created', 'updated', 'recovered')
+		 ORDER BY run_id DESC LIMIT 1`, issue, date, typ).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read last booked text: %w", err)
+	}
+	return text, true, nil
 }
 
 // RevertEntry marks one entry of a run as undone in one transaction: the

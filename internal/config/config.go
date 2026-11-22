@@ -96,9 +96,14 @@ type Config struct {
 	// DailyCapDisabled turns the daily cap off: no warning, no acknowledgement,
 	// and no block on sync or auto.
 	DailyCapDisabled bool
-	Rules            []Rule
-	TicketPattern    *regexp.Regexp
-	RepoPaths        []string
+	// DescriptionFromCommits makes the booked text of a work item name the
+	// subjects of the commits made in that time, read from the repository
+	// when `sync` runs. Off keeps the short summary. Load turns it on by
+	// default; the zero Config has it off.
+	DescriptionFromCommits bool
+	Rules                  []Rule
+	TicketPattern          *regexp.Regexp
+	RepoPaths              []string
 	// RepoRoots are folders whose immediate children that are Git
 	// repositories are tracked; entries are validated like RepoPaths.
 	RepoRoots []string
@@ -129,19 +134,22 @@ type titleHintFile struct {
 
 // fileConfig mirrors the TOML file; durations and patterns stay strings until validated.
 type fileConfig struct {
-	YouTrackURL      string   `toml:"youtrack_url"`
-	GapThreshold     string   `toml:"gap_threshold"`
-	IdleThreshold    string   `toml:"idle_threshold"`
-	MinBlockDuration string   `toml:"min_block_duration"`
-	ContextMaxAge    string   `toml:"context_max_age"`
-	Rounding         string   `toml:"rounding"`
-	DailyCap         string   `toml:"daily_cap"`
-	DailyCapEnabled  *bool    `toml:"daily_cap_enabled"`
-	Rules            []Rule   `toml:"rules"`
-	TicketPattern    string   `toml:"ticket_pattern"`
-	RepoPaths        []string `toml:"repo_paths"`
-	RepoRoots        []string `toml:"repo_roots"`
-	TimeZone         string   `toml:"time_zone"`
+	YouTrackURL      string `toml:"youtrack_url"`
+	GapThreshold     string `toml:"gap_threshold"`
+	IdleThreshold    string `toml:"idle_threshold"`
+	MinBlockDuration string `toml:"min_block_duration"`
+	ContextMaxAge    string `toml:"context_max_age"`
+	Rounding         string `toml:"rounding"`
+	DailyCap         string `toml:"daily_cap"`
+	DailyCapEnabled  *bool  `toml:"daily_cap_enabled"`
+
+	DescriptionFromCommits *bool `toml:"description_from_commits"`
+
+	Rules         []Rule   `toml:"rules"`
+	TicketPattern string   `toml:"ticket_pattern"`
+	RepoPaths     []string `toml:"repo_paths"`
+	RepoRoots     []string `toml:"repo_roots"`
+	TimeZone      string   `toml:"time_zone"`
 
 	DefaultIssue *DefaultIssue `toml:"default_issue"`
 
@@ -270,6 +278,7 @@ func build(raw fileConfig) (Config, error) {
 	}
 
 	cfg.DailyCapDisabled = raw.DailyCapEnabled != nil && !*raw.DailyCapEnabled
+	cfg.DescriptionFromCommits = raw.DescriptionFromCommits == nil || *raw.DescriptionFromCommits
 
 	pattern := raw.TicketPattern
 	if pattern == "" {

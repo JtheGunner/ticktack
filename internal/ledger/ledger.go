@@ -30,6 +30,9 @@ type Repository interface {
 	RecordDeletion(ctx context.Context, runID int64, row store.LedgerRow, e store.SyncEntry) error
 	LastSyncRun(ctx context.Context) (store.SyncRun, bool, error)
 	RevertEntry(ctx context.Context, runID int64, e store.SyncEntry, restore *store.LedgerRow) error
+	// LastBookedText returns the text last booked for an item as the sync
+	// history recorded it; false when the history has none.
+	LastBookedText(ctx context.Context, issue, date, typ string) (string, bool, error)
 }
 
 // Action describes what happened to one item.
@@ -62,8 +65,8 @@ const (
 	DeletedReason = "no longer part of the day"
 	// RepairedReason explains why a booked item was booked again.
 	RepairedReason = "booked work item was missing"
-	// restoredDescription is the text of an item undo books again: the
-	// original description of a deleted item is not kept.
+	// restoredDescription is the text of an item undo books again when the
+	// text of the deleted item is unknown (entries of earlier versions).
 	restoredDescription = "restored by ticktack undo"
 )
 
@@ -93,6 +96,16 @@ type SyncOptions struct {
 	// be provided (ProvisionReport.Failed). They are reported as they are;
 	// nothing is sent for them.
 	Failed []ItemResult
+	// Describer builds the text of an item, for example from commit subjects.
+	// Nil keeps the description of the item.
+	Describer Describer
+}
+
+// Describer builds the description of a day item at booking time. It may read
+// from outside (a repository), which the pure sessionizer must not; it must
+// fall back to it.Description when it has nothing better.
+type Describer interface {
+	Describe(ctx context.Context, it sessionizer.DayItem) string
 }
 
 // ItemResult is the outcome for one item.
@@ -350,13 +363,17 @@ func (r *syncRun) deleteRow(ctx context.Context, row store.LedgerRow) (ItemResul
 	if err := r.sink.Delete(ctx, row.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
 		return fail(err)
 	}
+	// The text the item had is kept with the entry, so undo books it again as
+	// it was. The sink call has gone through, so a failed read only costs the
+	// text: undo then falls back to the generic one.
+	previousText, _, _ := r.opts.Repo.LastBookedText(ctx, row.Issue, row.Date, row.Type)
 	runID, err := r.ensureRun(ctx, r.opts.Now())
 	if err != nil {
 		return fail(err)
 	}
 	entry := store.SyncEntry{
 		Issue: row.Issue, Date: row.Date, Type: row.Type, Action: entryActionDeleted, WorkItemID: row.WorkItemID,
-		PreviousMinutes: row.Minutes, Text: restoredDescription + " " + Marker(key),
+		PreviousMinutes: row.Minutes, Text: restoredDescription + " " + Marker(key), PreviousText: previousText,
 	}
 	if err := r.opts.Repo.RecordDeletion(ctx, runID, row, entry); err != nil {
 		return fail(err)
@@ -428,6 +445,16 @@ type syncRun struct {
 	runID int64
 }
 
+// description returns the text of an item without its marker: the describer's
+// text when one is configured, the item's own description otherwise. The
+// marker is appended by the caller, always at the end.
+func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem) string {
+	if r.opts.Describer == nil {
+		return it.Description
+	}
+	return r.opts.Describer.Describe(ctx, it)
+}
+
 func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemResult, error) {
 	if it.Ticket == "" {
 		return skippedNoTicket(it), nil
@@ -452,7 +479,7 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 
 	work := sink.WorkItem{
 		Issue: it.Ticket, Date: it.Date, Minutes: it.Minutes, Type: typ,
-		Text: it.Description + " " + Marker(key),
+		Text: r.description(ctx, it) + " " + Marker(key),
 	}
 	row, inLedger, err := r.opts.Repo.LedgerGet(ctx, it.Ticket, date, typ)
 	if err != nil {
@@ -460,7 +487,9 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 	}
 
 	if inLedger {
-		if row.Minutes == it.Minutes {
+		// The hash covers minutes and text: an item is left alone only when
+		// neither changed since it was booked.
+		if row.Minutes == it.Minutes && row.ContentHash == contentHash(key, work.Minutes, work.Text) {
 			return r.verifyBooked(ctx, work, row, res)
 		}
 		return r.update(ctx, work, row, res, ActionUpdated, ActionWouldUpdate, entryActionUpdated, row.Minutes)
@@ -499,7 +528,7 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 		// created: undo must not delete an item that may predate this run.
 		action, entryAction = ActionRecovered, entryActionRecovered
 	}
-	if err := r.record(ctx, work, key, id, entryAction, 0); err != nil {
+	if err := r.record(ctx, work, key, id, entryAction, 0, ""); err != nil {
 		return failItem(err)
 	}
 	res.Action = action
@@ -512,6 +541,16 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 		res.Action = planned
 		return res, nil
 	}
+	// The text being replaced is kept with the entry so undo can restore it.
+	// Only an update of a booked row has one; an adopted item's text is unknown.
+	var previousText string
+	if entryAction == entryActionUpdated {
+		text, _, err := r.opts.Repo.LastBookedText(ctx, row.Issue, row.Date, row.Type)
+		if err != nil {
+			return failed(res, err)
+		}
+		previousText = text
+	}
 	if err := r.sink.Update(ctx, row.WorkItemID, work); err != nil {
 		// Only a row of the ledger can point to an item that is gone; an item
 		// found by marker a moment ago is not looked up a second time.
@@ -520,7 +559,7 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 		}
 		return failed(res, err)
 	}
-	if err := r.record(ctx, work, res.Key, row.WorkItemID, entryAction, previous); err != nil {
+	if err := r.record(ctx, work, res.Key, row.WorkItemID, entryAction, previous, previousText); err != nil {
 		res.Action, res.Error = ActionFailed, err.Error()
 		return res, nil
 	}
@@ -605,7 +644,7 @@ func (r *syncRun) repair(ctx context.Context, work sink.WorkItem, res ItemResult
 		id, err = r.sink.Create(ctx, work)
 	}
 	if err == nil {
-		err = r.record(ctx, work, res.Key, id, entryAction, 0)
+		err = r.record(ctx, work, res.Key, id, entryAction, 0, "")
 	}
 	if err != nil {
 		res.Reason = ""
@@ -616,7 +655,7 @@ func (r *syncRun) repair(ctx context.Context, work sink.WorkItem, res ItemResult
 }
 
 // record writes the ledger row and the run entry after a successful sink call.
-func (r *syncRun) record(ctx context.Context, w sink.WorkItem, key, id, entryAction string, previous int) error {
+func (r *syncRun) record(ctx context.Context, w sink.WorkItem, key, id, entryAction string, previous int, previousText string) error {
 	now := r.opts.Now()
 	runID, err := r.ensureRun(ctx, now)
 	if err != nil {
@@ -629,7 +668,7 @@ func (r *syncRun) record(ctx context.Context, w sink.WorkItem, key, id, entryAct
 	}
 	entry := store.SyncEntry{
 		Issue: w.Issue, Date: date, Type: w.Type, Action: entryAction, WorkItemID: id,
-		PreviousMinutes: previous, NewMinutes: w.Minutes, Text: w.Text,
+		PreviousMinutes: previous, NewMinutes: w.Minutes, Text: w.Text, PreviousText: previousText,
 	}
 	return r.opts.Repo.RecordBooking(ctx, runID, row, entry)
 }
@@ -708,7 +747,13 @@ func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int6
 		}
 		result.Deleted++
 	case entryActionUpdated:
-		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
+		// An entry of an earlier version has no previous text; the minutes
+		// are restored with the text that was sent then.
+		text := e.PreviousText
+		if text == "" {
+			text = e.Text
+		}
+		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: text}
 		err := s.Update(ctx, e.WorkItemID, w)
 		switch {
 		case errors.Is(err, youtrack.ErrIssueNotFound):
@@ -721,13 +766,17 @@ func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int6
 			restore = &store.LedgerRow{
 				Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: e.WorkItemID,
 				Minutes:     e.PreviousMinutes,
-				ContentHash: contentHash(key, e.PreviousMinutes, e.Text),
+				ContentHash: contentHash(key, e.PreviousMinutes, text),
 				BookedAt:    now(),
 			}
 			result.Restored++
 		}
 	case entryActionDeleted:
-		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: e.Text}
+		text := e.PreviousText
+		if text == "" {
+			text = e.Text
+		}
+		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: text}
 		id, err := recreate(ctx, s, w, Marker(key))
 		if err != nil {
 			return fail(err)
@@ -735,7 +784,7 @@ func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int6
 		restore = &store.LedgerRow{
 			Issue: e.Issue, Date: e.Date, Type: e.Type, WorkItemID: id,
 			Minutes:     e.PreviousMinutes,
-			ContentHash: contentHash(key, e.PreviousMinutes, e.Text),
+			ContentHash: contentHash(key, e.PreviousMinutes, text),
 			BookedAt:    now(),
 		}
 		result.Recreated++

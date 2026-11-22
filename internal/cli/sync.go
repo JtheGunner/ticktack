@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/commitsubject"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -48,6 +49,9 @@ type syncDeps struct {
 	// ErrBookingRunActive while another run holds the lock. Nil runs without
 	// a lock.
 	AcquireLock func() (release func(), err error)
+	// CommitReader reads commit subjects for the booked text. Nil uses the
+	// local git binary.
+	CommitReader commitsubject.Reader
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
 	// In supplies the answer to the question before standard tasks are
@@ -243,6 +247,7 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		Repo: st, DryRun: dryRun, Now: deps.Now,
 		Reconcile: []civil.Date{day}, Keep: keep,
 		HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
+		Describer: deps.describer(cfg),
 	})
 	printReport(out, deps.Render, report, dryRun)
 	return syncErr

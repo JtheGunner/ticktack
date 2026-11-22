@@ -67,6 +67,20 @@ type DayItem struct {
 	// Certainty splits Minutes by tier; it always adds up to Minutes. See
 	// apportionCertainty for how rounding distributes it.
 	Certainty Certainty
+	// Commits lists the commits made while the item's time was running, in
+	// the order they were made. Aggregate leaves it empty: the loader of the
+	// day fills it from the commit events. It is data for the booking layer,
+	// which reads the subjects; nothing here reads a repository.
+	Commits []CommitRef
+}
+
+// CommitRef points to one commit: the repository (an absolute path) and the
+// full object id, both taken from a stored commit event. The subject is not
+// part of it and is never stored.
+type CommitRef struct {
+	Repo string
+	Hash string
+	At   time.Time
 }
 
 type dayKey struct {

@@ -143,7 +143,7 @@ func TestEventsAreImmutable(t *testing.T) {
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
-		"LedgerRowsForDate": true, "RecordDeletion": true,
+		"LedgerRowsForDate": true, "RecordDeletion": true, "LastBookedText": true,
 		// Overrides are corrections in their own table; a review session takes
 		// its own last one back.
 		"AddOverrideID": true, "DeleteOverride": true,
