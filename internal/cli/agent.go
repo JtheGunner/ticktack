@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -55,12 +55,12 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
 	}
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("open log file: %w", err)
+	logger := logfile.New(logPath, "agent: ")
+	// launchd appends stdout and stderr of the agent to the same file, so
+	// bound it at start even when the agent itself has nothing to log.
+	if err := logger.Rotate(); err != nil {
+		return err
 	}
-	defer func() { _ = logFile.Close() }()
-	logger := log.New(logFile, "agent: ", log.LstdFlags)
 
 	st, err := store.Open(dbPath)
 	if err != nil {
