@@ -260,7 +260,7 @@ func DeriveDay(events []event.Event, ov []event.Override, cfg Config, rules reso
 	blocks = mergeTouching(blocks)
 	blocks = resolveShortBlocks(blocks, cfg.MinBlock)
 	blocks = mergeTouching(blocks)
-	return applyOverrides(blocks, idleGaps(spans, cfg.GapThreshold), ov)
+	return applyOverrides(blocks, idleGaps(spans, personalRuns(sorted, cfg), cfg.GapThreshold), ov)
 }
 
 func sortedEvents(events []event.Event) []event.Event {
@@ -843,14 +843,64 @@ type Result struct {
 	Gaps []Interval
 }
 
+// personalRuns returns the stretches spent in personal apps: runs of personal
+// presence samples, chained while they are at most cfg.GapThreshold apart and
+// not separated by a gap marker. Personal time is not counted and must never
+// be offered as idle time, so idleGaps subtracts it.
+func personalRuns(sorted []event.Event, cfg Config) []Interval {
+	var runs []Interval
+	open := false
+	var floor time.Time
+	for _, e := range sorted {
+		switch e.Kind {
+		case event.KindGap:
+			open = false
+			floor = e.At
+		case event.KindPresence:
+			idle := time.Duration(e.IdleSeconds) * time.Second
+			if idle >= cfg.IdleThreshold || cfg.appClass(e.App) != config.ClassPersonal {
+				continue
+			}
+			active := maxTime(e.At.Add(-idle), floor)
+			last := len(runs) - 1
+			if open && active.Sub(runs[last].End) <= cfg.GapThreshold {
+				runs[last].End = maxTime(runs[last].End, active)
+				continue
+			}
+			runs = append(runs, Interval{Start: active, End: active})
+			open = true
+		}
+	}
+	return runs
+}
+
 // idleGaps returns the holes of at least threshold between consecutive
-// presence spans.
-func idleGaps(spans []interval, threshold time.Duration) []Interval {
+// presence spans, with personal stretches removed: a hole left after removing
+// them counts only when it is still at least threshold long.
+func idleGaps(spans []interval, personal []Interval, threshold time.Duration) []Interval {
 	var gaps []Interval
 	for i := 1; i < len(spans); i++ {
-		g := Interval{Start: spans[i-1].end, End: spans[i].start}
-		if g.End.After(g.Start) && g.End.Sub(g.Start) >= threshold {
-			gaps = append(gaps, g)
+		pieces := []Interval{{Start: spans[i-1].end, End: spans[i].start}}
+		for _, p := range personal {
+			var next []Interval
+			for _, g := range pieces {
+				if !g.Start.Before(p.End) || !g.End.After(p.Start) {
+					next = append(next, g)
+					continue
+				}
+				if g.Start.Before(p.Start) {
+					next = append(next, Interval{g.Start, p.Start})
+				}
+				if g.End.After(p.End) {
+					next = append(next, Interval{p.End, g.End})
+				}
+			}
+			pieces = next
+		}
+		for _, g := range pieces {
+			if g.End.After(g.Start) && g.End.Sub(g.Start) >= threshold {
+				gaps = append(gaps, g)
+			}
 		}
 	}
 	return gaps

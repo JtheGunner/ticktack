@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
@@ -348,5 +349,55 @@ func TestSplitOfAFilledBlockKeepingTheTicketIsRefused(t *testing.T) {
 	}
 	if got := s.Entries(); len(got) != 4 || got[1].Ticket != "MEET-1" || got[2].Ticket != "OTH-5" || got[2].Minutes != 30 {
 		t.Errorf("entries = %+v", got)
+	}
+}
+
+// Personal time (TICKT-70) is not counted, so it is never offered as an idle
+// gap: nothing in the entry list can be filled or marked as a break there.
+func TestPersonalStretchIsNotOfferedInReview(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	app := func(from time.Time, minutes int, name string) {
+		for i := 0; i <= minutes; i++ {
+			e := event.Event{At: from.Add(time.Duration(i) * time.Minute), Source: "test", Kind: event.KindPresence, App: name}
+			if err := st.Append(ctx, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := st.Append(ctx, event.Event{At: dayStart, Source: "test", Kind: event.KindContext, Ticket: "ABC-1"}); err != nil {
+		t.Fatal(err)
+	}
+	app(dayStart, 30, "ide")
+	app(dayStart.Add(31*time.Minute), 30, "music")
+	app(dayStart.Add(62*time.Minute), 28, "ide")
+	cfg := testConfig()
+	cfg.AppClasses = map[string]config.AppClass{"music": config.ClassPersonal}
+	s := newSession(t, st, cfg)
+
+	for _, e := range s.Entries() {
+		if e.Kind == KindIdle || e.Kind == KindBreak {
+			t.Errorf("entry %+v: personal time must not be an idle gap or break", e)
+		}
+	}
+	if len(s.Entries()) != 2 || len(s.Day().IdleGaps) != 0 {
+		t.Fatalf("entries = %+v, gaps = %+v", s.Entries(), s.Day().IdleGaps)
+	}
+	// There is no entry for the personal stretch to act on.
+	if err := s.Reassign(ctx, 3, "MEET-1"); !errors.Is(err, ErrNoSuchEntry) {
+		t.Errorf("assign err = %v, want ErrNoSuchEntry", err)
+	}
+	if err := s.MarkBreak(ctx, 3); !errors.Is(err, ErrNoSuchEntry) {
+		t.Errorf("break err = %v, want ErrNoSuchEntry", err)
+	}
+	// A fill stored directly over the personal stretch gives it no time.
+	if _, err := st.AddOverrideID(ctx, event.Override{Start: dayStart.Add(30 * time.Minute), End: dayStart.Add(62 * time.Minute), Ticket: "MEET-1", Kind: event.OverrideFill}); err != nil {
+		t.Fatal(err)
+	}
+	s = newSession(t, st, cfg)
+	for _, e := range s.Entries() {
+		if e.Ticket == "MEET-1" {
+			t.Errorf("fill reached personal time: %+v", e)
+		}
 	}
 }

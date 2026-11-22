@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `ticktack review` offers idle gaps (holes of at least `gap_threshold` between the first and the last presence of the day) as entries. Fill one with a ticket (`t`; `s` fills the part after a split time), mark it as a break (`b`) or discard it (`d`). A filled gap is an `explicit` block with the reason `manuell gefüllt`, created only by that action; `ticktack auto` never fills gaps, and `ticktack explain` names the manual fill.
+- `ticktack review` offers idle gaps (holes of at least `gap_threshold` between the first and the last presence of the day) as entries. Fill one with a ticket (`t`; `s` fills the part after a split time), mark it as a break (`b`) or discard it (`d`); time in a `personal` app is never offered. A filled gap is an `explicit` block with the reason `manuell gefüllt`, created only by that action; `ticktack auto` never fills gaps, and `ticktack explain` names the manual fill.
 - Breaks are stored apart from discards, are never booked, and show as their own sum in `ticktack review` and `ticktack today`.
 - `z` in `ticktack review` undoes the last action of the session (repeatable) and takes it out of the review log's correction count.
 - Migration `0008` adds a `kind` column (`reassign`, `discard`, `break`, `fill`) to `overrides`; existing rows become `discard` (dropped time) or `reassign`.
