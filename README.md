@@ -148,6 +148,9 @@ ticktack undo
 > [!NOTE]
 > Only one booking run is active at a time. `ticktack sync`, `ticktack auto` and `ticktack undo` share a lock file (`booking.lock` next to the database), so a scheduled `auto` and a manual `sync` cannot book the same work item twice. A run that finds the lock taken does not wait: it changes nothing, prints `another ticktack booking run (sync, auto or undo) is active` and exits with code `75`. Run it again once the other one has finished. The operating system releases the lock when a run ends, also after an abort or a crash, so there is never a stale lock to remove. `--dry-run` takes no lock.
 
+> [!NOTE]
+> Ctrl-C (SIGINT) or SIGTERM stops `sync`, `auto` and `undo` in an orderly way: the work item currently being sent is finished, including its ledger entry, and no further item is started. The items not started are reported as `not-sent`, and the command exits with code `130`; running it again continues. A second signal while it finishes ends the process at once.
+
 `ticktack init` explains each of its four steps and lets you skip any of them; rerunning it is safe. Create the token in your YouTrack profile as a permanent token. It is read with hidden input and stored in the OS keychain.
 
 Inside `ticktack review` the prompt accepts: `c N` confirm, `t N TICKET` reassign, `u N K` take suggestion K, `r` remember the last reassignment as a rule, `d N` discard, `b N` mark as break, `s N HH:MM [TICKET]` split, `a` acknowledge the daily cap, `y` confirm all (all or nothing: if storing fails, none of them is confirmed), `q` quit.

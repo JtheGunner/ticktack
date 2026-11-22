@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
 	isolate(t)              // no config, so the checks fail without any network access
 	t.Setenv("LC_ALL", "C") // ASCII glyphs, whatever the developer's locale
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"doctor"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"doctor"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code 0 although checks failed:\n%s", stdout.String())
 	}
@@ -44,12 +45,12 @@ func TestDoctorExitCodeNonZeroOnFailure(t *testing.T) {
 func TestRunReturnsZeroOnSuccessAndPrintsErrorsOnce(t *testing.T) {
 	isolate(t)
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"version"}, &stdout, &stderr); code != 0 {
+	if code := run(context.Background(), []string{"version"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("version exit code = %d, stderr %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"no-such-command"}, &stdout, &stderr); code == 0 {
+	if code := run(context.Background(), []string{"no-such-command"}, &stdout, &stderr); code == 0 {
 		t.Fatal("unknown command returned 0")
 	}
 	if strings.Count(stderr.String(), "error:") != 1 {
@@ -77,7 +78,7 @@ func TestBookingCommandsExitWithDefinedCodeWhileAnotherRunIsActive(t *testing.T)
 	for _, command := range []string{"sync", "auto", "undo"} {
 		t.Run(command, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run([]string{command}, &stdout, &stderr)
+			code := run(context.Background(), []string{command}, &stdout, &stderr)
 			if code != cli.ExitBookingRunActive {
 				t.Errorf("exit code = %d, want %d", code, cli.ExitBookingRunActive)
 			}
