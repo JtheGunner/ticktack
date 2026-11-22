@@ -16,11 +16,17 @@ const (
 	msgResumed         = "Capture resumed."
 	msgSwitchCleared   = "Back to automatic ticket detection."
 	msgNoBlocks        = "No time recorded for %s."
-	msgPurgePrompt     = "Delete ALL local ticktack data (events, overrides, ledger)? [y/N] "
-	msgPurgeAborted    = "Aborted. Nothing was deleted."
-	msgPurged          = "All local ticktack data deleted."
-	msgNotInteractive  = "cannot ask for confirmation: stdin is not interactive; pass --yes to purge"
-	msgUnassigned      = "(unassigned)"
+	// msgPurgePrompt names everything purge deletes; a test checks it against
+	// the tables of the schema.
+	msgPurgePrompt = "Delete ALL local ticktack data? This empties the database: events, overrides, " +
+		"the booking ledger and sync history, review confirmations, cap acknowledgements, " +
+		"learned rules and their change log, the review log, digests, the cached YouTrack project list, " +
+		"standard tasks and the consent to create them. [y/N] "
+	msgPurgeAborted = "Aborted. Nothing was deleted."
+	msgPurged       = "All local ticktack data deleted."
+	// msgNotInteractive is shared by every command that asks before deleting.
+	msgNotInteractive = "cannot ask for confirmation: stdin is not interactive; pass --yes to proceed"
+	msgUnassigned     = "(unassigned)"
 	// msgStandardTaskNew labels the placeholder of a standard task that is
 	// created in YouTrack by the next sync.
 	msgStandardTaskNew = "%s · standard task (new)"
