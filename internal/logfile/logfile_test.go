@@ -270,6 +270,75 @@ func TestRotateEdgeCases(t *testing.T) {
 	}
 }
 
+// blockBackup makes every rotation fail: the backup path is a directory, so
+// the copied tail cannot be renamed onto it.
+func blockBackup(t *testing.T, fx *fixture) {
+	t.Helper()
+	if err := os.MkdirAll(fx.logger.Path+backupSuffix, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMessageIsAppendedWhenRotationFails(t *testing.T) {
+	fx := newFixture(t)
+	fx.logger.MaxBytes = 10
+	oversized := strings.Repeat("x", 50) + "\n"
+	mustWrite(t, fx.logger.Path, oversized)
+	blockBackup(t, fx)
+
+	if err := fx.logger.Rotate(); err == nil {
+		t.Fatal("Rotate must report a rotation that cannot write its backup")
+	}
+	fx.logger.Printf("first")
+	fx.logger.Printf("second")
+
+	got := readLines(t, fx.logger.Path)
+	if len(got) != 3 || !strings.HasSuffix(got[1], " first") || !strings.HasSuffix(got[2], " second") {
+		t.Fatalf("messages lost while rotation fails: %q", got)
+	}
+	if got[0]+"\n" != oversized {
+		t.Fatalf("failed rotation changed the existing log: %q", got[0])
+	}
+	if _, err := os.Stat(fx.logger.Path + backupSuffix + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("temporary rotation file left behind: %v", err)
+	}
+}
+
+// A hook process may rotate between the size check and the copy. The file is
+// then short again: that is a finished rotation, not an error, and the backup
+// the other process wrote must survive.
+func TestCopyTailSkipsFileTruncatedByAnotherProcess(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "truncated to empty"},
+		{name: "truncated and appended to", content: "hook: new line\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newFixture(t)
+			src, dst := fx.logger.Path, fx.logger.Path+backupSuffix
+			mustWrite(t, src, tt.content)
+			mustWrite(t, dst, "backup of the other process\n")
+
+			copied, err := copyTail(src, dst, 100)
+			if err != nil {
+				t.Fatalf("concurrent truncation reported as an error: %v", err)
+			}
+			if copied {
+				t.Fatal("a file below the limit was copied")
+			}
+			if got := readLines(t, dst); len(got) != 1 || got[0] != "backup of the other process" {
+				t.Fatalf("backup of the other process was replaced: %q", got)
+			}
+			if _, err := os.Stat(dst + ".tmp"); !os.IsNotExist(err) {
+				t.Fatalf("temporary rotation file left behind: %v", err)
+			}
+		})
+	}
+}
+
 func TestOversizedMessageIsTruncated(t *testing.T) {
 	fx := newFixture(t)
 	fx.logger.Printf("%s", strings.Repeat("ä", maxMessageBytes))

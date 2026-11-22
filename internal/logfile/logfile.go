@@ -111,20 +111,22 @@ func (l *Logger) write(message string) error {
 	if err := os.MkdirAll(filepath.Dir(l.Path), dirPerm); err != nil {
 		return err
 	}
-	if err := l.rotate(); err != nil {
-		return err
-	}
+	// A failed rotation must not cost the message: the throttle has already
+	// counted it as written, so dropping it here would silence the log for as
+	// long as the rotation keeps failing.
+	rotateErr := l.rotate()
 	f, err := os.OpenFile(l.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePerm)
 	if err != nil {
-		return err
+		return errors.Join(rotateErr, err)
 	}
 	_, err = fmt.Fprintf(f, "%s%s %s\n", l.Prefix, now.Format(timeLayout), message)
-	return errors.Join(err, f.Close())
+	return errors.Join(rotateErr, err, f.Close())
 }
 
 // rotate copies the last MaxBytes of an oversized log file to the backup and
 // truncates the log in place. Lines another process appends between the copy
-// and the truncation are lost; that is accepted for a diagnostic log.
+// and the truncation are lost; that is accepted for a diagnostic log. When the
+// backup cannot be written the log is left untouched.
 func (l *Logger) rotate() error {
 	if l.MaxBytes <= 0 {
 		return nil
@@ -139,8 +141,13 @@ func (l *Logger) rotate() error {
 	if info.Size() <= l.MaxBytes {
 		return nil
 	}
-	if err := copyTail(l.Path, l.Path+backupSuffix, l.MaxBytes); err != nil {
+	copied, err := copyTail(l.Path, l.Path+backupSuffix, l.MaxBytes)
+	if err != nil {
 		return fmt.Errorf("rotate log file: %w", err)
+	}
+	if !copied {
+		// Another process rotated since the size check; its backup stands.
+		return nil
 	}
 	if err := os.Truncate(l.Path, 0); err != nil {
 		return fmt.Errorf("rotate log file: %w", err)
@@ -148,27 +155,45 @@ func (l *Logger) rotate() error {
 	return nil
 }
 
-// copyTail atomically replaces dst with the last limit bytes of src.
-func copyTail(src, dst string, limit int64) error {
+// copyTail atomically replaces dst with the last limit bytes of src. It
+// reports false and leaves dst alone when src holds no more than limit bytes
+// or is gone: the hook and the agent rotate the same file, so another process
+// may have truncated it since the caller measured it.
+func copyTail(src, dst string, limit int64) (copied bool, err error) {
 	in, err := os.Open(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = in.Close() }()
-	if _, err := in.Seek(-limit, io.SeekEnd); err != nil {
-		return err
+	info, err := in.Stat()
+	if err != nil {
+		return false, err
+	}
+	if info.Size() <= limit {
+		return false, nil
+	}
+	// An absolute offset stays valid even if the file shrinks from here on.
+	if _, err := in.Seek(info.Size()-limit, io.SeekStart); err != nil {
+		return false, err
 	}
 	tmp := dst + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_, err = io.Copy(out, io.LimitReader(in, limit))
 	if err = errors.Join(err, out.Close()); err != nil {
 		_ = os.Remove(tmp)
-		return err
+		return false, err
 	}
-	return os.Rename(tmp, dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
 }
 
 // throttleEntry is the state of one remembered message.

@@ -42,7 +42,8 @@ type commandSampler struct {
 // Sample implements Sampler. The idle time is mandatory. The bundle
 // identifier is not: presence is the signal that carries time, so a sample
 // whose frontmost app cannot be determined is returned with an empty app
-// rather than dropped.
+// rather than dropped. That also holds when the deadline of ctx expires during
+// the app lookup; only a cancelled ctx fails the sample at that point.
 func (s commandSampler) Sample(ctx context.Context) (time.Duration, string, error) {
 	out, err := s.run(ctx, "ioreg", "-c", "IOHIDSystem")
 	if err != nil {
@@ -53,11 +54,13 @@ func (s commandSampler) Sample(ctx context.Context) (time.Duration, string, erro
 		return 0, "", err
 	}
 	app := s.frontmostApp(ctx)
-	if err := ctx.Err(); err != nil {
-		// The whole call ran out of time: report it instead of hiding it
-		// behind an empty app.
+	if err := ctx.Err(); errors.Is(err, context.Canceled) {
+		// The caller gave up (shutdown): there is no one left to store the
+		// sample.
 		return 0, "", fmt.Errorf("look up frontmost app: %w", err)
 	}
+	// An expired call deadline is not an error here: the idle time is already
+	// read, so the sample is kept with whatever app the lookup produced.
 	return idle, app, nil
 }
 

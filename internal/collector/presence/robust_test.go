@@ -171,12 +171,47 @@ func TestCommandSamplerHangingAppLookupYieldsEmptyApp(t *testing.T) {
 	}
 }
 
-func TestCommandSamplerReportsExpiredCallDeadline(t *testing.T) {
+// A slow ioreg can leave the app lookup less than its own timeout. The idle
+// time is already known then, so the sample is kept without an app.
+func TestCommandSamplerKeepsIdleWhenCallDeadlineExpiresDuringAppLookup(t *testing.T) {
 	runner := scriptedRunner{ioreg: ioregOutput, front: frontOutput, hangInfo: true}
 	sampler := commandSampler{run: runner.run, appLookupTimeout: time.Minute}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, _, err := sampler.Sample(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want the expired call deadline", err)
+	idle, app, err := sampler.Sample(ctx)
+	if err != nil {
+		t.Fatalf("an expired call deadline during the app lookup dropped the sample: %v", err)
+	}
+	if idle != 4*time.Second || app != "" {
+		t.Fatalf("got idle=%v app=%q, want 4s and an empty app", idle, app)
+	}
+}
+
+func TestCommandSamplerReportsCancellationDuringAppLookup(t *testing.T) {
+	runner := scriptedRunner{ioreg: ioregOutput, front: frontOutput, hangInfo: true}
+	sampler := commandSampler{run: runner.run, appLookupTimeout: time.Minute}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	timer := time.AfterFunc(20*time.Millisecond, cancel)
+	defer timer.Stop()
+	if _, _, err := sampler.Sample(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation of the caller", err)
+	}
+}
+
+// End to end through the agent: the sample whose app lookup ran into the call
+// deadline is stored, and nothing is logged for it.
+func TestAgentStoresIdleWhenAppLookupHitsTheSampleTimeout(t *testing.T) {
+	h := newHarness()
+	h.agent.SampleTimeout = 20 * time.Millisecond
+	runner := scriptedRunner{ioreg: ioregOutput, front: frontOutput, hangInfo: true}
+	h.agent.Sampler = commandSampler{run: runner.run, appLookupTimeout: time.Minute}
+	h.tick(0)
+	want := event.Event{Source: "presence", Kind: event.KindPresence, App: "", IdleSeconds: 4, At: t0}
+	if len(h.sink.events) != 1 || h.sink.events[0] != want {
+		t.Fatalf("got %+v, want %+v", h.sink.events, want)
+	}
+	if len(h.logs) != 0 {
+		t.Fatalf("a kept sample is not an error, logged %q", h.logs)
 	}
 }
