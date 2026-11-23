@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
 ### Added
 
 - Autopilot mode, an explicit opt-in form of auto mode: `[auto] enabled = true` with `mode = "autopilot"` (default `"gated"`, which behaves as before; an unknown `mode` is a config error) and optional `autopilot_lookback_days` (default `7`, 1 to 31). The agent runs it shortly after start and then every 30 minutes, with no trust gate, over the completed days of the lookback window, oldest first. It never books today, honours pauses and the booking lock, books only `explicit` and `rule` blocks, leaves any item with lower-tier time for review and never touches a day you confirmed or corrected in `ticktack review`. An error is logged once per run and retried at the next one; items already booked on a failed day stay and the next run completes the rest idempotently. `ticktack auto` does one such pass by hand and `ticktack doctor` shows an `autopilot` line. While the autopilot is on, `ticktack undo` holds every completed day of the run it reverts (migration `0011`, table `autopilot_holds`), so the undo stays undone: the autopilot skips a held day until `ticktack auto --day <day>` books it again or you confirm it in review.
@@ -177,7 +179,8 @@ First public release.
 - The git scan (`ticktack scan` and the agent scan) now honours the configured `ticket_pattern` instead of always using the default.
 - The ActivityWatch URL check rejects IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`) and zoned loopback addresses; numerically encoded and `localhost`-lookalike hosts stay rejected.
 
-[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/JtheGunner/ticktack/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/JtheGunner/ticktack/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/JtheGunner/ticktack/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/JtheGunner/ticktack/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/JtheGunner/ticktack/compare/v0.3.2...v0.3.3
