@@ -26,8 +26,12 @@ func mustBegin(t *testing.T, flag string, at time.Time) {
 
 func mustEnd(t *testing.T, flag string, at time.Time) {
 	t.Helper()
-	if err := End(flag, at); err != nil {
+	ended, err := End(flag, at)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if ended.Recovered != nil {
+		t.Fatalf("a healthy pause was reported as recovered: %v", ended.Recovered)
 	}
 }
 
@@ -249,5 +253,134 @@ func TestOutsideDropsEventsInsideAPause(t *testing.T) {
 	got := ivs.Outside(events)
 	if len(got) != 2 || !got[0].At.Equal(events[0].At) || !got[1].At.Equal(events[2].At) {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestEndRecoversAFlagWithAnUnparsableStart(t *testing.T) {
+	flag := flagIn(t)
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flag, []byte("yesterday\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(flag, t0, t0); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := End(flag, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("End must still end the pause: %v", err)
+	}
+	if ended.Recovered == nil || !strings.Contains(ended.Recovered.Error(), flag) {
+		t.Fatalf("Recovered = %v, want the problem named with the flag path", ended.Recovered)
+	}
+	if running, err := Running(flag); err != nil || running {
+		t.Fatalf("Running = %v, %v, want the flag removed", running, err)
+	}
+	got := mustLoad(t, flag, t0.Add(2*time.Hour))
+	if len(got) != 1 || !got[0].Start.Equal(t0) || !got[0].End.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("intervals = %+v, want the pause from the modification time to the resume", got)
+	}
+}
+
+func TestEndRecoversAnUnreadableFlag(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every file")
+	}
+	flag := flagIn(t)
+	mustBegin(t, flag, t0)
+	if err := os.Chmod(flag, 0); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := End(flag, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("End must still end the pause: %v", err)
+	}
+	if ended.Recovered == nil {
+		t.Fatal("want the read problem reported")
+	}
+	if got := mustLoad(t, flag, t0.Add(2*time.Hour)); len(got) != 1 || !got[0].End.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("intervals = %+v", got)
+	}
+}
+
+func TestLoadStaysFailClosedForAnUnparsableFlag(t *testing.T) {
+	flag := flagIn(t)
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flag, []byte("yesterday\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(flag, t0); err == nil {
+		t.Fatal("Load must refuse a flag whose start is unknown")
+	}
+}
+
+func gapEvent(at time.Time, idle time.Duration) event.Event {
+	return event.Event{At: at, Kind: event.KindGap, IdleSeconds: int(idle / time.Second), Key: "gap"}
+}
+
+func TestOutsideClipsAGapThatReachesIntoAPause(t *testing.T) {
+	pauseStart := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	pauseEnd := pauseStart.Add(time.Hour)
+	midnight := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		ivs      Intervals
+		in       event.Event
+		wantAt   time.Time
+		wantIdle int
+		dropped  bool
+	}{
+		{"ends inside the pause", Intervals{{pauseStart, pauseEnd}},
+			gapEvent(pauseStart.Add(20*time.Minute), 50*time.Minute), pauseStart, 30 * 60, false},
+		{"starts inside the pause", Intervals{{pauseStart, pauseEnd}},
+			gapEvent(pauseEnd.Add(30*time.Minute), 50*time.Minute), pauseEnd.Add(30 * time.Minute), 30 * 60, false},
+		{"spans the pause, the later part stays", Intervals{{pauseStart, pauseEnd}},
+			gapEvent(pauseEnd.Add(10*time.Minute), 3*time.Hour), pauseEnd.Add(10 * time.Minute), 10 * 60, false},
+		{"wholly inside the pause", Intervals{{pauseStart, pauseEnd}},
+			gapEvent(pauseStart.Add(40*time.Minute), 20*time.Minute), time.Time{}, 0, true},
+		{"outside every pause", Intervals{{pauseStart, pauseEnd}},
+			gapEvent(pauseStart.Add(-time.Hour), 30*time.Minute), pauseStart.Add(-time.Hour), 30 * 60, false},
+		{"pause across midnight", Intervals{{midnight.Add(-30 * time.Minute), midnight.Add(30 * time.Minute)}},
+			gapEvent(midnight.Add(10*time.Minute), time.Hour), midnight.Add(-30 * time.Minute), 20 * 60, false},
+		{"running pause until now", Intervals{{pauseStart, pauseStart.Add(2 * time.Hour)}},
+			gapEvent(pauseStart.Add(2*time.Hour), 3*time.Hour), pauseStart, 60 * 60, false},
+		{"overlapping pauses", Intervals{{pauseStart, pauseStart.Add(30 * time.Minute)}, {pauseStart.Add(20 * time.Minute), pauseEnd}},
+			gapEvent(pauseEnd.Add(15*time.Minute), 80*time.Minute), pauseEnd.Add(15 * time.Minute), 15 * 60, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.ivs.Outside([]event.Event{tc.in})
+			if tc.dropped {
+				if len(got) != 0 {
+					t.Fatalf("got %+v, want the gap dropped", got)
+				}
+				return
+			}
+			if len(got) != 1 || !got[0].At.Equal(tc.wantAt) || got[0].IdleSeconds != tc.wantIdle || got[0].Key != "gap" {
+				t.Fatalf("got %+v, want At %s idle %ds with the same key", got, tc.wantAt, tc.wantIdle)
+			}
+			start := got[0].At.Add(-time.Duration(got[0].IdleSeconds) * time.Second)
+			for _, iv := range tc.ivs {
+				if start.Before(iv.End) && got[0].At.After(iv.Start) {
+					t.Errorf("kept gap %s..%s still overlaps the pause %v", start, got[0].At, iv)
+				}
+			}
+		})
+	}
+}
+
+func TestOutsideLeavesEventsWithoutAnEndTimeAlone(t *testing.T) {
+	at := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	ivs := Intervals{{Start: at.Add(30 * time.Minute), End: at.Add(time.Hour)}}
+	events := []event.Event{
+		{At: at, Kind: event.KindContext, IdleSeconds: 7200},
+		{At: at, Kind: event.KindGap},
+	}
+	got := ivs.Outside(events)
+	if len(got) != 2 || got[0].IdleSeconds != 7200 || got[1].IdleSeconds != 0 {
+		t.Fatalf("got %+v, want both untouched", got)
 	}
 }

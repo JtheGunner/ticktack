@@ -70,29 +70,41 @@ func Begin(flagPath string, now time.Time) error {
 	return nil
 }
 
+// Ended describes how a pause was finished.
+type Ended struct {
+	// Recovered is set when the flag file held no usable start time: the
+	// interval then starts at the file's modification time instead. It names
+	// what was wrong with the file.
+	Recovered error
+}
+
 // End finishes the running pause at now: it stores the interval and then
-// removes the flag file. Without a running pause it does nothing.
-func End(flagPath string, now time.Time) error {
-	start, running, err := runningSince(flagPath)
+// removes the flag file. Without a running pause it does nothing. A flag file
+// whose content cannot be read or understood still ends the pause, so the
+// user is never stuck paused: the interval starts at the file's modification
+// time (the moment the flag was written), and Ended.Recovered reports the
+// problem. The stored interval is never shorter than the pause was.
+func End(flagPath string, now time.Time) (Ended, error) {
+	start, running, recovered, err := runningSince(flagPath)
 	if err != nil || !running {
-		return err
+		return Ended{}, err
 	}
 	logPath := LogPath(flagPath)
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, fileMode)
 	if err != nil {
-		return fmt.Errorf("open pause log: %w", err)
+		return Ended{}, fmt.Errorf("open pause log: %w", err)
 	}
 	line := start.UTC().Format(timeLayout) + " " + now.UTC().Format(timeLayout) + "\n"
 	_, writeErr := f.WriteString(line)
 	if err := errors.Join(writeErr, f.Close()); err != nil {
-		return fmt.Errorf("write pause log %s: %w", logPath, err)
+		return Ended{}, fmt.Errorf("write pause log %s: %w", logPath, err)
 	}
 	// The interval is stored first: a failure here leaves a pause that is
 	// recorded twice, never one that is lost.
 	if err := os.Remove(flagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove pause flag: %w", err)
+		return Ended{}, fmt.Errorf("remove pause flag: %w", err)
 	}
-	return nil
+	return Ended{Recovered: recovered}, nil
 }
 
 // Load returns every finished pause and, when a pause is running, that pause
@@ -103,9 +115,12 @@ func Load(flagPath string, now time.Time) (Intervals, error) {
 	if err != nil {
 		return nil, err
 	}
-	start, running, err := runningSince(flagPath)
+	start, running, recovered, err := runningSince(flagPath)
 	if err != nil {
 		return nil, err
+	}
+	if recovered != nil {
+		return nil, recovered
 	}
 	if running {
 		ivs = append(ivs, Interval{Start: start, End: now})
@@ -115,28 +130,36 @@ func Load(flagPath string, now time.Time) (Intervals, error) {
 
 // runningSince returns the start of the running pause. A flag file without
 // content comes from a version that stored no start; its modification time
-// stands in.
-func runningSince(flagPath string) (start time.Time, running bool, err error) {
-	raw, err := os.ReadFile(flagPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return time.Time{}, false, nil
+// stands in. A file whose content cannot be read or parsed is reported as
+// recovered, with the modification time as start; Load refuses such a file,
+// End uses the stand-in. Only a flag file that cannot even be examined is an
+// error.
+func runningSince(flagPath string) (start time.Time, running bool, recovered, err error) {
+	raw, readErr := os.ReadFile(flagPath)
+	if errors.Is(readErr, fs.ErrNotExist) {
+		return time.Time{}, false, nil, nil
 	}
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("read pause flag: %w", err)
-	}
-	text := strings.TrimSpace(string(raw))
-	if text == "" {
-		info, err := os.Stat(flagPath)
-		if err != nil {
-			return time.Time{}, false, fmt.Errorf("read pause flag: %w", err)
+	var problem error
+	switch {
+	case readErr != nil:
+		problem = fmt.Errorf("read pause flag: %w", readErr)
+	case strings.TrimSpace(string(raw)) == "":
+		// Written by a version that stored no start: not a problem.
+	default:
+		parsed, parseErr := time.Parse(timeLayout, strings.TrimSpace(string(raw)))
+		if parseErr == nil {
+			return parsed, true, nil, nil
 		}
-		return info.ModTime(), true, nil
+		problem = fmt.Errorf("pause flag %s holds no valid start time: %w", flagPath, parseErr)
 	}
-	start, err = time.Parse(timeLayout, text)
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("pause flag %s holds no valid start time: %w", flagPath, err)
+	info, statErr := os.Stat(flagPath)
+	if errors.Is(statErr, fs.ErrNotExist) {
+		return time.Time{}, false, nil, nil
 	}
-	return start, true, nil
+	if statErr != nil {
+		return time.Time{}, false, nil, fmt.Errorf("read pause flag: %w", statErr)
+	}
+	return info.ModTime(), true, problem, nil
 }
 
 func readLog(logPath string) (Intervals, error) {
@@ -200,12 +223,55 @@ func IsPaused(flagPath string) bool {
 
 // Outside returns the events that do not lie inside a pause. Sources that
 // read the past use it, so paused time is never stored afterwards.
+//
+// An event without a duration is kept or dropped by its time. A gap event
+// (event.KindGap) lasts from At minus IdleSeconds until At; the paused part is
+// cut off and the part after the last pause is kept, with At and IdleSeconds
+// adjusted. A gap that lies wholly inside a pause is dropped. Only the
+// timestamps of a stored gap change: nothing is invented, and the idempotency
+// key stays, so the same pass gives the same event again.
 func (ivs Intervals) Outside(events []event.Event) []event.Event {
 	kept := make([]event.Event, 0, len(events))
 	for _, e := range events {
+		if e.Kind == event.KindGap && e.IdleSeconds > 0 {
+			if clipped, ok := ivs.clipGap(e); ok {
+				kept = append(kept, clipped)
+			}
+			continue
+		}
 		if !ivs.Contains(e.At) {
 			kept = append(kept, e)
 		}
 	}
 	return kept
+}
+
+// clipGap removes the paused time from a gap event. It reports false when
+// nothing of the gap remains.
+func (ivs Intervals) clipGap(e event.Event) (event.Event, bool) {
+	start := e.At.Add(-time.Duration(e.IdleSeconds) * time.Second)
+	end := e.At
+	// Pauses can overlap or repeat; repeat until no pause cuts the gap any
+	// more. Of a gap that spans a pause, the later part survives.
+	for changed := true; changed && end.After(start); {
+		changed = false
+		for _, iv := range ivs {
+			if !iv.Start.Before(end) || !iv.End.After(start) {
+				continue
+			}
+			if iv.End.Before(end) {
+				start = iv.End
+			} else {
+				end = iv.Start
+			}
+			changed = true
+		}
+	}
+	idle := int(end.Sub(start).Round(time.Second) / time.Second)
+	if !end.After(start) || idle <= 0 {
+		return event.Event{}, false
+	}
+	e.At = end
+	e.IdleSeconds = idle
+	return e, true
 }

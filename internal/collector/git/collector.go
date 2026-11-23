@@ -70,8 +70,9 @@ type Collector struct {
 	// RepoTimeout bounds the git work for one repository.
 	RepoTimeout time.Duration
 	// OnReport, when set, receives the report of a pass after the store was
-	// written, with the store error (nil on success). It is not called when
-	// the pass failed before scanning.
+	// written, with the store error (nil on success). A cancelled pass reports
+	// what it had scanned so far, with the context error, and stores nothing.
+	// It is not called when the pass failed before scanning.
 	OnReport func(Report, error)
 }
 
@@ -96,6 +97,7 @@ func (c *Collector) Run(ctx context.Context, sink collector.Sink) error {
 	var found []event.Event
 	for _, entry := range c.Repos {
 		if err := ctx.Err(); err != nil {
+			c.report(report, err)
 			return err
 		}
 		path, skipReason := c.Resolve(entry)
@@ -109,6 +111,7 @@ func (c *Collector) Run(ctx context.Context, sink collector.Sink) error {
 		cancel()
 		if err != nil {
 			if ctx.Err() != nil {
+				c.report(report, ctx.Err())
 				return ctx.Err()
 			}
 			report.Skipped = append(report.Skipped, Skipped{entry, c.Describe(err, timedOut)})
@@ -121,8 +124,12 @@ func (c *Collector) Run(ctx context.Context, sink collector.Sink) error {
 		report.Repos = append(report.Repos, Scanned{Entry: entry, Found: len(events)})
 	}
 	appendErr := sink.AppendBatch(ctx, found)
-	if c.OnReport != nil {
-		c.OnReport(report, appendErr)
-	}
+	c.report(report, appendErr)
 	return appendErr
+}
+
+func (c *Collector) report(report Report, err error) {
+	if c.OnReport != nil {
+		c.OnReport(report, err)
+	}
 }
