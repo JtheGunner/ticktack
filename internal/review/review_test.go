@@ -175,7 +175,7 @@ func TestReviewShowsUnassignedGaps(t *testing.T) {
 	ctx := context.Background()
 	s := newSession(t, st, testConfig())
 	e := s.Entries()
-	if len(e) != 1 || e[0].Kind != KindGap || e[0].Tier != resolver.TierUnknown || e[0].Minutes != 60 {
+	if len(e) != 1 || e[0].Kind != KindUnassigned || e[0].Tier != resolver.TierUnknown || e[0].Minutes != 60 {
 		t.Fatalf("entries = %+v", e)
 	}
 	if err := s.Confirm(ctx, 1); !errors.Is(err, ErrGapNotAttached) {

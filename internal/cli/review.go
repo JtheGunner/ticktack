@@ -294,7 +294,7 @@ func (r *reviewRun) entryRow(e review.Entry) []string {
 	ticket, tier, reason := ticketLabel(e.Ticket), colorTier(r.render, e.Tier), e.Reason
 	state := ""
 	switch {
-	case e.Kind == review.KindGap:
+	case e.Kind == review.KindUnassigned:
 		state = r.render.Colors.Warn(msgReviewStateNeedsTicket)
 	case e.Kind == review.KindIdle:
 		ticket, tier, reason = msgReviewNoTicket, "", msgReviewIdleReason
@@ -317,7 +317,7 @@ func (r *reviewRun) entryRow(e review.Entry) []string {
 }
 
 func (r *reviewRun) showSuggestions(e review.Entry) {
-	if e.Kind != review.KindGap {
+	if e.Kind != review.KindUnassigned {
 		return
 	}
 	list, err := r.s.Suggestions(r.ctx, e.Index)

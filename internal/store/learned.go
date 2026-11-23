@@ -21,8 +21,9 @@ type LearnedRule struct {
 	ID int64
 	// Repo is an absolute repository path; empty matches every repository.
 	Repo string
-	// BranchPattern is matched against the branch name; empty matches every
-	// branch.
+	// BranchPattern is compared for exact equality with the branch name, not
+	// as a glob or regexp; empty matches every branch. The name follows the
+	// stored column branch_pattern.
 	BranchPattern string
 	Ticket        string
 	CreatedAt     time.Time

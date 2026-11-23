@@ -292,8 +292,8 @@ type EntryKind int
 const (
 	// KindBlock is time attributed to a ticket.
 	KindBlock EntryKind = iota
-	// KindGap is presence without a ticket ("needs ticket").
-	KindGap
+	// KindUnassigned is presence without a ticket ("needs ticket").
+	KindUnassigned
 	// KindIdle is an idle gap between presence spans that can be filled with a
 	// ticket, marked as a break or discarded. It carries no time until filled.
 	KindIdle
@@ -428,7 +428,7 @@ func (s *Session) refresh(ctx context.Context) error {
 			Minutes: roundedMinutes(start, end),
 		}
 		if b.Ticket == "" {
-			e.Kind = KindGap
+			e.Kind = KindUnassigned
 		} else if it, ok := itemsByTicket[b.Ticket]; ok {
 			e.Confirmed = isConfirmed(conf, it)
 		}
@@ -504,7 +504,7 @@ func (s *Session) Confirm(ctx context.Context, n int) error {
 		return err
 	}
 	switch e.Kind {
-	case KindGap:
+	case KindUnassigned:
 		return ErrGapNotAttached
 	case KindIdle, KindBreak:
 		return ErrNotConfirmable
