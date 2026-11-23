@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
+	"strconv"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -54,5 +56,25 @@ func lastDigestAge(ctx context.Context, deps doctorDeps) string {
 	if err != nil || !found {
 		return msgAutopilotNoRun
 	}
-	return fmt.Sprintf(msgAutopilotLastRun, formatAge(deps.Now().Sub(digest.CreatedAt)))
+	age := formatAge(deps.Now().Sub(digest.CreatedAt))
+	if failed, notSent := digestFailureCounts(digest.Text); failed+notSent > 0 {
+		return fmt.Sprintf(msgAutopilotLastFail, failed+notSent, failed, notSent, age)
+	}
+	return fmt.Sprintf(msgAutopilotLastRun, age)
+}
+
+// digestTotalsFailures matches the failed and not-sent counts in the totals
+// line that renderDigest writes into every stored digest.
+var digestTotalsFailures = regexp.MustCompile(`failed (\d+), not sent (\d+)`)
+
+// digestFailureCounts reads the failed and not-sent counts of a stored digest
+// text. A text without a totals line counts as no failure.
+func digestFailureCounts(text string) (failed, notSent int) {
+	m := digestTotalsFailures.FindStringSubmatch(text)
+	if m == nil {
+		return 0, 0
+	}
+	failed, _ = strconv.Atoi(m[1])
+	notSent, _ = strconv.Atoi(m[2])
+	return failed, notSent
 }

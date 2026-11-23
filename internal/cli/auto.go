@@ -193,8 +193,21 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 		// sent, so the write must not use the cancelled context.
 		digestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), digestWriteTimeout)
 		defer cancel()
-		if _, err := st.AddDigest(digestCtx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
-			return false, err
+		repeated := false
+		if quiet && !digest.Changed() {
+			// A failure that repeats every 30 minutes is stored once: the same
+			// content as the latest digest of the day adds nothing, and would
+			// make the digest age look fresh.
+			last, found, err := st.LastDigestForDay(digestCtx, day.String())
+			if err != nil {
+				return false, err
+			}
+			repeated = found && last.Text == text
+		}
+		if !repeated {
+			if _, err := st.AddDigest(digestCtx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
+				return false, err
+			}
 		}
 	}
 	if len(sel.Book) == 0 && len(sel.Skipped) == 0 && len(report.Items) == 0 {

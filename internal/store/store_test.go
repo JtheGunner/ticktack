@@ -158,7 +158,7 @@ func TestEventsAreImmutable(t *testing.T) {
 		// The review log (track record for auto mode) and the digests of auto
 		// runs live in their own tables and never touch events.
 		"SaveReviewRecord": true, "ReviewRecords": true,
-		"AddDigest": true, "LastDigest": true,
+		"AddDigest": true, "LastDigest": true, "LastDigestForDay": true,
 		"RecordRuleChange": true, "RuleChanges": true,
 		// The project cache, standard task keys and consent live in their own
 		// tables; renaming a confirmation only edits review state.

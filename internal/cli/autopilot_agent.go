@@ -67,7 +67,7 @@ func newAutopilotJob(deps syncDeps, paused func() bool, startDelay, interval tim
 			}
 			cfg, cfgPath, err := deps.LoadConfig()
 			if err != nil {
-				logf(msgAutopilotLogConfig, err)
+				logf(msgAutopilotLogConfig, SanitizeForTerminal(err.Error()))
 				return
 			}
 			if !cfg.Auto.Autopilot() {
@@ -79,13 +79,13 @@ func newAutopilotJob(deps syncDeps, paused func() bool, startDelay, interval tim
 				return
 			}
 			if err != nil {
-				logf(msgAutopilotLogLock, err)
+				logf(msgAutopilotLogLock, SanitizeForTerminal(err.Error()))
 				return
 			}
 			defer release()
 			logHeld := func(days []string) { logf(msgAutopilotLogHeld, strings.Join(days, ", ")) }
 			if err := autopilotRun(ctx, deps, cfg, cfgPath, logHeld); err != nil && ctx.Err() == nil {
-				logf(msgAutopilotLogFail, err)
+				logf(msgAutopilotLogFail, SanitizeForTerminal(err.Error()))
 			}
 		}
 		timer := time.NewTimer(startDelay)

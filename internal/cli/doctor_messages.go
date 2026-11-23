@@ -122,6 +122,7 @@ const (
 	msgAutopilotGated     = "off: auto mode is gated, it books only after the trust gate is met (mode = \"gated\")"
 	msgAutopilotActive    = "active: the agent books completed days every 30 minutes, looking back %d days"
 	msgAutopilotLastRun   = "last digest written %s ago"
+	msgAutopilotLastFail  = "last run failed %d item(s) (%d failed, %d not sent), written %s ago: see `ticktack digest`"
 	msgAutopilotNoRun     = "no digest written yet"
 
 	msgFixPrefix = "fix: "

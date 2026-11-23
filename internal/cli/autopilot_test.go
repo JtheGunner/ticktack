@@ -259,14 +259,19 @@ type failingSink struct {
 	*recordingSink
 	mu   sync.Mutex
 	fail map[string]bool
+	// msg is the failure text; empty means "youtrack unreachable".
+	msg string
 }
 
 func (f *failingSink) Create(ctx context.Context, w sink.WorkItem) (string, error) {
 	f.mu.Lock()
-	failing := f.fail[w.Issue]
+	failing, msg := f.fail[w.Issue], f.msg
 	f.mu.Unlock()
 	if failing {
-		return "", errors.New("youtrack unreachable")
+		if msg == "" {
+			msg = "youtrack unreachable"
+		}
+		return "", errors.New(msg)
 	}
 	return f.recordingSink.Create(ctx, w)
 }
@@ -541,8 +546,11 @@ func runAutopilotJobTwice(t *testing.T, deps syncDeps, paused bool) []string {
 		defer mu.Unlock()
 		logs = append(logs, strings.TrimSpace(strings.ReplaceAll(format, "%v", "<err>")))
 		for _, a := range args {
-			if err, ok := a.(error); ok {
-				logs = append(logs, err.Error())
+			switch v := a.(type) {
+			case error:
+				logs = append(logs, v.Error())
+			case string:
+				logs = append(logs, v)
 			}
 		}
 	}
@@ -651,5 +659,85 @@ func TestAutopilotJobLogsFailuresOncePerRunWithoutBooking(t *testing.T) {
 				t.Fatalf("booked %v", rec.items)
 			}
 		})
+	}
+}
+
+func digestIDOfDay(t *testing.T, deps syncDeps, day string) int64 {
+	t.Helper()
+	var id int64
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		d, _, err := st.LastDigestForDay(ctx, day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = d.ID
+	})
+	return id
+}
+
+func TestAutopilotStoresARepeatedIdenticalFailureOnce(t *testing.T) {
+	deps, rec := autopilotDeps(t, 7)
+	seedHour(t, deps, civil.Date{Year: 2026, Month: 1, Day: 4}, "DAY-4")
+	flaky := &failingSink{recordingSink: rec, fail: map[string]bool{"DAY-4": true}}
+	deps.NewSink = func(config.Config, string) (sink.TimeSink, error) { return flaky, nil }
+	const failedDay = "2026-01-04"
+
+	if _, err := runAutopilotByHand(t, deps, "", false); err == nil {
+		t.Fatal("the first run must report the failure")
+	}
+	first := digestIDOfDay(t, deps, failedDay)
+	if first == 0 {
+		t.Fatal("the first failure must be stored")
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := runAutopilotByHand(t, deps, "", false); err == nil {
+			t.Fatal("the failure must still be reported every run")
+		}
+	}
+	if got := digestIDOfDay(t, deps, failedDay); got != first {
+		t.Fatalf("a repeated identical failure stored digest %d after %d", got, first)
+	}
+
+	// A changed failure is new content.
+	flaky.mu.Lock()
+	flaky.msg = "youtrack answered HTTP 503"
+	flaky.mu.Unlock()
+	if _, err := runAutopilotByHand(t, deps, "", false); err == nil {
+		t.Fatal("the failure must be reported")
+	}
+	changed := digestIDOfDay(t, deps, failedDay)
+	if changed == first {
+		t.Fatal("a changed failure must write a new digest")
+	}
+
+	// A later success is news too.
+	flaky.mu.Lock()
+	flaky.fail = nil
+	flaky.mu.Unlock()
+	if _, err := runAutopilotByHand(t, deps, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestIDOfDay(t, deps, failedDay); got == changed {
+		t.Fatal("the success after the failure must write a new digest")
+	}
+}
+
+func TestAutopilotJobSanitizesLoggedErrors(t *testing.T) {
+	deps, _ := autopilotDeps(t, 7)
+	deps.LoadConfig = func() (config.Config, string, error) {
+		return config.Config{}, "", errors.New("bad\x1b[31m toml\nforged: line\r")
+	}
+	logs := strings.Join(runAutopilotJobTwice(t, deps, false), "\n")
+	if !strings.Contains(logs, "bad") || strings.ContainsAny(logs, "\x1b\r") || strings.Contains(logs, "toml\nforged") {
+		t.Fatalf("logs = %q: control characters must be removed", logs)
+	}
+
+	deps, _ = autopilotDeps(t, 7)
+	deps.NewSink = func(config.Config, string) (sink.TimeSink, error) {
+		return nil, errors.New("boom\x1b[2J\nforged: line")
+	}
+	logs = strings.Join(runAutopilotJobTwice(t, deps, false), "\n")
+	if !strings.Contains(logs, "boom") || strings.ContainsAny(logs, "\x1b") || strings.Contains(logs, "boom\x1b") || strings.Contains(logs, "\nforged") {
+		t.Fatalf("logs = %q: control characters must be removed", logs)
 	}
 }
