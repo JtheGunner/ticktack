@@ -291,3 +291,36 @@ func TestScanJobSkipsThePassWhenPausesCannotBeLoaded(t *testing.T) {
 		t.Fatalf("scanned %d times and stored %d events without knowing the pauses", scans.Load(), sink.count())
 	}
 }
+
+func TestResumeEndsAPauseWhoseFlagIsBroken(t *testing.T) {
+	deps, _, _ := newDailyEnv(t, "")
+	pausePath, err := deps.PausePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(pausePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pausePath, []byte("not a time\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start := dailyNow.Add(-2 * time.Hour)
+	if err := os.Chtimes(pausePath, start, start); err != nil {
+		t.Fatal(err)
+	}
+	out := &bytes.Buffer{}
+	deps.Out = out
+	if err := runResume(deps); err != nil {
+		t.Fatalf("resume must succeed: %v", err)
+	}
+	if !strings.Contains(out.String(), "damaged") {
+		t.Errorf("output %q does not report the damaged marker", out.String())
+	}
+	if running, err := pause.Running(pausePath); err != nil || running {
+		t.Fatalf("Running = %v, %v, want the pause ended", running, err)
+	}
+	ivs, err := pause.Load(pausePath, dailyNow)
+	if err != nil || len(ivs) != 1 || !ivs[0].Start.Equal(start) {
+		t.Fatalf("intervals = %+v, %v, want one starting at the marker's modification time", ivs, err)
+	}
+}

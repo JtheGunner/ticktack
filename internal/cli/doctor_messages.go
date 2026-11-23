@@ -110,6 +110,12 @@ const (
 	msgStdTasksNeverFetch = "the YouTrack project list was not fetched yet; run `ticktack review` once to match folders to projects"
 	msgStdTasksOK         = "%d projects cached, refreshed %s ago"
 
+	msgCheckRetention     = "retention"
+	msgRetentionConfigBad = "skipped because the config cannot be read (see the config check)"
+	msgRetentionDBFail    = "skipped because the archived days cannot be read (see the database check): %v"
+	msgRetentionOff       = "off (retention_days = 0): every raw event is kept, %d archived days"
+	msgRetentionOn        = "%d days: the agent deletes the events of fully booked days older than that, %d archived days"
+
 	msgFixPrefix = "fix: "
 )
 

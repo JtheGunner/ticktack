@@ -20,6 +20,8 @@ type TrackRecordStore interface {
 	Confirmations(ctx context.Context, day string) ([]store.Confirmation, error)
 	ReviewRecords(ctx context.Context) ([]store.ReviewRecord, error)
 	RuleChanges(ctx context.Context) ([]store.RuleChange, error)
+	ArchivedDay(ctx context.Context, day string) (store.ArchivedDay, bool, error)
+	LedgerRowsForDate(ctx context.Context, date string) ([]store.LedgerRow, error)
 }
 
 // TrackRecord returns the current streak of the trust gate: the number of
@@ -48,6 +50,15 @@ type TrackRecordStore interface {
 //   - Giving unassigned time a ticket, splitting or discarding it, and
 //     remembering a rule for it: the tool claimed nothing wrong there.
 //   - ticktack switch: it is information given in advance, not a fix.
+//
+// An archived day (its raw events were deleted by the retention cleanup)
+// cannot be re-derived, so it is judged from what stays: its confirmations and
+// its ledger rows. It counts only when it has confirmations, every one of
+// them was made on the day or the next, and they match the ledger rows exactly
+// (same issue, type and minutes, nothing on either side alone). The cleanup
+// archives a day only when it was fully confirmed and booked, so this is the
+// same bar as for a live day; anything else about an archived day is skipped,
+// never counted and never ending the streak.
 //
 // Days that neither count nor hold a correction are skipped without ending
 // the streak: days without a review (weekends, holidays), partly confirmed
@@ -113,6 +124,13 @@ func TrackRecord(ctx context.Context, st TrackRecordStore, cfg config.Config, no
 // fullyConfirmed reports whether day has assigned items and each of them is
 // confirmed at its current minutes by a timely confirmation.
 func fullyConfirmed(ctx context.Context, st TrackRecordStore, cfg config.Config, day civil.Date) (bool, error) {
+	_, archived, err := st.ArchivedDay(ctx, day.String())
+	if err != nil {
+		return false, err
+	}
+	if archived {
+		return archivedDayConfirmed(ctx, st, cfg, day)
+	}
 	d, err := LoadDay(ctx, st, cfg, day)
 	if err != nil {
 		return false, err
@@ -145,4 +163,32 @@ func fullyConfirmed(ctx context.Context, st TrackRecordStore, cfg config.Config,
 func timelyConfirmation(confirmedAt time.Time, day civil.Date, loc *time.Location) bool {
 	made := civil.DateOf(confirmedAt.In(loc))
 	return made == day || made == day.AddDays(1)
+}
+
+// archivedDayConfirmed judges an archived day from its confirmations and its
+// ledger rows, which survive the deletion of the events.
+func archivedDayConfirmed(ctx context.Context, st TrackRecordStore, cfg config.Config, day civil.Date) (bool, error) {
+	list, err := st.Confirmations(ctx, day.String())
+	if err != nil {
+		return false, err
+	}
+	rows, err := st.LedgerRowsForDate(ctx, day.String())
+	if err != nil {
+		return false, err
+	}
+	if len(list) == 0 || len(list) != len(rows) {
+		return false, nil
+	}
+	booked := make(map[itemKey]int, len(rows))
+	for _, r := range rows {
+		booked[itemKey{r.Issue, r.Type}] = r.Minutes
+	}
+	loc := location(cfg)
+	for _, c := range list {
+		minutes, ok := booked[itemKey{c.Issue, c.Type}]
+		if !ok || minutes != c.Minutes || !timelyConfirmation(c.ConfirmedAt, day, loc) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
