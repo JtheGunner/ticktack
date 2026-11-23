@@ -5,9 +5,15 @@ const (
 	msgCheckConfig   = "config"
 	msgConfigOK      = "valid: %s"
 	msgConfigBad     = "%v"
-	msgConfigFix     = "run `ticktack init` to create the config, or fix the reported key in %s"
+	msgConfigFix     = "run `ticktack init` to create the config, or fix the reported key in %s (`ticktack config update` removes keys this version no longer knows)"
 	msgConfigPathBad = "cannot resolve the config path: %v"
 	msgConfigPathFix = "set HOME or XDG_CONFIG_HOME"
+
+	msgCheckConfigFreshness = "config options"
+	msgConfigFreshSkipped   = "not checked"
+	msgConfigFreshOK        = "up to date"
+	msgConfigFreshOutdated  = "%d new options, %d removed"
+	msgConfigFreshFix       = "run `ticktack config update`"
 
 	msgCheckHook        = "shell hook"
 	msgHookOK           = "installed in %s and fired %s ago"
