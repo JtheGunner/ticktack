@@ -80,7 +80,13 @@ func DefaultTOML(youTrackURL string) string {
 	b.WriteString("# Optional auto mode (off by default). Run \"ticktack auto\" by hand or from your own\n")
 	b.WriteString("# scheduler; it books only explicit and rule blocks, and only after this many\n")
 	b.WriteString("# consecutive reviewed days without a correction.\n")
+	b.WriteString("# The autopilot mode is an explicit opt-in (it needs enabled = true as well) and\n")
+	b.WriteString("# replaces that trust gate: the agent books completed days itself, every 30 minutes,\n")
+	b.WriteString("# going back autopilot_lookback_days (1 to 31). Days you confirmed in review are\n")
+	b.WriteString("# never touched.\n")
 	b.WriteString("# [auto]\n# enabled = false\n")
 	fmt.Fprintf(&b, "# trusted_days = %d\n", DefaultAutoTrustedDays)
+	fmt.Fprintf(&b, "# mode = %s\n", strconv.Quote(AutoModeGated))
+	fmt.Fprintf(&b, "# autopilot_lookback_days = %d\n", DefaultAutopilotLookbackDays)
 	return b.String()
 }
