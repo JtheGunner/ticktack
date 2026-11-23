@@ -10,9 +10,10 @@ const (
 	msgPurgeExpiredNone = "Nothing to clean: no fully booked day is older than %d days."
 	msgPurgeDryRunFlag  = "--dry-run only works together with --expired"
 
-	msgRetentionLogDone = "retention: %d events of %d fully booked days deleted"
-	msgRetentionLogFail = "retention: cleanup failed: %v"
-	msgRetentionLogBusy = "retention: skipped, another booking run is active"
+	msgRetentionLogDone   = "retention: %d events of %d fully booked days deleted"
+	msgRetentionLogFail   = "retention: cleanup failed: %v"
+	msgRetentionLogBusy   = "retention: skipped, another booking run is active"
+	msgRetentionLogConfig = "retention: skipped, config not loadable: %v"
 
 	msgUndoArchivedNote = "Note: the last sync touched %d archived days. Archived days are not re-derived; their bookings are reverted from the sync history only."
 )
