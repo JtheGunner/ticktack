@@ -155,7 +155,7 @@ func looksLikeCommit(name string) bool { return commitLike.MatchString(name) }
 
 // gitOutput runs git read-only inside dir and returns trimmed stdout.
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", Args(dir, args...)...)
 	cmd.Env = CommandEnv()
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

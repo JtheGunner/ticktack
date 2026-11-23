@@ -125,7 +125,7 @@ func openHookStore() (eventSink, error) {
 func gitRepoInfo(ctx context.Context, cwd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, hookGitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")
+	cmd := exec.CommandContext(ctx, "git", gitscan.Args(cwd, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")...)
 	// Without the inherited GIT_DIR and friends: a prompt inside a hook, an
 	// alias or a `git rebase --exec` shell would otherwise report the outer
 	// repository instead of the one in cwd.
