@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"unicode/utf8"
+	"unsafe"
 )
 
 func issueEntry(i int) string {
@@ -177,6 +178,20 @@ func TestTruncateUTF8(t *testing.T) {
 		if got := truncateUTF8(tc.in, tc.limit); got != tc.want {
 			t.Errorf("truncateUTF8(%q, %d) = %q, want %q", tc.in, tc.limit, got, tc.want)
 		}
+	}
+}
+
+// A plain slice of a huge string would keep the whole original allocation alive,
+// so the retained summaries would not be bounded by the cut. The cut part must be
+// its own copy.
+func TestTruncateUTF8DoesNotKeepTheOriginalAllocation(t *testing.T) {
+	huge := strings.Repeat("a", 1<<20)
+	got := truncateUTF8(huge, maxIssueSummaryBytes)
+	if len(got) != maxIssueSummaryBytes {
+		t.Fatalf("len = %d, want %d", len(got), maxIssueSummaryBytes)
+	}
+	if unsafe.StringData(got) == unsafe.StringData(huge) {
+		t.Fatal("truncated string shares memory with the original")
 	}
 }
 

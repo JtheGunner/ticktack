@@ -331,7 +331,9 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 // entries the retained summaries stay below 5 MiB.
 const maxIssueSummaryBytes = 1024
 
-// truncateUTF8 cuts s to at most limit bytes without splitting a rune.
+// truncateUTF8 cuts s to at most limit bytes without splitting a rune. The cut
+// part is copied: a plain slice would keep the whole original allocation alive,
+// so truncating would not bound the memory that is retained.
 func truncateUTF8(s string, limit int) string {
 	if len(s) <= limit {
 		return s
@@ -339,7 +341,7 @@ func truncateUTF8(s string, limit int) string {
 	for limit > 0 && !utf8.RuneStart(s[limit]) {
 		limit--
 	}
-	return s[:limit]
+	return strings.Clone(s[:limit])
 }
 
 // MyOpenIssues returns issues assigned to the token owner in state "In Progress".
