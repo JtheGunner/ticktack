@@ -134,3 +134,56 @@ func TestApplyUpdate(t *testing.T) {
 		}
 	})
 }
+
+func linkedConfig(t *testing.T, content string) (link, target string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks needs elevated rights on Windows")
+	}
+	target = writeConfig(t, content)
+	link = filepath.Join(t.TempDir(), "config.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	return link, target
+}
+
+func TestApplyUpdateThroughSymlink(t *testing.T) {
+	t.Run("updates the target and keeps the link", func(t *testing.T) {
+		link, target := linkedConfig(t, "a = 1\n")
+		plan := UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}
+		if err := ApplyUpdate(link, plan); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Lstat(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Error("config path is no longer a symlink")
+		}
+		if got := readFile(t, target); got != plan.Result {
+			t.Errorf("target = %q, want %q", got, plan.Result)
+		}
+		if got := readFile(t, target+".bak"); got != plan.Original {
+			t.Errorf("backup next to target = %q, want %q", got, plan.Original)
+		}
+		if _, err := os.Lstat(link + ".bak"); !os.IsNotExist(err) {
+			t.Errorf("backup must not sit next to the link, err = %v", err)
+		}
+	})
+
+	t.Run("detects a changed file through the link", func(t *testing.T) {
+		link, target := linkedConfig(t, "a = 1\n# edited\n")
+		err := ApplyUpdate(link, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"})
+		if err == nil || !strings.Contains(err.Error(), "changed while updating") {
+			t.Fatalf("err = %v, want changed while updating", err)
+		}
+		if got := readFile(t, target); got != "a = 1\n# edited\n" {
+			t.Errorf("target modified: %q", got)
+		}
+		if _, err := os.Stat(target + ".bak"); !os.IsNotExist(err) {
+			t.Errorf("backup must not exist, err = %v", err)
+		}
+	})
+}

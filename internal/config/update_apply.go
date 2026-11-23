@@ -23,6 +23,15 @@ func ApplyUpdate(path string, plan UpdatePlan) error {
 	if !plan.Changed() {
 		return nil
 	}
+	// Work on the real file so a symlinked config (for example one managed by
+	// a dotfiles tool) stays a symlink and its target is updated.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("config update: read %s: %w", path, err)
+	}
+	path = resolved
+	// The window between this check and the rename is not closed; the
+	// comparison only catches edits made while the plan was being reviewed.
 	current, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("config update: read %s: %w", path, err)
