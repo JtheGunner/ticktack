@@ -351,9 +351,13 @@ All of these are **off by default** and can be enabled independently.
 | 🪟 Window-title hints | `[titlehint] enabled = true` plus a project-to-repository map.    | Needs the macOS Accessibility permission. Titles are parsed in memory for a project hint and never stored. |
 | 🔌 ActivityWatch import | `[activitywatch] enabled = true`, then `ticktack import activitywatch`. | Talks only to a loopback server.                                |
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
+| 🛫 Autopilot        | `[auto] enabled = true` and `mode = "autopilot"` (planned, see below). | Opt-in alternative to the trust gate; the agent books completed days itself. |
 
 > [!IMPORTANT]
 > **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive reviewed days were confirmed **without a single correction**. A later correction locks it again. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
+
+> [!NOTE]
+> **Autopilot (planned, TICKT-97).** If you would rather not review every day, you can opt in to `mode = "autopilot"` (the default is `"gated"`, the behaviour described above). The agent then confirms and books completed days itself, without the trust gate and without an external scheduler. It never touches today's open day, honours pauses, books only `explicit` and `rule` blocks, leaves any item with lower-tier time for `ticktack review`, and does not overwrite a day you confirmed or booked by hand. Each run writes a digest and `ticktack undo` reverts it. Autopilot is never on by default. This mode is not implemented yet: until it ships, only the gated mode above exists.
 
 What the trust gate counts:
 
@@ -379,7 +383,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
 - The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`). The database runs in WAL mode, so `events.db-wal` and `events.db-shm` appear next to it while it is in use; they hold the same data, carry the same `0600` mode and are removed with the database file when you delete the data directory. `ticktack purge` empties the tables and leaves no events behind in them. The bundled SQLite (3.54.1 in `modernc.org/sqlite` v1.62.0) contains the fix for the WAL-reset bug (3.51.3, backports 3.44.6 and 3.50.7); a test fails if a driver update falls below it.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
-- Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
+- Nothing is booked without your review, unless you enabled auto mode: either gated by the trust gate (default) or, once available, as an explicit opt-in autopilot.
 - Raw events are kept until you delete them, unless you set `retention_days`: then the agent deletes the events of fully booked days older than that many days (see [Retention](#retention)). Those days can no longer be re-derived.
 - `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now. A gap in presence (for example from an ActivityWatch import) that reaches into a pause is cut at the pause, so its paused part is not stored either. If the pause marker file is damaged, `ticktack resume` still ends the pause and tells you; the pause then starts at the file's modification time, so time before that may not be protected.
 - `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
