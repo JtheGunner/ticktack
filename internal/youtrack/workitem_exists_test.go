@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 func TestWorkItemExists(t *testing.T) {
@@ -22,7 +24,7 @@ func TestWorkItemExists(t *testing.T) {
 		{name: "found", status: http.StatusOK, body: `{"id":"196-7"}`, wantExists: true, wantCalls: 1},
 		{name: "not found", status: http.StatusNotFound, body: `<html>404</html>`, wantCalls: 1},
 		{name: "server error is retried and returned", status: http.StatusBadGateway, wantErr: true, wantCalls: 3},
-		{name: "unauthorized", status: http.StatusUnauthorized, wantErr: true, wantIs: ErrUnauthorized, wantCalls: 1},
+		{name: "unauthorized", status: http.StatusUnauthorized, wantErr: true, wantIs: sink.ErrUnauthorized, wantCalls: 1},
 		{name: "answer for another item", status: http.StatusOK, body: `{"id":"196-8"}`, wantErr: true, wantCalls: 1},
 	}
 	for _, tt := range tests {

@@ -18,7 +18,6 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 // Repository is the persistence the ledger needs. *store.Store implements it.
@@ -360,7 +359,7 @@ func (r *syncRun) deleteRow(ctx context.Context, row store.LedgerRow) (ItemResul
 		}
 		return res, nil
 	}
-	if err := r.sink.Delete(ctx, row.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
+	if err := r.sink.Delete(ctx, row.WorkItemID); err != nil && !errors.Is(err, sink.ErrNotFound) {
 		return fail(err)
 	}
 	// The text the item had is kept with the entry, so undo books it again as
@@ -422,15 +421,15 @@ func itemKey(it sessionizer.DayItem) string {
 // IsStopError reports whether err ends a run instead of failing one item: an
 // unauthorized or rate-limited sink would fail every following call as well.
 func IsStopError(err error) bool {
-	return errors.Is(err, youtrack.ErrUnauthorized) || errors.Is(err, youtrack.ErrRateLimited)
+	return errors.Is(err, sink.ErrUnauthorized) || errors.Is(err, sink.ErrRateLimited)
 }
 
 // isClientError reports errors after which Create certainly stored nothing or
 // retrying the lookup is pointless (rate limits stop the run).
 func isClientError(err error) bool {
 	for _, target := range []error{
-		youtrack.ErrUnauthorized, youtrack.ErrForbidden, youtrack.ErrIssueNotFound,
-		youtrack.ErrTimeTrackingDisabled, youtrack.ErrWorkItemTypeNotFound, youtrack.ErrRateLimited,
+		sink.ErrUnauthorized, sink.ErrForbidden, sink.ErrNotFound,
+		sink.ErrTimeTrackingDisabled, sink.ErrWorkItemTypeNotFound, sink.ErrRateLimited,
 	} {
 		if errors.Is(err, target) {
 			return true
@@ -554,7 +553,7 @@ func (r *syncRun) update(ctx context.Context, work sink.WorkItem, row store.Ledg
 	if err := r.sink.Update(ctx, row.WorkItemID, work); err != nil {
 		// Only a row of the ledger can point to an item that is gone; an item
 		// found by marker a moment ago is not looked up a second time.
-		if entryAction == entryActionUpdated && errors.Is(err, youtrack.ErrIssueNotFound) {
+		if entryAction == entryActionUpdated && errors.Is(err, sink.ErrNotFound) {
 			return r.replaceMissing(ctx, work, row, res, err)
 		}
 		return failed(res, err)
@@ -742,7 +741,7 @@ func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int6
 	var restore *store.LedgerRow
 	switch e.Action {
 	case entryActionCreated:
-		if err := s.Delete(ctx, e.WorkItemID); err != nil && !errors.Is(err, youtrack.ErrIssueNotFound) {
+		if err := s.Delete(ctx, e.WorkItemID); err != nil && !errors.Is(err, sink.ErrNotFound) {
 			return fail(err)
 		}
 		result.Deleted++
@@ -756,7 +755,7 @@ func undoEntry(ctx context.Context, s sink.TimeSink, repo Repository, runID int6
 		w := sink.WorkItem{Issue: e.Issue, Date: date, Minutes: e.PreviousMinutes, Type: e.Type, Text: text}
 		err := s.Update(ctx, e.WorkItemID, w)
 		switch {
-		case errors.Is(err, youtrack.ErrIssueNotFound):
+		case errors.Is(err, sink.ErrNotFound):
 			// The item is gone, so the entry is done: drop the row, or
 			// this run would stay the last one forever.
 			result.Forgotten++

@@ -14,7 +14,6 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 type fakeItem struct {
@@ -62,7 +61,7 @@ func (f *fakeSink) Update(_ context.Context, id string, w sink.WorkItem) error {
 		return err
 	}
 	if _, ok := f.items[id]; !ok {
-		return youtrack.ErrIssueNotFound
+		return sink.ErrNotFound
 	}
 	f.items[id] = fakeItem{item: w}
 	return nil
@@ -327,7 +326,7 @@ func TestSyncDryRunDoesNotMutate(t *testing.T) {
 
 func TestSyncContinuesAfterSingleItemFailure(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
-	s.createErr["ABC-2"] = youtrack.ErrIssueNotFound
+	s.createErr["ABC-2"] = sink.ErrNotFound
 	items := []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30), dayItem("ABC-3", 30)}
 	rep, err := Sync(context.Background(), items, s, opts(repo))
 	if err != nil {
@@ -346,10 +345,10 @@ func TestSyncContinuesAfterSingleItemFailure(t *testing.T) {
 
 func TestSyncStopsOnUnauthorized(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
-	s.createErr["ABC-2"] = youtrack.ErrUnauthorized
+	s.createErr["ABC-2"] = sink.ErrUnauthorized
 	items := []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30), dayItem("ABC-3", 30)}
 	rep, err := Sync(context.Background(), items, s, opts(repo))
-	if !errors.Is(err, youtrack.ErrUnauthorized) {
+	if !errors.Is(err, sink.ErrUnauthorized) {
 		t.Fatalf("err = %v", err)
 	}
 	if rep.Created != 1 || rep.Failed != 1 || rep.NotSent != 1 {
@@ -391,7 +390,7 @@ func TestSyncRecoversAfterAmbiguousCreateFailure(t *testing.T) {
 
 func TestSyncReportsUnclearCreateAndNextSyncFindsTheItem(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
-	s.createErr["ABC-1"] = fmt.Errorf("POST /api/issues/ABC-1/timeTracking/workItems: %w: status 504", youtrack.ErrOutcomeUnclear)
+	s.createErr["ABC-1"] = fmt.Errorf("POST /api/issues/ABC-1/timeTracking/workItems: %w: status 504", sink.ErrOutcomeUnclear)
 	s.createLand = true
 	// The lookup before the create works, the one right after it fails too.
 	s.findErrs = []error{nil, errors.New("youtrack: unexpected status 504")}
@@ -435,9 +434,9 @@ func TestSyncIgnoresMarkerMatchOfAnotherAuthor(t *testing.T) {
 
 func TestSyncDoesNotLookUpAfterRateLimitedCreate(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
-	s.createErr["ABC-1"] = youtrack.ErrRateLimited
+	s.createErr["ABC-1"] = sink.ErrRateLimited
 	rep, err := Sync(context.Background(), []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ABC-2", 30)}, s, opts(repo))
-	if !errors.Is(err, youtrack.ErrRateLimited) || rep.NotSent != 1 {
+	if !errors.Is(err, sink.ErrRateLimited) || rep.NotSent != 1 {
 		t.Fatalf("report=%+v err=%v", rep, err)
 	}
 	finds := 0
@@ -674,7 +673,7 @@ func TestSyncContinuesAfterFailedDeletion(t *testing.T) {
 func TestSyncTreatsAlreadyMissingWorkItemAsDeleted(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
-	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = youtrack.ErrIssueNotFound
+	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = sink.ErrNotFound
 	rep := mustSync(t, nil, s, reconciling(repo))
 	if rep.Deleted != 1 || rep.Failed != 0 || len(repo.rows) != 0 {
 		t.Fatalf("report=%+v rows=%+v", rep, repo.rows)
@@ -684,10 +683,10 @@ func TestSyncTreatsAlreadyMissingWorkItemAsDeleted(t *testing.T) {
 func TestSyncDoesNotReconcileAfterStopError(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60)}, s, reconciling(repo))
-	s.createErr["ABC-2"] = youtrack.ErrUnauthorized
+	s.createErr["ABC-2"] = sink.ErrUnauthorized
 	s.calls = nil
 	_, err := Sync(context.Background(), []sessionizer.DayItem{dayItem("ABC-2", 60)}, s, reconciling(repo))
-	if !errors.Is(err, youtrack.ErrUnauthorized) {
+	if !errors.Is(err, sink.ErrUnauthorized) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(repo.rows) != 1 || len(s.items) != 1 {
@@ -698,9 +697,9 @@ func TestSyncDoesNotReconcileAfterStopError(t *testing.T) {
 func TestSyncStopsReconcilingOnStopError(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("ABC-2", 30)}, s, reconciling(repo))
-	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = youtrack.ErrRateLimited
+	s.deleteErr[repo.rows[Key("ABC-1", "2026-01-05", "Development")].WorkItemID] = sink.ErrRateLimited
 	rep, err := Sync(context.Background(), nil, s, reconciling(repo))
-	if !errors.Is(err, youtrack.ErrRateLimited) {
+	if !errors.Is(err, sink.ErrRateLimited) {
 		t.Fatalf("err = %v", err)
 	}
 	if rep.Failed != 1 || rep.NotSent != 1 || len(repo.rows) != 2 {

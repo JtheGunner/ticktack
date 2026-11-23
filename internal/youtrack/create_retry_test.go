@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 // storingServer is a fake YouTrack that stores every work item it receives and
@@ -83,8 +85,8 @@ func TestCreateIsNotRepeatedWhenTheOutcomeIsUnclear(t *testing.T) {
 			c := newTestClient(t, srv)
 
 			id, err := c.Create(context.Background(), sampleItem())
-			if !errors.Is(err, ErrOutcomeUnclear) {
-				t.Fatalf("Create = %q, %v; want ErrOutcomeUnclear", id, err)
+			if !errors.Is(err, sink.ErrOutcomeUnclear) {
+				t.Fatalf("Create = %q, %v; want sink.ErrOutcomeUnclear", id, err)
 			}
 			if strings.Contains(err.Error(), testToken) {
 				t.Errorf("error leaks the token: %v", err)
@@ -108,10 +110,10 @@ func TestCreateFailuresWithKnownOutcomeAreNotUnclear(t *testing.T) {
 		want   error
 	}{
 		{http.StatusBadRequest, nil},
-		{http.StatusUnauthorized, ErrUnauthorized},
-		{http.StatusForbidden, ErrForbidden},
-		{http.StatusNotFound, ErrIssueNotFound},
-		{http.StatusTooManyRequests, ErrRateLimited},
+		{http.StatusUnauthorized, sink.ErrUnauthorized},
+		{http.StatusForbidden, sink.ErrForbidden},
+		{http.StatusNotFound, sink.ErrNotFound},
+		{http.StatusTooManyRequests, sink.ErrRateLimited},
 	}
 	for _, tt := range tests {
 		t.Run(http.StatusText(tt.status), func(t *testing.T) {
@@ -126,8 +128,8 @@ func TestCreateFailuresWithKnownOutcomeAreNotUnclear(t *testing.T) {
 			if err == nil {
 				t.Fatal("Create succeeded")
 			}
-			if errors.Is(err, ErrOutcomeUnclear) {
-				t.Errorf("err = %v, must not be ErrOutcomeUnclear: the server rejected the request", err)
+			if errors.Is(err, sink.ErrOutcomeUnclear) {
+				t.Errorf("err = %v, must not be sink.ErrOutcomeUnclear: the server rejected the request", err)
 			}
 			if tt.want != nil && !errors.Is(err, tt.want) {
 				t.Errorf("err = %v, want %v", err, tt.want)
@@ -238,8 +240,8 @@ func TestCreateIssueDoesNotRepeatCreatePosts(t *testing.T) {
 			}))
 
 			key, err := c.CreateIssue(context.Background(), "G", "s", "d")
-			if !errors.Is(err, ErrOutcomeUnclear) {
-				t.Fatalf("CreateIssue = %q, %v; want ErrOutcomeUnclear", key, err)
+			if !errors.Is(err, sink.ErrOutcomeUnclear) {
+				t.Fatalf("CreateIssue = %q, %v; want sink.ErrOutcomeUnclear", key, err)
 			}
 			if posts[tt.failingPath] != 1 {
 				t.Errorf("POST %s sent %d times, want 1", tt.failingPath, posts[tt.failingPath])

@@ -23,20 +23,9 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
-// Typed errors, usable with errors.Is.
-var (
-	ErrUnauthorized         = errors.New("youtrack: unauthorized (token invalid or expired)")
-	ErrForbidden            = errors.New("youtrack: forbidden (time tracking disabled or no permission)")
-	ErrIssueNotFound        = errors.New("youtrack: issue not found")
-	ErrRateLimited          = errors.New("youtrack: rate limited")
-	ErrTimeTrackingDisabled = errors.New("youtrack: time tracking is disabled for the project")
-	ErrWorkItemTypeNotFound = errors.New("youtrack: work item type not found in project")
-	ErrInvalidID            = errors.New("youtrack: invalid work item id")
-	// ErrOutcomeUnclear marks a failed create request that the server may
-	// have stored all the same: no usable answer arrived. Such a request is
-	// never repeated; the caller looks the object up by its marker instead.
-	ErrOutcomeUnclear = errors.New("youtrack: outcome unclear (the request may have been stored)")
-)
+// ErrInvalidID reports a work item id that this client cannot have issued.
+// The other typed errors live in package sink.
+var ErrInvalidID = errors.New("youtrack: invalid work item id")
 
 const (
 	defaultTimeout    = 30 * time.Second
@@ -185,7 +174,7 @@ func (c *Client) Me(ctx context.Context) (string, error) {
 
 // Create books w and returns its id. The work item type name is resolved to
 // the project's type id first. The request is not repeated after a server or
-// transport error: ErrOutcomeUnclear then tells the caller that the item may
+// transport error: sink.ErrOutcomeUnclear then tells the caller that the item may
 // exist and has to be looked up by its marker.
 func (c *Client) Create(ctx context.Context, w sink.WorkItem) (string, error) {
 	project, err := projectKey(w.Issue)
@@ -301,7 +290,7 @@ func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string
 }
 
 // WorkItemTypes lists the work item types of a project (by project key).
-// It returns ErrTimeTrackingDisabled if time tracking is off for the project.
+// It returns sink.ErrTimeTrackingDisabled if time tracking is off for the project.
 func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemType, error) {
 	c.mu.Lock()
 	cached, ok := c.types[project]
@@ -319,7 +308,7 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 		return nil, err
 	}
 	if !settings.Enabled {
-		return nil, fmt.Errorf("project %s: %w", project, ErrTimeTrackingDisabled)
+		return nil, fmt.Errorf("project %s: %w", project, sink.ErrTimeTrackingDisabled)
 	}
 	c.mu.Lock()
 	c.types[project] = settings.WorkItemTypes
@@ -356,7 +345,7 @@ func (c *Client) typeID(ctx context.Context, project, name string) (string, erro
 			return t.ID, nil
 		}
 	}
-	return "", fmt.Errorf("type %q in project %s: %w", name, project, ErrWorkItemTypeNotFound)
+	return "", fmt.Errorf("type %q in project %s: %w", name, project, sink.ErrWorkItemTypeNotFound)
 }
 
 // dateMillis returns local noon of the work item's date: safely inside the
@@ -396,7 +385,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 // doCreate performs a POST that creates an object. YouTrack offers no
 // idempotency key, so the request is sent again only after a 429, which
 // rejects it before anything is stored. Any failure that leaves open whether
-// the object exists is returned as ErrOutcomeUnclear.
+// the object exists is returned as sink.ErrOutcomeUnclear.
 func (c *Client) doCreate(ctx context.Context, path string, query url.Values, body, out any) error {
 	return c.send(ctx, http.MethodPost, path, query, body, out, false)
 }
@@ -423,7 +412,7 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 		retryable := status == http.StatusTooManyRequests || (idempotent && status >= 500)
 		if !retryable || attempt >= c.maxRetries {
 			if !idempotent && mayHaveBeenStored(status) {
-				return fmt.Errorf("%s %s: %w: %w", method, path, ErrOutcomeUnclear, err)
+				return fmt.Errorf("%s %s: %w: %w", method, path, sink.ErrOutcomeUnclear, err)
 			}
 			return fmt.Errorf("%s %s: %w", method, path, err)
 		}
@@ -477,13 +466,13 @@ func (c *Client) once(ctx context.Context, method, target string, payload []byte
 		}
 		return resp.StatusCode, 0, nil
 	case resp.StatusCode == http.StatusUnauthorized:
-		return resp.StatusCode, 0, ErrUnauthorized
+		return resp.StatusCode, 0, sink.ErrUnauthorized
 	case resp.StatusCode == http.StatusForbidden:
-		return resp.StatusCode, 0, ErrForbidden
+		return resp.StatusCode, 0, sink.ErrForbidden
 	case resp.StatusCode == http.StatusNotFound:
-		return resp.StatusCode, 0, ErrIssueNotFound
+		return resp.StatusCode, 0, sink.ErrNotFound
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After")), ErrRateLimited
+		return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After")), sink.ErrRateLimited
 	default:
 		return resp.StatusCode, 0, fmt.Errorf("youtrack: unexpected status %d", resp.StatusCode)
 	}

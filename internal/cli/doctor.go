@@ -24,6 +24,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
 	"github.com/JtheGunner/ticktack/internal/youtrack"
@@ -471,9 +472,9 @@ func checkToken(ctx context.Context, deps doctorDeps) checkResult {
 	}
 	login, err := client.Me(ctx)
 	switch {
-	case errors.Is(err, youtrack.ErrUnauthorized):
+	case errors.Is(err, sink.ErrUnauthorized):
 		return failResult(msgCheckToken, msgTokenUnauthorized, msgTokenUnauthFix)
-	case errors.Is(err, youtrack.ErrForbidden):
+	case errors.Is(err, sink.ErrForbidden):
 		return failResult(msgCheckToken, msgTokenForbidden, msgTokenForbiddenFix)
 	case err != nil:
 		return failResult(msgCheckToken, fmt.Sprintf(msgTokenUnreachable, err), msgTokenUnreachFix)
