@@ -25,17 +25,6 @@ import (
 	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
-// User-facing strings of the sync and undo commands live here so a German
-// variant can be added later.
-const (
-	msgConfigMissing = "no configuration found at %s: run `ticktack init` first"
-	msgNoURL         = "youtrack_url is not set in the configuration: run `ticktack init` or add it to %s"
-	msgNoToken       = "no YouTrack token in the keychain: run `ticktack init` to store one"
-	msgCapBlocked    = "%s: the day total %s exceeds the daily cap of %s and was not acknowledged: run `ticktack review` and acknowledge it (a)"
-
-	msgNothingConfirmed = "Nothing is confirmed for %s, so nothing was booked. Run `ticktack review` first."
-)
-
 // syncDeps holds everything the sync and undo commands touch outside pure logic.
 type syncDeps struct {
 	LoadConfig func() (config.Config, string, error)

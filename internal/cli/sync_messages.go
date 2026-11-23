@@ -4,6 +4,14 @@ package cli
 // together so a German variant can be added later.
 const (
 	msgNoTimeToBook = "No time to book."
+
+	msgConfigMissing = "no configuration found at %s: run `ticktack init` first"
+	msgNoURL         = "youtrack_url is not set in the configuration: run `ticktack init` or add it to %s"
+	msgNoToken       = "no YouTrack token in the keychain: run `ticktack init` to store one"
+	msgCapBlocked    = "%s: the day total %s exceeds the daily cap of %s and was not acknowledged: run `ticktack review` and acknowledge it (a)"
+
+	msgNothingConfirmed = "Nothing is confirmed for %s, so nothing was booked. Run `ticktack review` first."
+
 	// The standard task of a project is created in YouTrack on demand.
 	msgSyncCreatePrompt     = "Create standard task in: %s — continue? [y/N] "
 	msgSyncTaskCreated      = "Created standard task %s in %s."
