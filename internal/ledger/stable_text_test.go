@@ -162,3 +162,39 @@ func TestBookedTextDoesNotFlipWithAnAlternatingCommitReader(t *testing.T) {
 		t.Errorf("sync runs = %d, want 1 (only the creation)", got)
 	}
 }
+
+func TestDeletedBookingTextIsNotReusedWhenTheItemReturns(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	key := Key("ABC-1", "2026-01-05", "Development")
+	items := []sessionizer.DayItem{dayItem("ABC-1", 60)}
+	mustSync(t, items, s, withDescriber(repo, &scriptedDescriber{steps: []scriptStep{{"discarded work", true}}}))
+	// The time is gone: the work item is deleted and the ledger row dropped.
+	mustSync(t, nil, s, reconciling(repo))
+	if len(s.items) != 0 {
+		t.Fatalf("sink holds %d items after the deletion, want 0", len(s.items))
+	}
+
+	mustSync(t, items, s, withDescriber(repo, &scriptedDescriber{steps: []scriptStep{{"ABC-1 work", false}}}))
+
+	if _, text := onlyItem(t, s); text != "ABC-1 work "+Marker(key) {
+		t.Errorf("text = %q, want the fresh summary, not the deleted booking's text", text)
+	}
+}
+
+func TestRecoveredItemGetsTheFreshTextWhenTheReadIsUnreliable(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	key := Key("ABC-1", "2026-01-05", "Development")
+	items := []sessionizer.DayItem{dayItem("ABC-1", 60)}
+	mustSync(t, items, s, withDescriber(repo, &scriptedDescriber{steps: []scriptStep{{"fix parser", true}}}))
+	// The ledger is lost; the work item still exists and is found by marker.
+	delete(repo.rows, rowKey("ABC-1", "2026-01-05", "Development"))
+
+	rep := mustSync(t, items, s, withDescriber(repo, &scriptedDescriber{steps: []scriptStep{{"ABC-1 work", false}}}))
+
+	if rep.Recovered != 1 {
+		t.Fatalf("report = %+v, want one recovery", rep)
+	}
+	if _, text := onlyItem(t, s); text != "ABC-1 work "+Marker(key) {
+		t.Errorf("text = %q, want the fresh text for a recovered item", text)
+	}
+}

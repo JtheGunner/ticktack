@@ -467,7 +467,12 @@ type syncRun struct {
 // was booked with a commit-based text before, that text is returned again:
 // the last booked text stays until the source can be read reliably. An item
 // that never had commit text gets the describer's text as before.
-func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem, key string) (string, error) {
+//
+// The last booked text is reused only while the item is booked, that is, it
+// has a live ledger row. Without a row the history may describe work that was
+// deleted or discarded, or a ledger that was lost (the item recovered by
+// marker): such an item gets the freshly built text.
+func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem, key string, booked bool) (string, error) {
 	if r.opts.Describer == nil {
 		return it.Description, nil
 	}
@@ -476,7 +481,7 @@ func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem, key s
 		return r.opts.Describer.Describe(ctx, it), nil
 	}
 	text, reliable := rd.DescribeReliably(ctx, it)
-	if reliable {
+	if reliable || !booked {
 		return text, nil
 	}
 	previous, found, err := r.opts.Repo.LastBookedText(ctx, it.Ticket, it.Date.String(), itemType(it))
@@ -529,17 +534,17 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 		return res, nil
 	}
 
-	description, err := r.description(ctx, it, key)
+	row, inLedger, err := r.opts.Repo.LedgerGet(ctx, it.Ticket, date, typ)
+	if err != nil {
+		return failItem(err)
+	}
+	description, err := r.description(ctx, it, key, inLedger)
 	if err != nil {
 		return failItem(err)
 	}
 	work := sink.WorkItem{
 		Issue: it.Ticket, Date: it.Date, Minutes: it.Minutes, Type: typ,
 		Text: description + " " + Marker(key),
-	}
-	row, inLedger, err := r.opts.Repo.LedgerGet(ctx, it.Ticket, date, typ)
-	if err != nil {
-		return failItem(err)
 	}
 
 	if inLedger {
