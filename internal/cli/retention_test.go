@@ -3,10 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -276,10 +278,6 @@ func TestRetentionJobCleansOnceAndLogsFailuresWithoutCrashing(t *testing.T) {
 	busy := func() (func(), error) { return nil, ErrBookingRunActive }
 	free := func() (func(), error) { return func() {}, nil }
 
-	if newRetentionJob(config.Config{}, st, free, time.Hour, deps.Now, func(string, ...any) {}) != nil {
-		t.Error("a job was built while retention_days is 0")
-	}
-
 	t.Run("busy lock skips the run", func(t *testing.T) {
 		if got := runRetentionJobOnce(t, newRetentionJob, cfg, st, busy, deps.Now); got != msgRetentionLogBusy {
 			t.Errorf("logged %q", got)
@@ -304,14 +302,15 @@ func TestRetentionJobCleansOnceAndLogsFailuresWithoutCrashing(t *testing.T) {
 	})
 }
 
-type retentionJobBuilder func(config.Config, retention.Store, func() (func(), error), time.Duration, func() time.Time, func(string, ...any)) backgroundJob
+type retentionJobBuilder func(func() (config.Config, error), retention.Store, func() (func(), error), time.Duration, func() time.Time, func(string, ...any)) backgroundJob
 
 // runRetentionJobOnce starts the job, waits for its first log line, stops it
 // and returns that line's format.
 func runRetentionJobOnce(t *testing.T, build retentionJobBuilder, cfg config.Config, st retention.Store, lock func() (func(), error), now func() time.Time) string {
 	t.Helper()
 	logged := make(chan string, 8)
-	job := build(cfg, st, lock, time.Hour, now, func(format string, _ ...any) { logged <- format })
+	load := func() (config.Config, error) { return cfg, nil }
+	job := build(load, st, lock, time.Hour, now, func(format string, _ ...any) { logged <- format })
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan struct{})
 	go func() { job(ctx); close(finished) }()
@@ -324,4 +323,57 @@ func runRetentionJobOnce(t *testing.T, build retentionJobBuilder, cfg config.Con
 	cancel()
 	<-finished
 	return line
+}
+
+// The agent job reads the configuration before every run: retention that is
+// off at the first run and on at the next one cleans without a restart, and a
+// configuration that cannot be loaded skips the run.
+func TestRetentionJobReadsTheConfigurationOnEachRun(t *testing.T) {
+	deps, _ := bookedSeededDay(t)
+	on, _, _ := deps.LoadConfig()
+	st, err := deps.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	free := func() (func(), error) { return func() {}, nil }
+
+	off := on
+	off.RetentionDays = 0
+	loads := []func() (config.Config, error){
+		func() (config.Config, error) { return off, nil },
+		func() (config.Config, error) { return config.Config{}, errors.New("broken config") },
+		func() (config.Config, error) { return on, nil },
+	}
+	var mu sync.Mutex
+	calls := 0
+	load := func() (config.Config, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		i := min(calls, len(loads)-1)
+		calls++
+		return loads[i]()
+	}
+	logged := make(chan string, 8)
+	job := newRetentionJob(load, st, free, 10*time.Millisecond, deps.Now, func(format string, _ ...any) { logged <- format })
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
+	go func() { job(ctx); close(finished) }()
+	var lines []string
+	for len(lines) < 2 {
+		select {
+		case line := <-logged:
+			lines = append(lines, line)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("logged only %v", lines)
+		}
+	}
+	cancel()
+	<-finished
+	if lines[0] != msgRetentionLogConfig || lines[1] != msgRetentionLogDone {
+		t.Errorf("logged %q, want the config skip and then the cleanup", lines)
+	}
+	if got := seededEventCount(t, deps); got != 1 {
+		t.Errorf("%d events remain, want only the context anchor", got)
+	}
 }
