@@ -231,7 +231,7 @@ A complete, commented example lives in [`examples/config.toml`](examples/config.
 | `[activitywatch]`    | `enabled = false`      | `url` (default `http://localhost:5600`, loopback only) and optional `hostname`. |
 | `[scan]`             | `interval = "15m"`     | Periodic git scan by the agent, once `repo_paths` or `repo_roots` is set. `"0"` is off; otherwise at least `"5m"`. |
 | `[default_issue]`    | none                   | `project` (YouTrack project key for time without a ticket, for example `"GENERAL"`) and `summary` (required, for example `"Meetings / Admin"`). Turns on standard tasks (see below). |
-| `[auto]`             | `enabled = false`      | `trusted_days` (default `10`).                                   |
+| `[auto]`             | `enabled = false`      | `trusted_days` (default `10`), `mode` (`"gated"` default or `"autopilot"`), `autopilot_lookback_days` (default `7`, 1 to 31). An unknown `mode` is a config error. |
 
 Durations use Go syntax such as `"90s"` or `"1h30m"`. A duration of zero is rejected, except for `scan.interval` and `context_max_age`, where `"0"` means off; to turn the daily cap off, set `daily_cap_enabled = false`. Top-level keys such as `time_zone` must come before the first table (`[scan]`, `[[rules]]`, ...). Repository paths in `[[rules]]` and `[titlehint.projects]` are normalised when the config is loaded: a trailing slash is dropped and symlinks are resolved. The YouTrack token is never part of the config.
 
@@ -351,13 +351,30 @@ All of these are **off by default** and can be enabled independently.
 | 🪟 Window-title hints | `[titlehint] enabled = true` plus a project-to-repository map.    | Needs the macOS Accessibility permission. Titles are parsed in memory for a project hint and never stored. |
 | 🔌 ActivityWatch import | `[activitywatch] enabled = true`, then `ticktack import activitywatch`. | Talks only to a loopback server.                                |
 | 🤖 Auto mode        | `[auto] enabled = true`, then `ticktack auto`.                      | Guarded by the trust gate below.                                      |
-| 🛫 Autopilot        | `[auto] enabled = true` and `mode = "autopilot"` (planned, see below). | Opt-in alternative to the trust gate; the agent books completed days itself. |
+| 🛫 Autopilot        | `[auto] enabled = true` and `mode = "autopilot"`.                   | Opt-in alternative to the trust gate: the agent books completed days itself, every 30 minutes. See [Autopilot](#autopilot) below. |
 
 > [!IMPORTANT]
 > **The trust gate.** Auto mode unlocks only after the last `trusted_days` (default 10) consecutive reviewed days were confirmed **without a single correction**. A later correction locks it again. Even when unlocked it books only `explicit` and `rule` blocks, skips any item that contains lower-tier time, and does not book a day above the daily cap. There is no background scheduler: run `ticktack auto` yourself or from your own cron or launchd job. Each run prints a digest (`ticktack digest` shows it again) and `ticktack undo` reverts it.
 
-> [!NOTE]
-> **Autopilot (planned, TICKT-97).** If you would rather not review every day, you can opt in to `mode = "autopilot"` (the default is `"gated"`, the behaviour described above). The agent then confirms and books completed days itself, without the trust gate and without an external scheduler. It never touches today's open day, honours pauses, books only `explicit` and `rule` blocks, leaves any item with lower-tier time for `ticktack review`, books nothing rather than something partial when a step fails, and does not overwrite a day you confirmed or booked by hand. You will switch it off with `mode = "gated"` or `enabled = false`. Each run writes a digest and `ticktack undo` reverts it. Autopilot is never on by default. This mode is not implemented yet: until it ships, only the gated mode above exists.
+#### Autopilot
+
+If you would rather not review every day, opt in explicitly. The default is `mode = "gated"`, the behaviour described above; autopilot is never on by default and never switches itself on.
+
+```toml
+[auto]
+enabled = true
+mode = "autopilot"
+autopilot_lookback_days = 7   # optional, 1 to 31
+```
+
+- **Who runs it.** The agent, itself: once shortly after it starts and then every 30 minutes (fixed). It reads the configuration before every run, so a change takes effect without a restart. It needs the YouTrack token in the keychain, the same as `ticktack sync`.
+- **Which days.** Completed days only, that is days before today in your configured time zone, going back `autopilot_lookback_days` days, oldest first. Today's open day is never booked.
+- **What it books.** The same as gated auto mode, without the trust gate: only `explicit` and `rule` blocks (presence and context time), an item with any lower-tier block is skipped as a whole and left for `ticktack review`, standard tasks only for a project you gave consent to, the daily cap only while `daily_cap_enabled` is true. Bookings go through the idempotent ledger, so a day it already booked is a no-op unless the day changed.
+- **What it leaves alone.** A day is yours, and never touched, when you confirmed or corrected something in `ticktack review` on it (a session that only looked at the day does not count). The autopilot records no confirmations itself, so the days it booked stay its own and are re-checked on every run; a correction you make in review does not lock it for other days. Archived days (see [Retention](#retention)) are skipped.
+- **Pauses and errors.** Nothing runs while capture is paused or another booking run holds the lock. A failure (no token, YouTrack unreachable, a database read error) is logged once per run to the agent log, without the token, and retried at the next run. Items that were booked before the failure stay in the ledger and are completed, never duplicated, by the retry.
+- **Digest and undo.** A run that books, changes or fails something stores a digest (`ticktack digest` shows the latest). `ticktack undo` reverts the last run, which is one day; the autopilot books it again at its next run, so set `mode = "gated"` or `enabled = false` first when you want the undo to stay.
+- **By hand.** With autopilot on, `ticktack auto` does one pass over the same days (`--dry-run` prints the plan). `ticktack auto --day YYYY-MM-DD` books that one completed day, also when you reviewed it; today and future days are refused.
+- **Switch it off.** Set `mode = "gated"` or `enabled = false`. `ticktack doctor` shows an `autopilot` line: off, gated or active, with the lookback and the age of the last digest.
 
 What the trust gate counts:
 
@@ -383,7 +400,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
 - The database, the log file and their directories are readable by your user only (files `0600`, directories `0700`). The database runs in WAL mode, so `events.db-wal` and `events.db-shm` appear next to it while it is in use; they hold the same data, carry the same `0600` mode and are removed with the database file when you delete the data directory. `ticktack purge` empties the tables and leaves no events behind in them. The bundled SQLite (3.54.1 in `modernc.org/sqlite` v1.62.0) contains the fix for the WAL-reset bug (3.51.3, backports 3.44.6 and 3.50.7); a test fails if a driver update falls below it.
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
-- Nothing is booked without your review, unless you enabled auto mode: either gated by the trust gate (default) or, once available, as an explicit opt-in autopilot.
+- Nothing is booked without your review, unless you enabled auto mode: either gated by the trust gate (default) or as the explicit opt-in [autopilot](#autopilot), in which the agent books completed days itself and still never touches today, a paused period or a day you confirmed. The autopilot talks only to your YouTrack instance, like `ticktack sync`.
 - Raw events are kept until you delete them, unless you set `retention_days`: then the agent deletes the events of fully booked days older than that many days (see [Retention](#retention)). Those days can no longer be re-derived.
 - `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now. A gap in presence (for example from an ActivityWatch import) that reaches into a pause is cut at the pause, so its paused part is not stored either. If the pause marker file is damaged, `ticktack resume` still ends the pause and tells you; the pause then starts at the file's modification time, so time before that may not be protected.
 - `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
