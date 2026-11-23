@@ -1,7 +1,13 @@
 package cli
 
-// User-facing strings of `init` and `doctor`, kept together so a German
-// variant can be added later.
+// All user-facing CLI texts (output lines, prompts, user-visible errors, help
+// and flag descriptions) live in this file group, so a German variant can be
+// added later: messages.go (init, doctor) and one <command>_messages.go per
+// command or command group. Texts with parameters are format-string constants
+// or small functions; callers must not define text of their own. Sentinel
+// errors compared with errors.Is and wrapped %w errors stay with their code.
+//
+// User-facing strings of `init` and `doctor`.
 const (
 	msgInitConfigIntro   = "Step 1/4 - config: create the config file with commented defaults at %s"
 	msgInitConfigKept    = "config exists, kept: %s"
@@ -60,4 +66,34 @@ const (
 	msgDoctorSummaryTitle  = "Summary"
 
 	msgNoColorUsage = "disable coloured output; NO_COLOR and TERM=dumb are honoured too"
+)
+
+// Help texts, flag descriptions and the confirmation suffix of `init`.
+const (
+	msgInitShort = "Set up config, token, shell hook and launchd agent"
+	msgInitLong  = "Walks through four steps: config file, YouTrack token (hidden input), " +
+		"shell hook and launchd agent. Every step is explained and can be skipped; " +
+		"rerunning is safe. The shell hook block also defines the optional alias " +
+		"tt for ticktack unless tt already exists or --skip-alias is given."
+	msgInitYesFlag          = "accept every step without asking"
+	msgInitURLFlag          = "YouTrack base URL for the new config file"
+	msgInitShellFlag        = "shell to hook (zsh, bash or fish; default: from $SHELL)"
+	msgInitSkipConfigFlag   = "skip the config step"
+	msgInitSkipTokenFlag    = "skip the token step"
+	msgInitSkipHookFlag     = "skip the shell hook step"
+	msgInitSkipAgentFlag    = "skip the launchd agent step"
+	msgInitSkipAliasFlag    = "do not add the tt alias to the shell hook block"
+	msgInitPrintSnippetFlag = "print the hook script for a shell and exit"
+	msgInitConfirmSuffix    = "%s [Y/n] "
+)
+
+// User-visible plain errors of the agent, uninstall, sync and shell startup file code.
+const (
+	msgAgentIntervalNotPositive = "--interval must be positive"
+	msgUninstallNoHome          = "cannot determine the home directory"
+	msgSyncNoURLSet             = "youtrack_url is not set"
+	msgSyncBadDay               = "invalid --day %q: expected YYYY-MM-DD"
+	msgRCBlockNoEndMarker       = "found the begin marker but no end marker; fix the file by hand"
+	msgRCDanglingSymlink        = "%s is a dangling symlink; refusing to replace it"
+	msgRCUnsupportedShell       = "unsupported shell %q"
 )

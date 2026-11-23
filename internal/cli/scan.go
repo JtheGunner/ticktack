@@ -140,11 +140,9 @@ func newScanCommand() *cobra.Command {
 	var since string
 	cmd := &cobra.Command{
 		Use:   "scan",
-		Short: "Capture repository and branch context from the git reflog of the configured repositories",
-		Long: "Reads the HEAD reflog of every repository listed in repo_paths and stores context events " +
-			"(repository, branch, ticket hint from the branch name, timestamp). Commit messages, file names " +
-			"and file contents are never read into events. Scanning again is harmless: known events are skipped.",
-		Args: cobra.NoArgs,
+		Short: msgScanScanShort,
+		Long:  msgScanScanLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -153,7 +151,7 @@ func newScanCommand() *cobra.Command {
 			return runScan(cmd.Context(), defaultDailyDeps(cmd), home, defaultRepoScanner, since)
 		},
 	}
-	cmd.Flags().StringVar(&since, "since", "", "scan from this day as YYYY-MM-DD (default: the start of the day 7 days ago)")
+	cmd.Flags().StringVar(&since, "since", "", msgScanSinceFlag)
 	return cmd
 }
 

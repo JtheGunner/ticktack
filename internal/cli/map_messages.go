@@ -32,3 +32,22 @@ func msgMapUnknownID(id int64) error {
 func msgMapBadID(arg string) error {
 	return fmt.Errorf("%q is not a rule id (a number, see `ticktack map`)", arg)
 }
+
+// Help texts and flag descriptions of the map command.
+const (
+	msgMapMapShort = "List and edit ticket assignment rules"
+	msgMapMapLong  = "List the configured (read-only) and learned rules. Learned rules can be added, edited and removed;\n" +
+		"configured rules live in the config file.\n\n" +
+		"Matching is deliberately simple: a rule's branch must equal the branch name exactly (no wildcards or\n" +
+		"globs), and its repository matches that path and everything below it. Add one rule per branch, or\n" +
+		"omit --branch to cover every branch of a repository."
+	msgMapListShort      = "List configured and learned rules"
+	msgMapAddShort       = "Add a learned rule"
+	msgMapAddRepoFlag    = "absolute repository path (prefix)"
+	msgMapAddBranchFlag  = "branch name (empty matches every branch)"
+	msgMapEditShort      = "Change a learned rule"
+	msgMapEditRepoFlag   = "new repository path (empty clears it)"
+	msgMapEditBranchFlag = "new branch (empty clears it)"
+	msgMapEditTicketFlag = "new ticket"
+	msgMapRmShort        = "Remove a learned rule"
+)

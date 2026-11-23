@@ -25,13 +25,13 @@ func newTodayCommand() *cobra.Command {
 	var day string
 	cmd := &cobra.Command{
 		Use:   "today",
-		Short: "List today's blocks and totals",
+		Short: msgTodayShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runToday(cmd.Context(), defaultDailyDeps(cmd), day)
 		},
 	}
-	cmd.Flags().StringVar(&day, "day", "", "day to show as YYYY-MM-DD (default: today)")
+	cmd.Flags().StringVar(&day, "day", "", msgTodayDayFlag)
 	return cmd
 }
 
@@ -127,7 +127,7 @@ func dayStart(day string, now time.Time, loc *time.Location) (time.Time, error) 
 	}
 	parsed, err := time.Parse(dayLayout, day)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("--day %q: expected format YYYY-MM-DD", day)
+		return time.Time{}, fmt.Errorf(msgTodayBadDay, day)
 	}
 	return localday.StartOf(civil.DateOf(parsed), loc), nil
 }

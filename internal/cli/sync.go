@@ -25,17 +25,6 @@ import (
 	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
-// User-facing strings of the sync and undo commands live here so a German
-// variant can be added later.
-const (
-	msgConfigMissing = "no configuration found at %s: run `ticktack init` first"
-	msgNoURL         = "youtrack_url is not set in the configuration: run `ticktack init` or add it to %s"
-	msgNoToken       = "no YouTrack token in the keychain: run `ticktack init` to store one"
-	msgCapBlocked    = "%s: the day total %s exceeds the daily cap of %s and was not acknowledged: run `ticktack review` and acknowledge it (a)"
-
-	msgNothingConfirmed = "Nothing is confirmed for %s, so nothing was booked. Run `ticktack review` first."
-)
-
 // syncDeps holds everything the sync and undo commands touch outside pure logic.
 type syncDeps struct {
 	LoadConfig func() (config.Config, string, error)
@@ -141,7 +130,7 @@ func newYouTrackClient(cfg config.Config) (*youtrack.Client, error) {
 // review. Errors are expected (not configured, no token) and non-fatal.
 func newIssueSource(cfg config.Config) (review.IssueSource, error) {
 	if cfg.YouTrackURL == "" {
-		return nil, errors.New("youtrack_url is not set")
+		return nil, errors.New(msgSyncNoURLSet)
 	}
 	client, err := newYouTrackClient(cfg)
 	if err != nil {
@@ -159,22 +148,15 @@ func newSyncCommandWith(deps syncDeps) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Book the confirmed time of a day in YouTrack",
-		Long: `Book the items confirmed in "ticktack review" for one day in YouTrack, one
-work item per ticket, day and type. Repeated runs update instead of
-duplicating. Unconfirmed items are never booked; a day above the daily cap is
-only booked after the cap warning was acknowledged in review.
-
-A work item booked earlier is deleted when the day no longer has time for its
-ticket, for example after the block was reassigned or discarded in review.
-"ticktack undo" books it again.` + msgBookingLockHelpDryRun,
-		Args: cobra.NoArgs,
+		Short: msgSyncSyncShort,
+		Long:  msgSyncSyncLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSync(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
 		},
 	}
-	cmd.Flags().StringVar(&dayFlag, "day", "", "local day to book as YYYY-MM-DD (default: today)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan without booking anything")
+	cmd.Flags().StringVar(&dayFlag, "day", "", msgSyncDayFlag)
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, msgSyncDryRunFlag)
 	return cmd
 }
 
@@ -271,7 +253,7 @@ func parseDay(flag string, now time.Time) (civil.Date, error) {
 	}
 	d, err := civil.ParseDate(flag)
 	if err != nil {
-		return civil.Date{}, fmt.Errorf("invalid --day %q: expected YYYY-MM-DD", flag)
+		return civil.Date{}, fmt.Errorf(msgSyncBadDay, flag)
 	}
 	return d, nil
 }

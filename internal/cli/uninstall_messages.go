@@ -35,3 +35,13 @@ const (
 		"Config, database and binary are left; `ticktack purge` deletes the data."
 	msgUninstallIncomplete = "Uninstall incomplete. Fix the problems above and run `ticktack uninstall` again."
 )
+
+// Help texts and flag descriptions of the uninstall command.
+const (
+	msgUninstallUninstallShort = "Remove the launchd agent, shell hook, token and log"
+	msgUninstallUninstallLong  = "Reverses `ticktack init`: unloads and removes the launchd agent, removes the " +
+		"managed block from the shell startup files, deletes the YouTrack token from the " +
+		"OS keychain and deletes the log file with its backup and state files. The config file, the database and the " +
+		"binary stay; `ticktack purge` deletes the data."
+	msgUninstallYesFlag = "do not ask for confirmation"
+)

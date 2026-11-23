@@ -19,13 +19,9 @@ import (
 func newMapCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "map",
-		Short: "List and edit ticket assignment rules",
-		Long: "List the configured (read-only) and learned rules. Learned rules can be added, edited and removed;\n" +
-			"configured rules live in the config file.\n\n" +
-			"Matching is deliberately simple: a rule's branch must equal the branch name exactly (no wildcards or\n" +
-			"globs), and its repository matches that path and everything below it. Add one rule per branch, or\n" +
-			"omit --branch to cover every branch of a repository.",
-		Args: cobra.NoArgs,
+		Short: msgMapMapShort,
+		Long:  msgMapMapLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMapList(cmd.Context(), defaultDailyDeps(cmd))
 		},
@@ -37,7 +33,7 @@ func newMapCommand() *cobra.Command {
 func newMapListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List configured and learned rules",
+		Short: msgMapListShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMapList(cmd.Context(), defaultDailyDeps(cmd))
@@ -49,14 +45,14 @@ func newMapAddCommand() *cobra.Command {
 	var repo, branch string
 	cmd := &cobra.Command{
 		Use:   "add --repo R [--branch B] TICKET",
-		Short: "Add a learned rule",
+		Short: msgMapAddShort,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMapAdd(cmd.Context(), defaultDailyDeps(cmd), repo, branch, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", "", "absolute repository path (prefix)")
-	cmd.Flags().StringVar(&branch, "branch", "", "branch name (empty matches every branch)")
+	cmd.Flags().StringVar(&repo, "repo", "", msgMapAddRepoFlag)
+	cmd.Flags().StringVar(&branch, "branch", "", msgMapAddBranchFlag)
 	return cmd
 }
 
@@ -64,7 +60,7 @@ func newMapEditCommand() *cobra.Command {
 	var repo, branch, ticket string
 	cmd := &cobra.Command{
 		Use:   "edit ID [--repo R] [--branch B] [--ticket T]",
-		Short: "Change a learned rule",
+		Short: msgMapEditShort,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			changed := cmd.Flags().Changed
@@ -73,16 +69,16 @@ func newMapEditCommand() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", "", "new repository path (empty clears it)")
-	cmd.Flags().StringVar(&branch, "branch", "", "new branch (empty clears it)")
-	cmd.Flags().StringVar(&ticket, "ticket", "", "new ticket")
+	cmd.Flags().StringVar(&repo, "repo", "", msgMapEditRepoFlag)
+	cmd.Flags().StringVar(&branch, "branch", "", msgMapEditBranchFlag)
+	cmd.Flags().StringVar(&ticket, "ticket", "", msgMapEditTicketFlag)
 	return cmd
 }
 
 func newMapRmCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm ID",
-		Short: "Remove a learned rule",
+		Short: msgMapRmShort,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMapRemove(cmd.Context(), defaultDailyDeps(cmd), args[0])

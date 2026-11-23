@@ -59,12 +59,9 @@ func newInitCommand() *cobra.Command {
 	var printSnippet string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Set up config, token, shell hook and launchd agent",
-		Long: "Walks through four steps: config file, YouTrack token (hidden input), " +
-			"shell hook and launchd agent. Every step is explained and can be skipped; " +
-			"rerunning is safe. The shell hook block also defines the optional alias " +
-			"tt for ticktack unless tt already exists or --skip-alias is given.",
-		Args: cobra.NoArgs,
+		Short: msgInitShort,
+		Long:  msgInitLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if printSnippet != "" {
 				script, err := shellhook.Script(printSnippet)
@@ -83,15 +80,15 @@ func newInitCommand() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVarP(&opts.Yes, "yes", "y", false, "accept every step without asking")
-	f.StringVar(&opts.URL, "url", "", "YouTrack base URL for the new config file")
-	f.StringVar(&opts.Shell, "shell", "", "shell to hook (zsh, bash or fish; default: from $SHELL)")
-	f.BoolVar(&opts.SkipConfig, "skip-config", false, "skip the config step")
-	f.BoolVar(&opts.SkipToken, "skip-token", false, "skip the token step")
-	f.BoolVar(&opts.SkipHook, "skip-hook", false, "skip the shell hook step")
-	f.BoolVar(&opts.SkipAgent, "skip-agent", false, "skip the launchd agent step")
-	f.BoolVar(&opts.SkipAlias, "skip-alias", false, "do not add the tt alias to the shell hook block")
-	f.StringVar(&printSnippet, "print-snippet", "", "print the hook script for a shell and exit")
+	f.BoolVarP(&opts.Yes, "yes", "y", false, msgInitYesFlag)
+	f.StringVar(&opts.URL, "url", "", msgInitURLFlag)
+	f.StringVar(&opts.Shell, "shell", "", msgInitShellFlag)
+	f.BoolVar(&opts.SkipConfig, "skip-config", false, msgInitSkipConfigFlag)
+	f.BoolVar(&opts.SkipToken, "skip-token", false, msgInitSkipTokenFlag)
+	f.BoolVar(&opts.SkipHook, "skip-hook", false, msgInitSkipHookFlag)
+	f.BoolVar(&opts.SkipAgent, "skip-agent", false, msgInitSkipAgentFlag)
+	f.BoolVar(&opts.SkipAlias, "skip-alias", false, msgInitSkipAliasFlag)
+	f.StringVar(&printSnippet, "print-snippet", "", msgInitPrintSnippetFlag)
 	return cmd
 }
 
@@ -195,7 +192,7 @@ func (r *initRun) confirm(question string) bool {
 	if r.opts.Yes {
 		return true
 	}
-	_, _ = fmt.Fprintf(r.out, "%s [Y/n] ", question)
+	_, _ = fmt.Fprintf(r.out, msgInitConfirmSuffix, question)
 	line, err := r.deps.In.ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if err != nil && answer == "" {

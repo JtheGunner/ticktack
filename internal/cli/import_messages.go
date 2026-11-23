@@ -24,3 +24,10 @@ const (
 	msgAWBadURL           = "cannot use the configured server: %v"
 	msgAWBadURLFix        = "set url in [activitywatch] to a loopback address such as http://localhost:5600"
 )
+
+// Help texts and flag descriptions of the import command.
+const (
+	msgImportImportShort        = "Import events from another tool"
+	msgImportActivitywatchShort = "Import window and AFK events from a local ActivityWatch server"
+	msgImportSinceFlag          = "import from this day as YYYY-MM-DD (default: shortly before the last import, else the last 24 hours)"
+)

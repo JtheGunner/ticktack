@@ -70,16 +70,14 @@ func newReviewCommand() *cobra.Command {
 	var day string
 	cmd := &cobra.Command{
 		Use:   "review",
-		Short: "Review the day's blocks and confirm what may be booked",
-		Long: `Show the day as a numbered timeline with tier and reason per block, then
-confirm, reassign, discard, mark as break or split entries. Only confirmed
-items are booked by ` + "`ticktack sync`" + `. Corrections are stored as overrides.`,
-		Args: cobra.NoArgs,
+		Short: msgReviewReviewShort,
+		Long:  msgReviewReviewLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReview(cmd.Context(), defaultReviewDeps(cmd), day)
 		},
 	}
-	cmd.Flags().StringVar(&day, "day", "", "day to review as YYYY-MM-DD (default: today)")
+	cmd.Flags().StringVar(&day, "day", "", msgReviewDayFlag)
 	return cmd
 }
 

@@ -55,7 +55,7 @@ func currentVersion() string {
 func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the ticktack version",
+		Short: msgVersionVersionShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := cmd.OutOrStdout().Write([]byte("ticktack " + currentVersion() + "\n"))

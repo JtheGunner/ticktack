@@ -39,3 +39,12 @@ const (
 	msgReposFixBadPath   = "write the repo_paths entry as an absolute path or starting with ~/"
 	msgReposDetailJoiner = "; "
 )
+
+// Help texts and flag descriptions of the scan command.
+const (
+	msgScanScanShort = "Capture repository and branch context from the git reflog of the configured repositories"
+	msgScanScanLong  = "Reads the HEAD reflog of every repository listed in repo_paths and stores context events " +
+		"(repository, branch, ticket hint from the branch name, timestamp). Commit messages, file names " +
+		"and file contents are never read into events. Scanning again is harmless: known events are skipped."
+	msgScanSinceFlag = "scan from this day as YYYY-MM-DD (default: the start of the day 7 days ago)"
+)

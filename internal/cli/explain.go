@@ -18,16 +18,14 @@ func newExplainCommand() *cobra.Command {
 	var day string
 	cmd := &cobra.Command{
 		Use:   "explain <N|HH:MM>",
-		Short: "Show the signal and rule behind a block",
-		Long: "Show which signal and which rule decided a block of `ticktack today`.\n" +
-			"The argument is the block number printed by `ticktack today`, or a local time HH:MM inside a block.\n" +
-			"On days with a daylight-saving change, a skipped time means the following hour and a repeated time its first occurrence.",
-		Args: cobra.ExactArgs(1),
+		Short: msgExplainExplainShort,
+		Long:  msgExplainExplainLong,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExplain(cmd.Context(), defaultDailyDeps(cmd), day, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&day, "day", "", "day as YYYY-MM-DD (default: today)")
+	cmd.Flags().StringVar(&day, "day", "", msgExplainDayFlag)
 	return cmd
 }
 

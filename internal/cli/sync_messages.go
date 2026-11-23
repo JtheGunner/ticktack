@@ -4,6 +4,14 @@ package cli
 // together so a German variant can be added later.
 const (
 	msgNoTimeToBook = "No time to book."
+
+	msgConfigMissing = "no configuration found at %s: run `ticktack init` first"
+	msgNoURL         = "youtrack_url is not set in the configuration: run `ticktack init` or add it to %s"
+	msgNoToken       = "no YouTrack token in the keychain: run `ticktack init` to store one"
+	msgCapBlocked    = "%s: the day total %s exceeds the daily cap of %s and was not acknowledged: run `ticktack review` and acknowledge it (a)"
+
+	msgNothingConfirmed = "Nothing is confirmed for %s, so nothing was booked. Run `ticktack review` first."
+
 	// The standard task of a project is created in YouTrack on demand.
 	msgSyncCreatePrompt     = "Create standard task in: %s — continue? [y/N] "
 	msgSyncTaskCreated      = "Created standard task %s in %s."
@@ -33,4 +41,19 @@ one runs, this command changes nothing and exits with code 75.`
 
 	// msgInterrupted is the error of a run that SIGINT or SIGTERM cancelled.
 	msgInterrupted = "interrupted: the step in progress was finished, the rest was not done or sent; run the command again to continue"
+)
+
+// Help texts and flag descriptions of the sync command.
+const (
+	msgSyncSyncShort = "Book the confirmed time of a day in YouTrack"
+	msgSyncSyncLong  = `Book the items confirmed in "ticktack review" for one day in YouTrack, one
+work item per ticket, day and type. Repeated runs update instead of
+duplicating. Unconfirmed items are never booked; a day above the daily cap is
+only booked after the cap warning was acknowledged in review.
+
+A work item booked earlier is deleted when the day no longer has time for its
+ticket, for example after the block was reassigned or discarded in review.
+"ticktack undo" books it again.` + msgBookingLockHelpDryRun
+	msgSyncDayFlag    = "local day to book as YYYY-MM-DD (default: today)"
+	msgSyncDryRunFlag = "print the plan without booking anything"
 )

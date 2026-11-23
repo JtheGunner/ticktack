@@ -131,3 +131,13 @@ func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
 		{Header: msgDigestColReason, Flex: true, Wrap: true},
 	}, rows)
 }
+
+// Help texts and flag descriptions of the auto command.
+const (
+	msgAutoAutoShort   = "Book the safe blocks of a day automatically (opt-in, needs a track record)"
+	msgAutoAutoLong    = msgAutoLong + msgBookingLockHelpDryRun
+	msgAutoDayFlag     = "local day to book as YYYY-MM-DD (default: today)"
+	msgAutoDryRunFlag  = "print the plan without booking anything"
+	msgAutoDigestShort = "Show the digest of the last auto run"
+	msgAutoDigestLong  = msgDigestLong
+)

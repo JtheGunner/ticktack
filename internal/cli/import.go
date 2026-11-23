@@ -38,18 +38,18 @@ func newActivityWatchSource(cfg config.ActivityWatch) (activitywatch.EventSource
 func newImportCommand() *cobra.Command {
 	importCmd := &cobra.Command{
 		Use:   "import",
-		Short: "Import events from another tool",
+		Short: msgImportImportShort,
 	}
 	var since string
 	aw := &cobra.Command{
 		Use:   "activitywatch",
-		Short: "Import window and AFK events from a local ActivityWatch server",
+		Short: msgImportActivitywatchShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runImportActivityWatch(cmd.Context(), defaultDailyDeps(cmd), newActivityWatchSource, since)
 		},
 	}
-	aw.Flags().StringVar(&since, "since", "", "import from this day as YYYY-MM-DD (default: shortly before the last import, else the last 24 hours)")
+	aw.Flags().StringVar(&since, "since", "", msgImportSinceFlag)
 	importCmd.AddCommand(aw)
 	return importCmd
 }

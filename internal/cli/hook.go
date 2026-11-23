@@ -63,7 +63,7 @@ func newHookCommand() *cobra.Command {
 	var cwd string
 	cmd := &cobra.Command{
 		Use:    "hook",
-		Short:  "Report the working directory from a shell prompt (internal)",
+		Short:  msgHookHookShort,
 		Hidden: true,
 		Args:   cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,7 +73,7 @@ func newHookCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	cmd.Flags().StringVar(&cwd, "cwd", "", "working directory of the shell")
+	cmd.Flags().StringVar(&cwd, "cwd", "", msgHookCwdFlag)
 	return cmd
 }
 

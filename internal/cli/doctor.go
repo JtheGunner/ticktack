@@ -170,7 +170,7 @@ func defaultDoctorDeps(cmd *cobra.Command) doctorDeps {
 func newDoctorCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Check the setup and name the fix for each problem",
+		Short: msgDoctorDoctorShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDoctor(cmd.Context(), defaultDoctorDeps(cmd), cmd.OutOrStdout())

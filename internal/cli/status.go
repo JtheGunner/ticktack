@@ -21,7 +21,7 @@ const statusLookback = 14 * 24 * time.Hour
 func newStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show what ticktack currently detects",
+		Short: msgStatusStatusShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runStatus(cmd.Context(), defaultDailyDeps(cmd))
