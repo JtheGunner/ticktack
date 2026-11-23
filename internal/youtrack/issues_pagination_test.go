@@ -100,3 +100,56 @@ func TestMyOpenIssuesFailsWhenServerIgnoresPaging(t *testing.T) {
 		t.Errorf("calls = %d, want 2", calls.Load())
 	}
 }
+
+func TestMyOpenIssuesEntryBudget(t *testing.T) {
+	tests := []struct {
+		name    string
+		total   int
+		wantErr bool
+	}{
+		{"exactly at the limit", maxCollectionEntries, false},
+		{"one over the limit", maxCollectionEntries + 1, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			c := newTestClient(t, pagedServer(t, "/api/issues", tc.total, 42, issueEntry, &calls))
+			issues, err := c.MyOpenIssues(context.Background())
+			if tc.wantErr {
+				if err == nil || issues != nil {
+					t.Fatalf("issues=%d err=%v, want an error and no partial result", len(issues), err)
+				}
+				return
+			}
+			if err != nil || len(issues) != tc.total {
+				t.Fatalf("issues=%d err=%v", len(issues), err)
+			}
+		})
+	}
+}
+
+func TestEntryBudgetStopsRequestingPages(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/users/me" {
+			_, _ = io.WriteString(w, `{"login":"me"}`)
+			return
+		}
+		n := int(calls.Add(1))
+		var parts []string
+		for i := 0; i < 42; i++ { // endless supply of new entries
+			parts = append(parts, fmt.Sprintf(`{"id":"1-%d","text":"t","author":{"login":"other"}}`, n*100+i))
+		}
+		_, _ = io.WriteString(w, "["+strings.Join(parts, ",")+"]")
+	}))
+	_, found, err := c.FindByMarker(context.Background(), "ABC-1", "[m]")
+	if err == nil || found {
+		t.Fatalf("found=%v err=%v, want an error", found, err)
+	}
+	if limit := int32(maxCollectionEntries/42 + 1); calls.Load() > limit {
+		t.Errorf("calls = %d, want at most %d", calls.Load(), limit)
+	}
+	if strings.Contains(err.Error(), "other") {
+		t.Errorf("error leaks response text: %v", err)
+	}
+}
