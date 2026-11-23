@@ -56,6 +56,19 @@ func TestPlanUpdate(t *testing.T) {
 	defaultRoundingLine := "# rounding = \"" + DefaultRounding.String() + "\"\n"
 	const userRounding = "# keep this exact, team rule\nrounding = \"1m\" # booked as is\n"
 	userValues := strings.Replace(withoutRetention, defaultRoundingLine, userRounding, 1)
+	const smokeConfig = "# my notes\nyoutrack_url = \"https://example.youtrack.cloud\"\nrounding = \"1m\"\nold_option = \"gone\"\n\n" +
+		"[auto]\nenabled = true\ntrusted_days = 5\n"
+	var smokeAdded, smokeAddedWithScan []string
+	for _, option := range templateOptions() {
+		switch option.ID {
+		case "youtrack_url", "rounding", "auto.enabled", "auto.trusted_days":
+			continue
+		}
+		smokeAdded = append(smokeAdded, option.ID)
+		if option.ID != "scan.interval" {
+			smokeAddedWithScan = append(smokeAddedWithScan, option.ID)
+		}
+	}
 	crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
 
 	tests := []struct {
@@ -136,6 +149,34 @@ func TestPlanUpdate(t *testing.T) {
 			check: func(t *testing.T, plan UpdatePlan) {
 				if plan.Result != template+"\n# [auto]\n# enabled = false\n" {
 					t.Errorf("result =\n%s", plan.Result)
+				}
+			},
+		},
+		{
+			name:        "missing keys of the last active table go before appended tables",
+			current:     smokeConfig,
+			wantAdded:   smokeAdded,
+			wantRemoved: []RemovedOption{{ID: "old_option", Line: 4, Value: `"gone"`}},
+			check: func(t *testing.T, plan UpdatePlan) {
+				want := "trusted_days = 5\n\n" + optionBlock(t, "auto.mode") + "\n" +
+					optionBlock(t, "auto.autopilot_lookback_days") + "\n"
+				at := strings.Index(plan.Result, want)
+				header := strings.Index(plan.Result, "# [default_issue]")
+				if at < 0 || header < 0 || at > header {
+					t.Errorf("auto keys not directly below [auto] before appended tables:\n%s", plan.Result)
+				}
+			},
+		},
+		{
+			name:        "missing keys of an active table in the middle of the file",
+			current:     strings.Replace(smokeConfig, "trusted_days = 5\n", "trusted_days = 5\n\n[scan]\ninterval = \"20m\"\n", 1),
+			wantAdded:   smokeAddedWithScan,
+			wantRemoved: []RemovedOption{{ID: "old_option", Line: 4, Value: `"gone"`}},
+			check: func(t *testing.T, plan UpdatePlan) {
+				want := "trusted_days = 5\n\n" + optionBlock(t, "auto.mode") + "\n" +
+					optionBlock(t, "auto.autopilot_lookback_days") + "\n[scan]\ninterval = \"20m\"\n"
+				if !strings.Contains(plan.Result, want) {
+					t.Errorf("auto keys not directly below [auto]:\n%s", plan.Result)
 				}
 			},
 		},

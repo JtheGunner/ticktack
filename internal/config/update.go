@@ -408,6 +408,10 @@ func planAdditions(lines []string, entries []lineEntry) ([]AddedOption, []insert
 		}
 		inserts = append(inserts, insertion{at: at, blocks: [][]string{block}})
 	}
+	// Blocks of tables the file lacks are collected apart and placed after
+	// every anchored block, so keys that belong to the last table of the file
+	// stay directly below it instead of landing under an appended table.
+	var appended [][]string
 	newTables := map[string]int{}
 
 	for _, option := range templateOptions() {
@@ -416,7 +420,7 @@ func planAdditions(lines []string, entries []lineEntry) ([]AddedOption, []insert
 			if headers[option.Table] || isPresent(option.ID) {
 				continue
 			}
-			appendBlock(end, option.Lines)
+			appended = append(appended, option.Lines)
 		case isPresent(option.ID):
 			continue
 		case option.Table == "":
@@ -426,25 +430,18 @@ func planAdditions(lines []string, entries []lineEntry) ([]AddedOption, []insert
 		default:
 			block, ok := newTables[option.Table]
 			if !ok {
-				appendBlock(end, append([]string(nil), intros[option.Table]...))
-				block = len(insertAt(inserts, end).blocks) - 1
+				appended = append(appended, append([]string(nil), intros[option.Table]...))
+				block = len(appended) - 1
 				newTables[option.Table] = block
 			}
-			group := insertAt(inserts, end)
-			group.blocks[block] = append(group.blocks[block], option.Lines...)
+			appended[block] = append(appended[block], option.Lines...)
 		}
 		added = append(added, AddedOption{ID: option.ID, Lines: append([]string(nil), option.Lines...)})
 	}
-	return added, inserts
-}
-
-func insertAt(inserts []insertion, at int) *insertion {
-	for i := range inserts {
-		if inserts[i].at == at {
-			return &inserts[i]
-		}
+	for _, block := range appended {
+		appendBlock(end, block)
 	}
-	return nil
+	return added, inserts
 }
 
 // presentIDs collects the option IDs of every key (active or commented) and
