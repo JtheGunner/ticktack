@@ -27,9 +27,9 @@ type Tier string
 
 // Confidence tiers, from most to least certain.
 const (
-	TierExplicit  Tier = "explicit"
-	TierRule      Tier = "rule"
-	TierLearned   Tier = "learned"
+	TierExplicit Tier = "explicit"
+	TierRule     Tier = "rule"
+	TierLearned  Tier = "learned"
 	// TierSuggested is never returned by Resolve itself. The sessionizer
 	// lowers a ticket to it when its context has gone stale or the foreground
 	// app is neutral, so review confirms it and auto mode does not book it.
