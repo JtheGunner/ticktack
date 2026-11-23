@@ -47,9 +47,9 @@ every completed day (before today) of the last "autopilot_lookback_days" days
 (default 7), oldest first. Today is never booked. A day you confirmed or
 corrected in "ticktack review" is yours and is left alone. Run by hand in
 autopilot mode, this command does one such pass; with --day it books that one
-completed day. "ticktack undo" reverts the last run, but the autopilot books
-again on its next run unless you set the mode back to "gated" or enabled to
-false first.`
+completed day. "ticktack undo" reverts the last run and holds its completed
+days: the autopilot skips a held day until you book it again with
+"ticktack auto --day YYYY-MM-DD", which lifts the hold, or confirm it in review.`
 
 	msgDigestLong = `Show the digest of the most recent auto run: every booked, updated, deleted
 and skipped item with ticket, date, minutes, tier and reason.`
@@ -60,9 +60,11 @@ and skipped item with ticket, date, minutes, tier and reason.`
 	msgAutoLockedProceed  = "To build the track record, run `ticktack review` each day and confirm without corrections."
 	msgAutoNothingToBook  = "Nothing to book automatically for %s."
 
-	msgAutopilotOpenDay       = "%s is not a completed day: the autopilot never books today or a future day. use a day before today, or run `ticktack auto` without --day to work through the lookback window"
+	msgAutopilotOpenDay       = "%s is not a completed day: the autopilot never books today or a future day; use a day before today, or run `ticktack auto` without --day to work through the lookback window"
 	msgAutopilotNothingToBook = "Autopilot: nothing to book on the completed days of the lookback window."
-	msgAutopilotUndoHint      = "Autopilot is on: it books this again on its next run. Set mode = \"gated\" or enabled = false in [auto] first to keep the undo."
+	msgAutopilotUndoHeld      = "Autopilot: held %s. It will not book these days again until you run `ticktack auto --day <day>` or confirm the day in `ticktack review`."
+	msgAutopilotHeldDays      = "Autopilot: held (undone by you), skipped: %s. Run `ticktack auto --day <day>` to book a day again."
+	msgAutopilotLogHeld       = "autopilot: held (undone by you), skipped: %s"
 	msgAutopilotItemsFailed   = "%d items failed and %d were not sent (first error: %s); see `ticktack digest`"
 	msgAutopilotLogFail       = "autopilot: run failed: %v"
 	msgAutopilotLogConfig     = "autopilot: skipped, config not loadable: %v"
@@ -153,7 +155,7 @@ func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
 
 // Help texts and flag descriptions of the auto command.
 const (
-	msgAutoAutoShort   = "Book the safe blocks of a day automatically (opt-in, needs a track record)"
+	msgAutoAutoShort   = "Book the safe blocks of a day without a review (opt-in: gated by a track record, or autopilot)"
 	msgAutoAutoLong    = msgAutoLong + msgBookingLockHelpDryRun
 	msgAutoDayFlag     = "local day to book as YYYY-MM-DD (default: today)"
 	msgAutoDryRunFlag  = "print the plan without booking anything"

@@ -2,11 +2,17 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
+	"time"
 
+	"cloud.google.com/go/civil"
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -71,9 +77,46 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	line := msgUndoResult(res.Deleted, res.Restored, res.Recreated, res.Forgotten)
 	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
 	if cfg.Auto.Autopilot() {
-		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgAutopilotUndoHint))
+		// Held even when the undo failed half way: the autopilot must not book a
+		// day again that the user was in the middle of taking back.
+		held, holdErr := holdUndoneDays(ctx, st, last, deps.Now(), cfg.Location)
+		if holdErr != nil {
+			return errors.Join(err, holdErr)
+		}
+		if len(held) > 0 {
+			_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgAutopilotUndoHeld, strings.Join(held, ", "))))
+		}
 	}
 	return err
+}
+
+// holdUndoneDays holds, for the autopilot, every completed day (before today
+// in loc) the undone run touched, and returns them in ascending order. The rule
+// is deliberately independent of who made the run: whatever booked a day, the
+// user who takes it back while the autopilot is active does not want it booked
+// again behind their back. A day of a run the user booked by hand is a manual
+// day the autopilot skips anyway, so holding it changes nothing. Today and
+// future days are never booked by the autopilot and need no hold.
+func holdUndoneDays(ctx context.Context, st *store.Store, run store.SyncRun, now time.Time, loc *time.Location) ([]string, error) {
+	if loc == nil {
+		loc = time.Local
+	}
+	today := civil.DateOf(now.In(loc))
+	seen := map[string]bool{}
+	var held []string
+	for _, e := range run.Entries {
+		day, err := civil.ParseDate(e.Date)
+		if err != nil || !auto.Completed(day, today) || seen[e.Date] {
+			continue
+		}
+		seen[e.Date] = true
+		if err := st.HoldDay(ctx, e.Date, now); err != nil {
+			return nil, err
+		}
+		held = append(held, e.Date)
+	}
+	sort.Strings(held)
+	return held, nil
 }
 
 // countArchivedDays returns how many distinct days of the run's entries were

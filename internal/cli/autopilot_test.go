@@ -323,7 +323,19 @@ func TestAutopilotUnavailableSinkIsReportedOnceAndBooksNothing(t *testing.T) {
 	}
 }
 
-func TestAutopilotUndoRevertsItsRunAndSaysItBooksAgain(t *testing.T) {
+func heldDays(t *testing.T, deps syncDeps) []string {
+	t.Helper()
+	var held []string
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		var err error
+		if held, err = st.HeldDays(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	return held
+}
+
+func TestAutopilotUndoRevertsItsRunAndHoldsTheDay(t *testing.T) {
 	deps, rec := autopilotDeps(t, 7)
 	if _, err := runAutopilotByHand(t, deps, "", false); err != nil {
 		t.Fatal(err)
@@ -335,9 +347,136 @@ func TestAutopilotUndoRevertsItsRunAndSaysItBooksAgain(t *testing.T) {
 	if len(rec.items) != 0 {
 		t.Fatalf("undo left items: %v", rec.items)
 	}
-	if !strings.Contains(out.String(), "books this again") {
-		t.Errorf("undo must warn that the autopilot rebooks:\n%s", out.String())
+	if held := heldDays(t, deps); len(held) != 1 || held[0] != "2026-01-05" {
+		t.Fatalf("held = %v, want the undone day", held)
 	}
+	if !strings.Contains(out.String(), "held 2026-01-05") || !strings.Contains(out.String(), "auto --day") {
+		t.Errorf("undo must name the held day and how to release it:\n%s", out.String())
+	}
+}
+
+func TestAutopilotSkipsAHeldDayAndBooksTheOthers(t *testing.T) {
+	deps, rec := autopilotDeps(t, 7)
+	seedHour(t, deps, civil.Date{Year: 2026, Month: 1, Day: 4}, "DAY-4")
+	// The undone run is the last one: the pass books 01-04 first, then 01-05.
+	if _, err := runAutopilotByHand(t, deps, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := runUndo(context.Background(), &bytes.Buffer{}, deps); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.items["ABC-1/1"]; ok || len(heldDays(t, deps)) != 1 {
+		t.Fatalf("expected ABC-1 undone and held: %v, held %v", rec.items, heldDays(t, deps))
+	}
+	// A later pass leaves the held day alone, names it, and books new time.
+	seedHour(t, deps, civil.Date{Year: 2026, Month: 1, Day: 3}, "DAY-3")
+	out, err := runAutopilotByHand(t, deps, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.items["ABC-1/1"]; ok {
+		t.Fatalf("the autopilot rebooked a held day: %v", rec.items)
+	}
+	if _, ok := rec.items["DAY-3/1"]; !ok {
+		t.Errorf("other days must still be booked: %v", rec.items)
+	}
+	if !strings.Contains(out, "held (undone by you)") || !strings.Contains(out, "2026-01-05") {
+		t.Errorf("the held day must be reported:\n%s", out)
+	}
+}
+
+func TestAutopilotHoldIsLogged(t *testing.T) {
+	deps, _ := autopilotDeps(t, 7)
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		if err := st.HoldDay(ctx, "2026-01-05", deps.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	logs := strings.Join(runAutopilotJobTwice(t, deps, false), "\n")
+	if !strings.Contains(logs, "held (undone by you)") {
+		t.Fatalf("logs = %q", logs)
+	}
+}
+
+func TestAutoDayReleasesTheHoldAndBooksTheDay(t *testing.T) {
+	deps, rec := autopilotDeps(t, 7)
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		if err := st.HoldDay(ctx, "2026-01-05", deps.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// A dry run changes nothing, so the hold stays.
+	if _, err := runAutopilotByHand(t, deps, "2026-01-05", true); err != nil {
+		t.Fatal(err)
+	}
+	if held := heldDays(t, deps); len(held) != 1 {
+		t.Fatalf("a dry run lifted the hold: %v", held)
+	}
+	if _, err := runAutopilotByHand(t, deps, "2026-01-05", false); err != nil {
+		t.Fatal(err)
+	}
+	if held := heldDays(t, deps); len(held) != 0 {
+		t.Fatalf("held = %v, want the hold lifted", held)
+	}
+	if _, ok := rec.items["ABC-1/1"]; !ok {
+		t.Fatalf("the day was not booked again: %v", rec.items)
+	}
+	// With the hold gone the autopilot keeps maintaining the day.
+	if _, err := runAutopilotByHand(t, deps, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.items) != 1 {
+		t.Fatalf("items = %v", rec.items)
+	}
+}
+
+func TestAHeldDayThatYouConfirmedIsSimplyYours(t *testing.T) {
+	deps, rec := autopilotDeps(t, 7)
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		if err := st.HoldDay(ctx, "2026-01-05", deps.Now()); err != nil {
+			t.Fatal(err)
+		}
+		c := store.Confirmation{Day: "2026-01-05", Issue: "ABC-1", Type: sessionizer.DefaultWorkItemType, Minutes: 60, ConfirmedAt: deps.Now()}
+		if err := st.Confirm(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	})
+	out, err := runAutopilotByHand(t, deps, "", false)
+	if err != nil || len(rec.items) != 0 || strings.Contains(out, "held (undone") {
+		t.Fatalf("err = %v, items = %v\n%s", err, rec.items, out)
+	}
+}
+
+func TestUndoHoldsNothingOutsideAutopilotOrForOpenDays(t *testing.T) {
+	t.Run("gated mode", func(t *testing.T) {
+		deps, _ := autoTestDeps(t, true, 1)
+		seedCleanDays(t, deps, 1)
+		deps.Now = func() time.Time { return time.Date(2026, 1, 6, 20, 0, 0, 0, time.UTC) }
+		if _, err := runAutoFor(t, deps); err != nil {
+			t.Fatal(err)
+		}
+		if err := runUndo(context.Background(), &bytes.Buffer{}, deps); err != nil {
+			t.Fatal(err)
+		}
+		if held := heldDays(t, deps); len(held) != 0 {
+			t.Fatalf("gated undo held %v", held)
+		}
+	})
+	t.Run("a run of today", func(t *testing.T) {
+		deps, _ := autoTestDeps(t, true, 1)
+		seedCleanDays(t, deps, 1)
+		if _, err := runAutoFor(t, deps); err != nil {
+			t.Fatal(err)
+		}
+		deps = asAutopilot(deps, 7)
+		deps.Now = func() time.Time { return time.Date(2026, 1, 5, 20, 0, 0, 0, time.UTC) }
+		if err := runUndo(context.Background(), &bytes.Buffer{}, deps); err != nil {
+			t.Fatal(err)
+		}
+		if held := heldDays(t, deps); len(held) != 0 {
+			t.Fatalf("undo of an open day held %v", held)
+		}
+	})
 }
 
 func TestAutopilotExplicitDayBooksThatCompletedDay(t *testing.T) {

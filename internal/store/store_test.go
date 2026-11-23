@@ -172,7 +172,9 @@ func TestEventsAreImmutable(t *testing.T) {
 		// same transaction. The other two only read.
 		"ArchiveDay": true, "ArchivedDay": true, "ArchivedDays": true,
 		// ConfirmedDays only reads the confirmations table.
-		"ConfirmedDays":   true,
+		"ConfirmedDays": true,
+		// The autopilot holds live in their own table.
+		"HoldDay": true, "ReleaseHold": true, "HeldDays": true,
 		"EarliestEventAt": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
@@ -261,6 +263,10 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.SetConsent(ctx, "TICKT", base); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.HoldDay(ctx, "2026-01-02", base); err != nil {
 		t.Fatal(err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -82,7 +83,8 @@ func newAutopilotJob(deps syncDeps, paused func() bool, startDelay, interval tim
 				return
 			}
 			defer release()
-			if err := autopilotRun(ctx, deps, cfg, cfgPath); err != nil && ctx.Err() == nil {
+			logHeld := func(days []string) { logf(msgAutopilotLogHeld, strings.Join(days, ", ")) }
+			if err := autopilotRun(ctx, deps, cfg, cfgPath, logHeld); err != nil && ctx.Err() == nil {
 				logf(msgAutopilotLogFail, err)
 			}
 		}
@@ -102,7 +104,7 @@ func newAutopilotJob(deps syncDeps, paused func() bool, startDelay, interval tim
 
 // autopilotRun opens the store and runs one autopilot pass over the lookback
 // window, with no output. The booking lock is held by the caller.
-func autopilotRun(ctx context.Context, deps syncDeps, cfg config.Config, cfgPath string) error {
+func autopilotRun(ctx context.Context, deps syncDeps, cfg config.Config, cfgPath string, onHeld func(days []string)) error {
 	st, err := deps.OpenStore()
 	if err != nil {
 		return err
@@ -112,5 +114,5 @@ func autopilotRun(ctx context.Context, deps syncDeps, cfg config.Config, cfgPath
 	if loc == nil {
 		loc = time.Local
 	}
-	return runAutopilotPass(ctx, io.Discard, deps, cfg, cfgPath, st, civil.DateOf(deps.Now().In(loc)), false)
+	return runAutopilotPass(ctx, io.Discard, deps, cfg, cfgPath, st, civil.DateOf(deps.Now().In(loc)), false, onHeld)
 }

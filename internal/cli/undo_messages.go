@@ -14,5 +14,10 @@ const (
 	msgUndoUndoShort = "Revert the last sync"
 	msgUndoUndoLong  = `Revert the last booking run: items it created are deleted from YouTrack,
 items it updated are restored to their previous minutes and items it deleted
-are booked again. Running undo again reverts the run before it.` + msgBookingLockHelp
+are booked again. Running undo again reverts the run before it.
+
+With the autopilot on, undo also holds every completed day of the run: the
+autopilot skips a held day, so the undo stays undone. Book the day again with
+"ticktack auto --day YYYY-MM-DD", which lifts the hold, or confirm it in
+"ticktack review".` + msgBookingLockHelp
 )

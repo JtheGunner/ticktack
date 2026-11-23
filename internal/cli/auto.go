@@ -90,13 +90,23 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 
 	if autopilot {
 		if dayFlag == "" {
-			return runAutopilotPass(ctx, out, deps, cfg, cfgPath, st, civil.DateOf(now), dryRun)
+			onHeld := func(days []string) {
+				_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgAutopilotHeldDays, strings.Join(days, ", "))))
+			}
+			return runAutopilotPass(ctx, out, deps, cfg, cfgPath, st, civil.DateOf(now), dryRun, onHeld)
 		}
 		if !auto.Completed(day, civil.DateOf(now)) {
 			return fmt.Errorf(msgAutopilotOpenDay, day)
 		}
 		if err := refuseArchivedDay(ctx, st, day); err != nil {
 			return err
+		}
+		// Booking a day by hand lifts the hold an undo put on it. A dry run
+		// changes nothing, so it keeps the hold.
+		if !dryRun {
+			if err := st.ReleaseHold(ctx, day.String()); err != nil {
+				return err
+			}
 		}
 		_, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false)
 		return err
@@ -218,15 +228,30 @@ func autopilotItemFailure(report ledger.Report) error {
 // runAutopilotPass books every completed day of the lookback window, oldest
 // first, that is not the user's own: the autopilot has no trust gate. A day
 // the user reviewed or booked by hand is skipped, an archived day too (it can
-// no longer be derived). An error on one day never stops the other days; the
+// no longer be derived), and so is a day the user undid (held), which onHeld
+// reports once per pass. An error on one day never stops the other days; the
 // errors are joined and returned, and the next pass retries. A failing sink
 // (no token, unreachable instance) would fail every remaining day the same
 // way, so it ends the pass after the first.
-func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, today civil.Date, dryRun bool) error {
+//
+// Everything that can be checked before booking (the stores, the day, the
+// sink) fails before anything is sent. Booking itself goes item by item
+// without a transaction: items already booked on a day that then fails stay,
+// and the next pass completes the rest through the idempotent ledger.
+func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, today civil.Date, dryRun bool, onHeld func(days []string)) error {
 	manual, err := manualDays(ctx, st)
 	if err != nil {
 		return err
 	}
+	heldList, err := st.HeldDays(ctx)
+	if err != nil {
+		return err
+	}
+	holds := make(map[string]bool, len(heldList))
+	for _, d := range heldList {
+		holds[d] = true
+	}
+	var skippedHeld []string
 	var sinkErr error
 	newSink := deps.NewSink
 	deps.NewSink = func(c config.Config, path string) (sink.TimeSink, error) {
@@ -245,6 +270,10 @@ func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg con
 		if manual[day.String()] {
 			continue
 		}
+		if holds[day.String()] {
+			skippedHeld = append(skippedHeld, day.String())
+			continue
+		}
 		archived, err := isArchivedDay(ctx, st, day)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", day, err))
@@ -261,6 +290,10 @@ func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg con
 		if sinkErr != nil {
 			break
 		}
+	}
+	if len(skippedHeld) > 0 && onHeld != nil {
+		onHeld(skippedHeld)
+		printed = true
 	}
 	if !printed && len(errs) == 0 {
 		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgAutopilotNothingToBook))
