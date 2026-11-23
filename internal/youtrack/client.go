@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/JtheGunner/ticktack/internal/sink"
 )
@@ -32,7 +33,6 @@ const (
 	defaultTimeout    = 30 * time.Second
 	defaultMaxRetries = 3
 	maxRetryAfter     = 60 * time.Second
-	issuesPageSize    = 100
 	// maxResponseBytes bounds one successful response body; a larger body is
 	// an error, never a silent truncation.
 	maxResponseBytes = 8 << 20
@@ -325,15 +325,39 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 	return settings.WorkItemTypes, nil
 }
 
+// maxIssueSummaryBytes caps the summary kept per issue. The summary is only
+// shown next to the key in review suggestions, and YouTrack limits summaries
+// to 255 characters, so a longer one is not a real title. With maxCollectionEntries
+// entries the retained summaries stay below 5 MiB.
+const maxIssueSummaryBytes = 1024
+
+// truncateUTF8 cuts s to at most limit bytes without splitting a rune. The cut
+// part is copied: a plain slice would keep the whole original allocation alive,
+// so truncating would not bound the memory that is retained.
+func truncateUTF8(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return strings.Clone(s[:limit])
+}
+
 // MyOpenIssues returns issues assigned to the token owner in state "In Progress".
+// It reads every page of the result.
 func (c *Client) MyOpenIssues(ctx context.Context) ([]Issue, error) {
 	q := url.Values{
 		"query":  {"for: me State: {In Progress}"},
 		"fields": {"idReadable,summary,updated"},
-		"$top":   {strconv.Itoa(issuesPageSize)},
 	}
 	var issues []Issue
-	if err := c.do(ctx, http.MethodGet, "/api/issues", q, nil, &issues); err != nil {
+	err := getAllPages(ctx, c, "/api/issues", q, func(it Issue) string { return it.ID }, func(it Issue) bool {
+		it.Summary = truncateUTF8(it.Summary, maxIssueSummaryBytes)
+		issues = append(issues, it)
+		return false
+	})
+	if err != nil {
 		return nil, err
 	}
 	return issues, nil

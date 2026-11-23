@@ -253,7 +253,7 @@ func TestServerErrorIsRetriedThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		_, _ = io.WriteString(w, `[{"idReadable":"ABC-1","summary":"s"}]`)
+		writeFirstPageOnly(w, r, `[{"idReadable":"ABC-1","summary":"s"}]`)
 	}))
 	issues, err := c.MyOpenIssues(context.Background())
 	if err != nil {
