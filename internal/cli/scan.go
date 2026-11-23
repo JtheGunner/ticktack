@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -35,12 +36,6 @@ const (
 // repoScanner reads context events of one repository within [from, to].
 // pattern extracts ticket IDs from branch names; nil means the default.
 type repoScanner func(ctx context.Context, repo string, from, to time.Time, pattern *regexp.Regexp) ([]event.Event, error)
-
-// eventAppender is the part of the store a scan writes to.
-type eventAppender interface {
-	// AppendBatch stores all events in one transaction.
-	AppendBatch(ctx context.Context, events []event.Event) error
-}
 
 // defaultRepoScanner runs the read-only reflog scanner. It reports a missing
 // git binary as its own error instead of "not a repository".
@@ -86,73 +81,40 @@ func inspectRepoPath(path string) *repoProblem {
 	return nil
 }
 
-// skippedRepo is a configured path that was not scanned, with a reason.
-type skippedRepo struct {
-	Path   string
-	Reason string
+// scanRepositories makes one pass of the git collector over the configured
+// paths and stores the events through sink; see gitscan.Collector.Run. Events
+// inside a pause are dropped before storing.
+func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, paused pause.Intervals, sink collector.Sink) (gitscan.Report, error) {
+	var report gitscan.Report
+	c := newGitCollector(repos, home, pattern, scan, func(time.Time) (time.Time, time.Time) { return from, to })
+	c.LoadPauses = func(time.Time) (pause.Intervals, error) { return paused, nil }
+	c.OnReport = func(r gitscan.Report, _ error) { report = r }
+	err := c.Run(ctx, sink)
+	return report, err
 }
 
-// scannedRepo is a configured path that was scanned, with the number of
-// events found in it.
-type scannedRepo struct {
-	Path  string
-	Found int
-}
-
-// scanReport is the outcome of one pass over the configured repositories.
-type scanReport struct {
-	Total   int
-	Scanned int
-	Found   int
-	// Repos lists the scanned repositories in configuration order.
-	Repos   []scannedRepo
-	Skipped []skippedRepo
-}
-
-// scanRepositories scans every configured path and appends the events. A
-// failing repository is recorded and does not stop the others. Only a failed
-// append or a cancelled ctx aborts the pass. Events inside a pause are dropped
-// before storing. The events of all repositories
-// are stored in one transaction after the last scan, so a pass either stores
-// everything it found or nothing and holds the write lock only briefly.
-// Appending is idempotent because every event carries a deterministic key.
-func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, paused pause.Intervals, sink eventAppender) (scanReport, error) {
-	report := scanReport{Total: len(repos)}
-	var found []event.Event
-	for _, raw := range repos {
-		if err := ctx.Err(); err != nil {
-			return report, err
-		}
-		path, err := config.ExpandRepoPath(raw, home)
-		if err != nil {
-			report.Skipped = append(report.Skipped, skippedRepo{raw, fmt.Sprintf(msgRepoBadPath, err)})
-			continue
-		}
-		if problem := inspectRepoPath(path); problem != nil {
-			report.Skipped = append(report.Skipped, skippedRepo{raw, problem.Reason})
-			continue
-		}
-		repoCtx, cancel := context.WithTimeout(ctx, scanRepoTimeout)
-		events, err := scan(repoCtx, path, from, to, pattern)
-		timedOut := repoCtx.Err() != nil
-		cancel()
-		if err != nil {
-			if ctx.Err() != nil {
-				return report, ctx.Err()
+// newGitCollector builds the git collector for the configured entries. The
+// caller sets Now, LoadPauses and OnReport as it needs them.
+func newGitCollector(repos []string, home string, pattern *regexp.Regexp, scan repoScanner, window func(now time.Time) (from, to time.Time)) *gitscan.Collector {
+	return &gitscan.Collector{
+		Repos: repos,
+		Resolve: func(entry string) (string, string) {
+			path, err := config.ExpandRepoPath(entry, home)
+			if err != nil {
+				return "", fmt.Sprintf(msgRepoBadPath, err)
 			}
-			report.Skipped = append(report.Skipped, skippedRepo{raw, describeScanError(err, timedOut)})
-			continue
-		}
-		events = outsidePauses(events, paused)
-		found = append(found, events...)
-		report.Scanned++
-		report.Found += len(events)
-		report.Repos = append(report.Repos, scannedRepo{Path: raw, Found: len(events)})
+			if problem := inspectRepoPath(path); problem != nil {
+				return "", problem.Reason
+			}
+			return path, ""
+		},
+		ScanRepo:    scan,
+		Describe:    describeScanError,
+		Pattern:     pattern,
+		Window:      window,
+		Now:         func() time.Time { return time.Now().Round(0) },
+		RepoTimeout: scanRepoTimeout,
 	}
-	if err := sink.AppendBatch(ctx, found); err != nil {
-		return report, err
-	}
-	return report, nil
 }
 
 func describeScanError(err error, timedOut bool) string {
@@ -288,13 +250,13 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 // formatScanReport lays out the scan result: a heading, one gutter line per
 // repository and the summary. Paths come from the configuration and error
 // text may carry external text, so both are sanitised before they are styled.
-func formatScanReport(r render.Renderer, report scanReport, since string, newEvents int) string {
+func formatScanReport(r render.Renderer, report gitscan.Report, since string, newEvents int) string {
 	lines := []string{r.Heading(msgScanHeading), ""}
 	for _, repo := range report.Repos {
-		lines = append(lines, r.Gutter(render.StatusOK, fmt.Sprintf(msgScanRepoDone, SanitizeForTerminal(repo.Path), repo.Found)))
+		lines = append(lines, r.Gutter(render.StatusOK, fmt.Sprintf(msgScanRepoDone, SanitizeForTerminal(repo.Entry), repo.Found)))
 	}
 	for _, s := range report.Skipped {
-		lines = append(lines, r.Gutter(render.StatusFail, fmt.Sprintf(msgScanSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))))
+		lines = append(lines, r.Gutter(render.StatusFail, fmt.Sprintf(msgScanSkipped, SanitizeForTerminal(s.Entry), SanitizeForTerminal(s.Reason))))
 	}
 	status := render.StatusOK
 	if len(report.Skipped) > 0 {

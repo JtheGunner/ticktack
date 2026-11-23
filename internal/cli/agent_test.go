@@ -87,7 +87,7 @@ func TestNewTitleCollectorIsOffUnlessEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := newTitleCollector(cfg, &title.Fake{}, &titleRecorder{}, "", "", time.Second, nil); c != nil {
+	if c := newTitleCollector(cfg, &title.Fake{}, "", "", time.Second, nil); c != nil {
 		t.Fatal("collector must not exist while the feature is disabled")
 	}
 }
@@ -99,21 +99,21 @@ func TestNewTitleCollectorHonoursPauseFlag(t *testing.T) {
 	src.Push("com.jetbrains.goland", "proj – main.go")
 	src.Push("com.jetbrains.goland", "proj – main.go")
 	sink := &titleRecorder{}
-	c := newTitleCollector(cfg, src, sink, pausePath, "", time.Second, nil)
+	c := newTitleCollector(cfg, src, pausePath, "", time.Second, nil)
 	if c == nil {
 		t.Fatal("collector expected")
 	}
 	if err := os.WriteFile(pausePath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c.Tick(context.Background())
+	c.Tick(context.Background(), sink)
 	if len(sink.events) != 0 {
 		t.Fatalf("stored while paused: %+v", sink.events)
 	}
 	if err := os.Remove(pausePath); err != nil {
 		t.Fatal(err)
 	}
-	c.Tick(context.Background())
+	c.Tick(context.Background(), sink)
 	if len(sink.events) != 1 || sink.events[0].Repo != "/work/proj" || sink.events[0].Source != "title" {
 		t.Fatalf("events = %+v", sink.events)
 	}
@@ -124,11 +124,11 @@ func TestNewTitleCollectorRecordsTheProbeStatus(t *testing.T) {
 	statusPath := filepath.Join(t.TempDir(), "title-status.json")
 	src := &title.Fake{}
 	src.PushError(title.ErrPermission)
-	c := newTitleCollector(cfg, src, &titleRecorder{}, "", statusPath, time.Second, nil)
+	c := newTitleCollector(cfg, src, "", statusPath, time.Second, nil)
 	if c == nil {
 		t.Fatal("collector expected")
 	}
-	c.Tick(context.Background())
+	c.Tick(context.Background(), &titleRecorder{})
 	got, err := title.ReadStatus(statusPath)
 	if err != nil || got.State != title.ProbeDenied {
 		t.Fatalf("status = %+v, %v; want denied", got, err)
@@ -140,4 +140,30 @@ type titleRecorder struct{ events []event.Event }
 func (r *titleRecorder) Append(_ context.Context, e event.Event) error {
 	r.events = append(r.events, e)
 	return nil
+}
+
+func (r *titleRecorder) AppendBatch(ctx context.Context, events []event.Event) error {
+	for _, e := range events {
+		if err := r.Append(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestPauseFlagCheckIsFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	flag := filepath.Join(dir, "paused")
+	if pauseFlagCheck(flag)() {
+		t.Error("missing flag must not pause")
+	}
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !pauseFlagCheck(flag)() {
+		t.Error("existing flag must pause")
+	}
+	if !pauseFlagCheck(filepath.Join(flag, "unreadable"))() {
+		t.Error("a flag that cannot be read must count as paused")
+	}
 }

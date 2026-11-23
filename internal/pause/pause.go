@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/JtheGunner/ticktack/internal/event"
 )
 
 const (
@@ -173,4 +175,37 @@ func parseLine(line string) (Interval, error) {
 		return Interval{}, fmt.Errorf("end time: %w", err)
 	}
 	return Interval{Start: start, End: end}, nil
+}
+
+// Running reports whether the pause flag file exists at flagPath. An error
+// other than a missing file is returned, never read as "not paused".
+func Running(flagPath string) (bool, error) {
+	_, err := os.Stat(flagPath)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check pause flag: %w", err)
+}
+
+// IsPaused is the one fail-closed pause check of every collector and the
+// shell hook: when the flag cannot be read, capture counts as paused, so an
+// unreadable state never stores time the user meant to keep out.
+func IsPaused(flagPath string) bool {
+	running, err := Running(flagPath)
+	return err != nil || running
+}
+
+// Outside returns the events that do not lie inside a pause. Sources that
+// read the past use it, so paused time is never stored afterwards.
+func (ivs Intervals) Outside(events []event.Event) []event.Event {
+	kept := make([]event.Event, 0, len(events))
+	for _, e := range events {
+		if !ivs.Contains(e.At) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }

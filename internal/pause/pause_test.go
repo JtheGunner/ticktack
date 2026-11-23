@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/JtheGunner/ticktack/internal/event"
 )
 
 var t0 = time.Date(2026, 3, 2, 13, 0, 0, 0, time.UTC)
@@ -217,4 +219,35 @@ func TestStateFilesArePrivate(t *testing.T) {
 	assertMode(flag)
 	mustEnd(t, flag, t0.Add(time.Hour))
 	assertMode(LogPath(flag))
+}
+
+func TestIsPausedIsFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	flag := filepath.Join(dir, "paused")
+	if IsPaused(flag) {
+		t.Error("a missing flag file is not a pause")
+	}
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !IsPaused(flag) {
+		t.Error("an existing flag file is a pause")
+	}
+	// A path below a regular file cannot be read (ENOTDIR): unknown means paused.
+	if !IsPaused(filepath.Join(flag, "below")) {
+		t.Error("an unreadable pause state must count as paused")
+	}
+	if _, err := Running(filepath.Join(flag, "below")); err == nil {
+		t.Error("Running must report the read error")
+	}
+}
+
+func TestOutsideDropsEventsInsideAPause(t *testing.T) {
+	at := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	ivs := Intervals{{Start: at, End: at.Add(time.Hour)}}
+	events := []event.Event{{At: at.Add(-time.Minute)}, {At: at}, {At: at.Add(time.Hour)}}
+	got := ivs.Outside(events)
+	if len(got) != 2 || !got[0].At.Equal(events[0].At) || !got[1].At.Equal(events[2].At) {
+		t.Fatalf("got %+v", got)
+	}
 }

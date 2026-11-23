@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
+	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/pause"
 )
@@ -40,47 +43,48 @@ func runWithBackground(ctx context.Context, jobs []backgroundJob, main func(ctx 
 
 // newScanJob builds the periodic git scan of the agent, or returns nil while
 // the scan is off or no repository is configured. The job scans once at start
-// and then every interval, and does nothing while the pause flag exists.
+// and then every interval, and does nothing while paused reports true.
 // Events from an earlier pause are never stored; a pass is skipped when the
 // pauses cannot be loaded.
-func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoScanner, paused func() bool, pauses pauseLoader, interval time.Duration, now func() time.Time, logf func(format string, args ...any)) backgroundJob {
+func newScanJob(cfg config.Config, home string, sink collector.Sink, scan repoScanner, paused func() bool, pauses pauseLoader, interval time.Duration, now func() time.Time, logf func(format string, args ...any)) backgroundJob {
 	if interval <= 0 || (len(cfg.RepoPaths) == 0 && len(cfg.RepoRoots) == 0) {
 		return nil
 	}
 	return func(ctx context.Context) {
-		once := func() {
-			if paused() {
-				return
+		// The repositories are resolved per pass, so new checkouts below
+		// repo_roots are picked up without a restart.
+		var passCollector collector.Collector = &perPassGit{build: func() *gitscan.Collector {
+			c := newGitCollector(trackedRepos(cfg, home), home, cfg.TicketPattern, scan, func(current time.Time) (time.Time, time.Time) {
+				return scanStartOfLookback(current, cfg.Location), current.Add(scanFutureSlack)
+			})
+			c.Now = now
+			c.LoadPauses = pauses
+			c.OnReport = func(report gitscan.Report, err error) {
+				for _, s := range report.Skipped {
+					logf(msgRepoLogSkipped, SanitizeForTerminal(s.Entry), SanitizeForTerminal(s.Reason))
+				}
+				if err == nil {
+					logf(msgRepoLogDone, report.Scanned, report.Total, report.Found)
+				}
 			}
-			current := now()
-			pauseIntervals, err := pauses(current)
-			if err != nil {
+			return c
+		}}
+		passCollector = collector.SkipWhen(paused, passCollector)
+		_ = collector.Every(interval, passCollector, func(err error) {
+			if errors.Is(err, gitscan.ErrPausesUnavailable) {
 				logf(msgRepoLogNoPauses, err)
 				return
 			}
-			from := scanStartOfLookback(current, cfg.Location)
-			report, err := scanRepositories(ctx, trackedRepos(cfg, home), home, from, current.Add(scanFutureSlack), cfg.TicketPattern, scan, pauseIntervals, sink)
-			for _, s := range report.Skipped {
-				logf(msgRepoLogSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))
-			}
-			if err != nil {
-				if ctx.Err() == nil {
-					logf(msgRepoLogStoreFail, err)
-				}
-				return
-			}
-			logf(msgRepoLogDone, report.Scanned, report.Total, report.Found)
-		}
-		once()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				once()
-			}
-		}
+			logf(msgRepoLogStoreFail, err)
+		}).Run(ctx, sink)
 	}
+}
+
+// perPassGit builds a fresh git collector for every pass.
+type perPassGit struct{ build func() *gitscan.Collector }
+
+func (p *perPassGit) Name() string { return gitscan.Source }
+
+func (p *perPassGit) Run(ctx context.Context, sink collector.Sink) error {
+	return p.build().Run(ctx, sink)
 }

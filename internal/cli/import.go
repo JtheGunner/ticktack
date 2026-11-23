@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/collector/activitywatch"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/render"
 )
 
@@ -106,13 +108,23 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 		}
 	}
 
-	imp := &activitywatch.Importer{Source: source, Now: func() time.Time { return now }, Hostname: cfg.ActivityWatch.Hostname}
-	collected, collectErr := imp.Collect(ctx, from)
-	events := outsidePauses(collected, pauseIntervals)
-	var presence, gaps, hints int
-	if err := st.AppendBatch(ctx, events); err != nil {
-		return err
+	var events []event.Event
+	imp := &activitywatch.Collector{
+		Importer:   &activitywatch.Importer{Source: source, Now: func() time.Time { return now }, Hostname: cfg.ActivityWatch.Hostname},
+		From:       func(context.Context) (time.Time, error) { return from, nil },
+		LoadPauses: func(time.Time) (pause.Intervals, error) { return pauseIntervals, nil },
+		OnStored:   func(stored []event.Event) { events = stored },
 	}
+	runErr := imp.Run(ctx, st)
+	var partial *activitywatch.PartialError
+	if runErr != nil && !errors.As(runErr, &partial) {
+		return runErr
+	}
+	var collectErr error
+	if partial != nil {
+		collectErr = partial.Err
+	}
+	var presence, gaps, hints int
 	for _, e := range events {
 		switch e.Kind {
 		case event.KindPresence:

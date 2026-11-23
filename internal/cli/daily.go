@@ -129,14 +129,7 @@ func isPaused(deps dailyDeps) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, fmt.Errorf("check pause flag: %w", err)
+	return pause.Running(path)
 }
 
 // loadPauses returns the pauses known at now; a running pause lasts until now.
@@ -146,16 +139,4 @@ func loadPauses(deps dailyDeps, now time.Time) (pause.Intervals, error) {
 		return nil, err
 	}
 	return pause.Load(path, now)
-}
-
-// outsidePauses returns the events that do not lie inside a pause. Sources
-// that read the past use it, so paused time is never stored afterwards.
-func outsidePauses(events []event.Event, paused pause.Intervals) []event.Event {
-	kept := make([]event.Event, 0, len(events))
-	for _, e := range events {
-		if !paused.Contains(e.At) {
-			kept = append(kept, e)
-		}
-	}
-	return kept
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
@@ -26,10 +28,10 @@ const (
 	hookGitTimeout = 500 * time.Millisecond
 )
 
-// eventSink is the part of the store the hook needs.
+// eventSink is the part of the store the hook needs: the shared collector
+// sink, which the hook uses for its batch, plus closing the store.
 type eventSink interface {
-	// AppendBatch stores all events in one transaction.
-	AppendBatch(ctx context.Context, events []event.Event) error
+	collector.Sink
 	Close() error
 }
 
@@ -84,7 +86,7 @@ func defaultHookDeps() hookDeps {
 		Paused: func() bool {
 			p, err := paths.PausePath()
 			if err != nil {
-				return false
+				return true // fail-closed, like every pause check
 			}
 			return pauseFlagCheck(p)()
 		},
@@ -117,7 +119,22 @@ func openHookStore() (eventSink, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
-	return store.Open(dbPath)
+	pausePath, err := paths.PausePath()
+	if err != nil {
+		return nil, err
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	// The hook writes through the same pause gate as the agent.
+	return gatedStore{Sink: collector.PauseGate(st, pauseFlagCheck(pausePath)), Closer: st}, nil
+}
+
+// gatedStore is a store behind the shared pause gate.
+type gatedStore struct {
+	collector.Sink
+	io.Closer
 }
 
 // gitRepoInfo resolves repo root and branch with a single git call: no shell,
