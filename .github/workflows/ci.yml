@@ -19,6 +19,10 @@ concurrency:
 # and every run with the variable unset or not "true" use GitHub-hosted
 # ubuntu-latest. macOS jobs always stay on GitHub-hosted runners. The runs-on
 # expression is repeated per job because workflow YAML has no shared variables.
+# The condition only routes trusted runs; it is NOT a security boundary, because a
+# pull request can edit this file. The real protection is server-side: the
+# Actions setting that requires approval for all outside contributors, and an
+# ephemeral runner without shared volumes (see the README).
 jobs:
   lint:
     name: lint
