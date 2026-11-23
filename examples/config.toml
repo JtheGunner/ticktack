@@ -136,15 +136,25 @@ url = "http://localhost:5600"
 # Restrict the import to buckets of this host (default: every host).
 # hostname = "my-mac"
 
-# Optional auto mode (off by default). `ticktack auto` books only explicit and
-# rule blocks, and only after this many consecutive reviewed days without a
-# correction.
+# Optional auto mode (off by default). It books a day without a review, and only
+# its explicit and rule blocks; an item with any lower-tier time stays for review.
 #
-# The autopilot mode is an explicit opt-in (it needs enabled = true as well) and
-# replaces that trust gate: the agent books completed days itself, every 30
-# minutes, going back autopilot_lookback_days (1 to 31). Days you confirmed in
-# `ticktack review` are never touched, and today is never booked. Switch it off
-# by setting mode back to "gated" or enabled to false.
+#   enabled                  true | false. The master switch: false turns both
+#                            modes off.
+#   mode                     "gated" (default): `ticktack auto` books only once the
+#                            trust gate is met, that is trusted_days consecutive
+#                            reviewed days without a correction. Run it by hand or
+#                            from your own scheduler.
+#                            "autopilot": an explicit opt-in that replaces the trust
+#                            gate. The agent books completed days itself, every 30
+#                            minutes. Days you confirmed in `ticktack review` are
+#                            never touched, and today is never booked.
+#                            Any other value is a configuration error.
+#   trusted_days             whole number, at least 1 (default 10). Gated mode only.
+#   autopilot_lookback_days  whole number from 1 to 31 (default 7). Autopilot only:
+#                            how many completed days back the agent looks.
+#
+# To switch the autopilot off, set mode back to "gated" or enabled to false.
 [auto]
 enabled = false
 trusted_days = 10
