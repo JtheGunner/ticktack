@@ -624,9 +624,9 @@ func (r *syncRun) replaceMissing(ctx context.Context, work sink.WorkItem, row st
 // as it is and the next sync adopts the item if the create did land.
 //
 // Callers must have established that the row's own item is missing before
-// they call repair. The marker lookup behind (id, found) is reads all
+// they call repair. The marker lookup behind (id, found) reads all
 // pages of the issue's work items, so an item carrying the marker is found
-// wherever it sits; a failed lookup is an error, not a missing item.
+// wherever it sits. A failed lookup is an error, not a missing item.
 func (r *syncRun) repair(ctx context.Context, work sink.WorkItem, res ItemResult, id string, found bool) (ItemResult, error) {
 	res.Reason = RepairedReason
 	if r.opts.DryRun {
