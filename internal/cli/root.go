@@ -30,5 +30,6 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newDoctorCommand())
 	root.AddCommand(newImportCommand())
 	root.AddCommand(newScanCommand())
+	root.AddCommand(newConfigCommand())
 	return root
 }
