@@ -291,3 +291,69 @@ func TestGitReaderMissingRepositoryFails(t *testing.T) {
 		t.Error("Read succeeded for a missing repository")
 	}
 }
+
+func manyCommits(n int) (sessionizer.DayItem, *fakeReader) {
+	commits := make([]Commit, n)
+	for i := range commits {
+		commits[i] = Commit{Subject: fmt.Sprintf("commit %d", i)}
+	}
+	return itemWith(commits...)
+}
+
+func TestDescribeMarksALowerBoundWhenTheReadIsBounded(t *testing.T) {
+	it, r := manyCommits(maxCommitsRead + 20)
+	got := Describer{Reader: r}.Describe(context.Background(), it)
+	want := "commit 0; commit 1; commit 2; commit 3; commit 4; +95 or more"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if r.calls != maxCommitsRead {
+		t.Errorf("read %d commits, want %d", r.calls, maxCommitsRead)
+	}
+}
+
+func TestDescribeCountsExactlyUpToTheBound(t *testing.T) {
+	it, r := manyCommits(maxCommitsRead)
+	got := Describer{Reader: r}.Describe(context.Background(), it)
+	if want := "commit 0; commit 1; commit 2; commit 3; commit 4; +95 more"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDescribeReliably(t *testing.T) {
+	ok := Commit{Subject: "real"}
+	tests := []struct {
+		name     string
+		commits  []Commit
+		drop     []string // hashes the reader fails on
+		wantText string
+		reliable bool
+	}{
+		{"all read", []Commit{ok}, nil, "real", true},
+		{"no commits is reliable", nil, nil, "ABC-1 — 3 blocks", true},
+		{"only filtered commits is reliable", []Commit{{Subject: "m", Merge: true}}, nil, "ABC-1 — 3 blocks", true},
+		{"reader error is unreliable", []Commit{ok}, []string{fmt.Sprintf("%040x", 1)}, "ABC-1 — 3 blocks", false},
+		{"one failure among several is unreliable", []Commit{ok, {Subject: "two"}}, []string{fmt.Sprintf("%040x", 1)}, "two", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			it, r := itemWith(tc.commits...)
+			for _, h := range tc.drop {
+				delete(r.commits, h)
+			}
+			text, reliable := Describer{Reader: r}.DescribeReliably(context.Background(), it)
+			if text != tc.wantText || reliable != tc.reliable {
+				t.Errorf("got (%q, %v), want (%q, %v)", text, reliable, tc.wantText, tc.reliable)
+			}
+		})
+	}
+}
+
+func TestDescribeReliablyIsUnreliableWhenTheContextEnds(t *testing.T) {
+	it, r := itemWith(Commit{Subject: "real"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, reliable := (Describer{Reader: r}).DescribeReliably(ctx, it); reliable {
+		t.Error("a cancelled read must not be reliable")
+	}
+}

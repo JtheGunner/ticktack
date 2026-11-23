@@ -56,15 +56,42 @@ type Describer struct {
 // by "+N more" when there are others. Merge commits and fixup!, squash! and
 // amend! commits are left out. When nothing is left, or no commit can be
 // read, it returns the item's own description.
+//
+// Only the first maxCommitsRead commits of an item are read. When there are
+// more, the count of omitted subjects is a lower bound and is worded "+N or
+// more"; nothing is claimed about the unread commits when no subject beyond
+// the shown ones was found.
 func (d Describer) Describe(ctx context.Context, it sessionizer.DayItem) string {
+	text, _ := d.DescribeReliably(ctx, it)
+	return text
+}
+
+// DescribeReliably is Describe plus a verdict on the read. reliable is false
+// when at least one commit could not be read (the reader returned an error,
+// or the context ended before all commits were read): the text may then miss
+// subjects, or be the item's own description only because the repository was
+// unreachable. An empty repository answer is not an error: a commit that is
+// read but filtered out (merge, fixup!) or an item without commits is a
+// reliable result.
+func (d Describer) DescribeReliably(ctx context.Context, it sessionizer.DayItem) (text string, reliable bool) {
 	var subjects []string
 	seen := map[string]bool{}
+	reliable = true
+	truncated := len(it.Commits) > maxCommitsRead
 	for i, ref := range it.Commits {
-		if i >= maxCommitsRead || ctx.Err() != nil {
+		if i >= maxCommitsRead {
+			break
+		}
+		if ctx.Err() != nil {
+			reliable = false
 			break
 		}
 		c, err := d.Reader.Read(ctx, ref.Repo, ref.Hash)
-		if err != nil || c.Merge {
+		if err != nil {
+			reliable = false
+			continue
+		}
+		if c.Merge {
 			continue
 		}
 		subject := Clean(c.Subject)
@@ -75,21 +102,28 @@ func (d Describer) Describe(ctx context.Context, it sessionizer.DayItem) string 
 		subjects = append(subjects, subject)
 	}
 	if len(subjects) == 0 {
-		return it.Description
+		return it.Description, reliable
 	}
 	shown := subjects
 	if len(shown) > MaxSubjects {
 		shown = shown[:MaxSubjects]
 	}
-	text := strings.Join(shown, separator)
+	text = strings.Join(shown, separator)
 	if more := len(subjects) - len(shown); more > 0 {
-		text += fmt.Sprintf(separator+msgMore, more)
+		format := msgMore
+		if truncated {
+			format = msgMoreAtLeast
+		}
+		text += fmt.Sprintf(separator+format, more)
 	}
-	return text
+	return text, reliable
 }
 
-// msgMore is the user-facing tail of a description with omitted subjects.
-const msgMore = "+%d more"
+// User-facing tails of a description with omitted subjects.
+const (
+	msgMore        = "+%d more"
+	msgMoreAtLeast = "+%d or more"
+)
 
 func isAutosquash(subject string) bool {
 	for _, prefix := range []string{"fixup!", "squash!", "amend!"} {
