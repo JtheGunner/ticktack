@@ -26,9 +26,6 @@ type Hint struct {
 	Project string
 }
 
-// IsZero reports whether nothing was recognised.
-func (h Hint) IsZero() bool { return h == Hint{} }
-
 // appRule describes how titles of one family of applications are parsed.
 // To support another application, add a rule to appRules.
 type appRule struct {

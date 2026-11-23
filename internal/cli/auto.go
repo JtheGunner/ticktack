@@ -43,7 +43,6 @@ func newDigestCommand() *cobra.Command {
 }
 
 func newDigestCommandWith(deps syncDeps) *cobra.Command {
-	var last bool
 	cmd := &cobra.Command{
 		Use:   "digest",
 		Short: "Show the digest of the last auto run",
@@ -53,7 +52,6 @@ func newDigestCommandWith(deps syncDeps) *cobra.Command {
 			return runDigest(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
 		},
 	}
-	cmd.Flags().BoolVar(&last, "last", true, "show the most recent digest (the default)")
 	return cmd
 }
 
