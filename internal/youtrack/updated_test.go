@@ -2,7 +2,6 @@ package youtrack
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"testing"
 )
@@ -11,7 +10,7 @@ func TestMyOpenIssuesDecodesUpdated(t *testing.T) {
 	var fields string
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fields = r.URL.Query().Get("fields")
-		_, _ = io.WriteString(w, `[{"idReadable":"ABC-1","summary":"s","updated":1700000000000}]`)
+		writeFirstPageOnly(w, r, `[{"idReadable":"ABC-1","summary":"s","updated":1700000000000}]`)
 	}))
 	issues, err := c.MyOpenIssues(context.Background())
 	if err != nil {
