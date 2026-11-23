@@ -96,10 +96,11 @@ func runConfigUpdate(ctx context.Context, deps configUpdateDeps, opts configUpda
 			return nil
 		}
 	}
-	if err := config.ApplyUpdate(path, plan); err != nil {
+	backupPath, err := config.ApplyUpdate(path, plan)
+	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, msgConfigUpdateDone+"\n", path, path+".bak")
+	_, _ = fmt.Fprintf(out, msgConfigUpdateDone+"\n", path, backupPath)
 	return nil
 }
 

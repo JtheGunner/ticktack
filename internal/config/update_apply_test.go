@@ -45,7 +45,7 @@ func TestApplyUpdate(t *testing.T) {
 	t.Run("writes result and backup", func(t *testing.T) {
 		path := writeConfig(t, "a = 1\n")
 		plan := UpdatePlan{Original: "a = 1\n", Result: "a = 1\n# b = 2\n"}
-		if err := ApplyUpdate(path, plan); err != nil {
+		if _, err := ApplyUpdate(path, plan); err != nil {
 			t.Fatal(err)
 		}
 		if got := readFile(t, path); got != plan.Result {
@@ -63,10 +63,10 @@ func TestApplyUpdate(t *testing.T) {
 		path := writeConfig(t, "a = 1\n")
 		first := UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}
 		second := UpdatePlan{Original: "a = 2\n", Result: "a = 3\n"}
-		if err := ApplyUpdate(path, first); err != nil {
+		if _, err := ApplyUpdate(path, first); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyUpdate(path, second); err != nil {
+		if _, err := ApplyUpdate(path, second); err != nil {
 			t.Fatal(err)
 		}
 		if got := readFile(t, path+".bak"); got != "a = 2\n" {
@@ -80,7 +80,7 @@ func TestApplyUpdate(t *testing.T) {
 	t.Run("file changed since planning", func(t *testing.T) {
 		path := writeConfig(t, "a = 1\n# edited\n")
 		plan := UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}
-		err := ApplyUpdate(path, plan)
+		_, err := ApplyUpdate(path, plan)
 		if err == nil || !strings.Contains(err.Error(), "changed while updating") {
 			t.Fatalf("err = %v, want changed while updating", err)
 		}
@@ -95,7 +95,7 @@ func TestApplyUpdate(t *testing.T) {
 
 	t.Run("no change writes nothing", func(t *testing.T) {
 		path := writeConfig(t, "a = 1\n")
-		if err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 1\n"}); err != nil {
+		if _, err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 1\n"}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
@@ -106,7 +106,7 @@ func TestApplyUpdate(t *testing.T) {
 
 	t.Run("missing file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.toml")
-		if err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}); err == nil {
+		if _, err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}); err == nil {
 			t.Fatal("expected an error")
 		}
 	})
@@ -125,7 +125,7 @@ func TestApplyUpdate(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-		err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"})
+		_, err := ApplyUpdate(path, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"})
 		if err == nil {
 			t.Fatal("expected an error")
 		}
@@ -152,7 +152,7 @@ func TestApplyUpdateThroughSymlink(t *testing.T) {
 	t.Run("updates the target and keeps the link", func(t *testing.T) {
 		link, target := linkedConfig(t, "a = 1\n")
 		plan := UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"}
-		if err := ApplyUpdate(link, plan); err != nil {
+		if _, err := ApplyUpdate(link, plan); err != nil {
 			t.Fatal(err)
 		}
 		info, err := os.Lstat(link)
@@ -175,7 +175,7 @@ func TestApplyUpdateThroughSymlink(t *testing.T) {
 
 	t.Run("detects a changed file through the link", func(t *testing.T) {
 		link, target := linkedConfig(t, "a = 1\n# edited\n")
-		err := ApplyUpdate(link, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"})
+		_, err := ApplyUpdate(link, UpdatePlan{Original: "a = 1\n", Result: "a = 2\n"})
 		if err == nil || !strings.Contains(err.Error(), "changed while updating") {
 			t.Fatalf("err = %v, want changed while updating", err)
 		}

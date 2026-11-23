@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestConfigUpdate(t *testing.T) {
 		{name: "up to date", file: &template, wantOut: []string{"Config is up to date: "}, notWantOut: []string{"Apply"}},
 		{name: "no config file", wantErr: "no config at "},
 		{name: "added only with yes", file: &missingOption, opts: configUpdateOptions{Yes: true},
-			wantOut: []string{"+ retention_days", "1 to add, 0 to remove.", "Updated ", ".bak)"}, wantWritten: true, wantBackup: true},
+			wantOut: []string{"+ retention_days", "\n    # retention_days = ", "1 to add, 0 to remove.", "Updated ", ".bak)"}, wantWritten: true, wantBackup: true},
 		{name: "removed only with yes", file: &withLegacy, opts: configUpdateOptions{Yes: true},
 			wantOut: []string{"- legacy_option (was: ", "0 to add, 1 to remove.", "Updated "}, wantWritten: true, wantBackup: true},
 		{name: "dry run writes nothing", file: &missingOption, opts: configUpdateOptions{DryRun: true},
@@ -46,7 +47,7 @@ func TestConfigUpdate(t *testing.T) {
 		{name: "removed key Load rejects", file: &invalid, opts: configUpdateOptions{Yes: true},
 			wantErr: "cannot update "},
 		{name: "removed value truncated", file: &withLegacy, opts: configUpdateOptions{DryRun: true},
-			wantOut: []string{strings.Repeat("x", 79)}, notWantOut: []string{strings.Repeat("x", 81)}},
+			wantOut: []string{"(was: \"" + strings.Repeat("x", 79) + ")"}, notWantOut: []string{strings.Repeat("x", 80)}},
 		{name: "removed value sanitized", file: &hostile, opts: configUpdateOptions{DryRun: true},
 			wantOut: []string{"- legacy_option (was: "}, notWantOut: []string{"\u202e"}},
 	}
@@ -124,4 +125,78 @@ func cutOptionBlock(t *testing.T, template, key string) string {
 	}
 	t.Fatalf("option %q not found in template", key)
 	return ""
+}
+
+func TestConfigUpdateRepairsConfigLoadRejects(t *testing.T) {
+	template := config.DefaultTOML("")
+	original := cutOptionBlock(t, template, "retention_days") + "\nlegacy_option = 1\n"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err == nil {
+		t.Fatal("fixture: config.Load accepted the config before the update")
+	}
+	deps := configUpdateDeps{ConfigPath: func() (string, error) { return path, nil }}
+	var out strings.Builder
+	if err := runConfigUpdate(context.Background(), deps, configUpdateOptions{Yes: true}, bufio.NewReader(strings.NewReader("")), &out); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out.String(), "- legacy_option (was: 1)") {
+		t.Errorf("output does not name the removed key:\n%s", out.String())
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(updated), "legacy_option") {
+		t.Errorf("removed key still in the file:\n%s", updated)
+	}
+	if !strings.Contains(string(updated), "# retention_days = ") {
+		t.Errorf("added option block missing from the file:\n%s", updated)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil || string(backup) != original {
+		t.Errorf("backup = %q, %v; want the original", backup, err)
+	}
+	if _, err := config.Load(path); err != nil {
+		t.Errorf("config.Load rejects the updated config: %v", err)
+	}
+}
+
+func TestConfigUpdateSymlinkedConfigReportsRealBackup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(cutOptionBlock(t, config.DefaultTOML(""), "retention_days")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "config.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	deps := configUpdateDeps{ConfigPath: func() (string, error) { return link, nil }}
+	var out strings.Builder
+	if err := runConfigUpdate(context.Background(), deps, configUpdateOptions{Yes: true}, bufio.NewReader(strings.NewReader("")), &out); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	realTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBackup := realTarget + ".bak"
+	if _, err := os.Stat(wantBackup); err != nil {
+		t.Fatalf("backup next to the target missing: %v", err)
+	}
+	if !strings.Contains(out.String(), "(backup: "+wantBackup+")") {
+		t.Errorf("output does not print the real backup path %s:\n%s", wantBackup, out.String())
+	}
+	if _, err := os.Lstat(link + ".bak"); err == nil {
+		t.Errorf("backup written next to the link")
+	}
 }
