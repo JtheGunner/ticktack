@@ -20,7 +20,7 @@ Deltas to the global rules in `~/.claude/rules/`. Passive time tracker (Go CLI) 
 - Never persist window titles, screenshots, keystrokes, or file contents. Titles may be parsed in memory for a project hint only.
 - Network calls go only to the configured YouTrack instance (`sync`, suggestions in `review`, `doctor`, the token check in `init`) and, if enabled, to ActivityWatch on loopback. No telemetry.
 - The YouTrack token lives in the OS keychain, never in config, env files, logs, or tests.
-- Nothing is booked without review unless the user enabled auto mode and the trust gate is met.
+- Nothing is booked without review unless the user enabled auto mode. Auto mode has two forms: `gated` (default; unlocks only when the trust gate is met) and `autopilot` (explicit opt-in via `[auto] mode = "autopilot"`; no trust gate, the agent books completed days itself). Both book only `explicit` and `rule` blocks (presence ∩ context time only), skip any item with lower-tier time, never touch today's open day, honour pauses, fail closed on any doubt (book nothing rather than something partial), never overwrite a day the user confirmed or booked by hand, and stay idempotent and reversible (`ticktack undo`, digest). Autopilot must never be the default and never switch itself on.
 
 ## Go conventions
 
