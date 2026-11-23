@@ -50,9 +50,9 @@ type lineEntry struct {
 }
 
 var (
-	activeHeaderPattern    = regexp.MustCompile(`^\[\[?([A-Za-z0-9_.-]+)\]\]?\s*(#.*)?$`)
+	activeHeaderPattern    = regexp.MustCompile(`^\s*\[\[?([A-Za-z0-9_.-]+)\]\]?\s*(#.*)?$`)
 	commentedHeaderPattern = regexp.MustCompile(`^# \[\[?([A-Za-z0-9_.-]+)\]\]?$`)
-	activeKeyPattern       = regexp.MustCompile(`^("[^"]+"|[A-Za-z0-9_.-]+)\s*=`)
+	activeKeyPattern       = regexp.MustCompile(`^\s*("[^"]+"|[A-Za-z0-9_.-]+)\s*=`)
 	commentedKeyPattern    = regexp.MustCompile(`^# ("[^"]+"|[A-Za-z0-9_.-]+)\s*=`)
 )
 

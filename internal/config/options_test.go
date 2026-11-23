@@ -79,6 +79,8 @@ func TestParseLinesClassifiesActiveAndCommented(t *testing.T) {
 		{"blank", ``, lineEntry{Kind: kindBlank}},
 		{"array header", `[[rules]]`, lineEntry{Kind: kindHeader, Active: true, Table: "rules"}},
 		{"commented array header", `# [[rules]]`, lineEntry{Kind: kindHeader, Table: "rules"}},
+		{"indented key", `  enabled = true`, lineEntry{Kind: kindKey, Active: true, Key: "enabled"}},
+		{"indented header", "\t[auto]", lineEntry{Kind: kindHeader, Active: true, Table: "auto"}},
 		{"carriage return", "gap_threshold = \"5m\"\r", lineEntry{Kind: kindKey, Active: true, Key: "gap_threshold"}},
 	}
 	for _, tt := range tests {
@@ -91,5 +93,17 @@ func TestParseLinesClassifiesActiveAndCommented(t *testing.T) {
 				t.Errorf("entry = %+v, want %+v", got[0], tt.want)
 			}
 		})
+	}
+}
+
+func TestParseLinesTracksTableForIndentedLines(t *testing.T) {
+	got := parseLines("  [auto]\n  enabled = true\n  # mode = \"gated\"")
+	want := []lineEntry{
+		{Index: 0, Kind: kindHeader, Active: true, Table: "auto"},
+		{Index: 1, Kind: kindKey, Active: true, Table: "auto", Key: "enabled"},
+		{Index: 2, Kind: kindComment},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("entries = %+v, want %+v", got, want)
 	}
 }
