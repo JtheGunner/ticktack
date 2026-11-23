@@ -90,6 +90,74 @@ func TestNewScanJobIsOffWithoutIntervalOrRepos(t *testing.T) {
 	}
 }
 
+// loadScanConfig loads a config file with one configured repository and the
+// given extra TOML, the way the agent loads it.
+func loadScanConfig(t *testing.T, repo, extra string) config.Config {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := fmt.Sprintf("repo_paths = [%q]\n", repo) + extra
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestScanJobRunsWithTheDefaultIntervalAndOneRepo(t *testing.T) {
+	repo := fakeRepoDir(t)
+	cfg := loadScanConfig(t, repo, "")
+	var calls atomic.Int32
+	scan := func(_ context.Context, path string, _, _ time.Time, _ *regexp.Regexp) ([]event.Event, error) {
+		calls.Add(1)
+		return []event.Event{{At: dailyNow, Source: "git", Kind: event.KindContext, Repo: path, Key: "k"}}, nil
+	}
+	sink := &syncSink{}
+	job := newScanJob(cfg, "/home/u", sink, scan, func() bool { return false }, noPauses, cfg.Scan.Interval,
+		func() time.Time { return dailyNow }, t.Logf)
+	if job == nil {
+		t.Fatalf("the default config (interval %s) with one repository must start a scan", cfg.Scan.Interval)
+	}
+	runJobUntil(t, job, func() bool { return sink.count() > 0 })
+	if calls.Load() == 0 {
+		t.Fatal("the repository was not scanned")
+	}
+}
+
+func TestScanJobIsOffWithIntervalZeroFromConfig(t *testing.T) {
+	cfg := loadScanConfig(t, fakeRepoDir(t), "[scan]\ninterval = \"0\"\n")
+	job := newScanJob(cfg, "/home/u", &syncSink{}, nil, func() bool { return false }, noPauses, cfg.Scan.Interval,
+		func() time.Time { return dailyNow }, t.Logf)
+	if job != nil {
+		t.Error(`interval "0" must not start a scan`)
+	}
+}
+
+func TestScanJobWithTheDefaultIntervalSkipsWhilePaused(t *testing.T) {
+	cfg := loadScanConfig(t, fakeRepoDir(t), "")
+	var calls atomic.Int32
+	scan := func(context.Context, string, time.Time, time.Time, *regexp.Regexp) ([]event.Event, error) {
+		calls.Add(1)
+		return nil, nil
+	}
+	job := newScanJob(cfg, "/home/u", &syncSink{}, scan, func() bool { return true }, noPauses, cfg.Scan.Interval,
+		func() time.Time { return dailyNow }, t.Logf)
+	if job == nil {
+		t.Fatal("the default config with one repository must start a scan job")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { job(ctx); close(done) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	if calls.Load() != 0 {
+		t.Fatalf("scanned %d times while paused", calls.Load())
+	}
+}
+
 func TestScanJobScansAtStartAndOnEveryTick(t *testing.T) {
 	repo := fakeRepoDir(t)
 	var calls atomic.Int32

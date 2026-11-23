@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-func TestScanIntervalDefaultsToOff(t *testing.T) {
+func TestScanIntervalDefaultsToFifteenMinutes(t *testing.T) {
 	cfg, err := Load(writeConfig(t, DefaultTOML("")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Scan.Interval != 0 {
-		t.Errorf("scan interval = %s, want 0", cfg.Scan.Interval)
+	if cfg.Scan.Interval != 15*time.Minute {
+		t.Errorf("scan interval = %s, want 15m", cfg.Scan.Interval)
 	}
 }
 

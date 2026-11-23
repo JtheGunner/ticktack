@@ -91,10 +91,11 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # project = "GENERAL"
 # summary = "Meetings / Admin"
 
-# Optional periodic git scan by the agent (off by default). "0" turns it off;
-# otherwise the minimum is 5m. When set, the agent also scans once at start.
+# Periodic git scan by the agent (default 15m). It runs only when repo_paths or
+# repo_roots is set, once at start and then at this interval. "0" turns it off;
+# otherwise the minimum is 5m.
 # [scan]
-# interval = "0"
+# interval = "15m"
 
 # Fixed repository to ticket mappings. Repeat the table for more rules. The
 # repo is an absolute path or starts with ~/; the ticket must match

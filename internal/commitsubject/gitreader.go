@@ -39,10 +39,9 @@ func (GitReader) Read(ctx context.Context, repo, hash string) (Commit, error) {
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "-C", repo,
-		"-c", "log.showSignature=false",
+	cmd := exec.CommandContext(ctx, "git", git.Args(repo,
 		"log", "-1", "--no-walk", "--no-color", "--no-decorate",
-		"--format=%P"+fieldSeparator+"%s", hash, "--")
+		"--format=%P"+fieldSeparator+"%s", hash, "--")...)
 	cmd.Env = git.CommandEnv()
 	out := &cappedBuffer{limit: maxOutputBytes}
 	cmd.Stdout = out

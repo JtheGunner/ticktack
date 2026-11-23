@@ -32,6 +32,23 @@ func CommandEnv() []string {
 	return commandEnv(os.Environ())
 }
 
+// Args returns the arguments of a read-only git call in dir: `-C dir`, then
+// settings that stop the repository's own configuration from making git run
+// a program, then the subcommand and its arguments. A cloned repository is
+// untrusted input: its local config could otherwise set log.showSignature
+// together with gpg.program (run for a signed commit by `reflog show` and
+// `log`) or core.fsmonitor (run when the index is read). Every git call of
+// ticktack that reads a user-configured repository must build its arguments
+// with Args and run with CommandEnv.
+func Args(dir string, args ...string) []string {
+	full := []string{
+		"-C", dir,
+		"-c", "log.showSignature=false",
+		"-c", "core.fsmonitor=false",
+	}
+	return append(full, args...)
+}
+
 func commandEnv(environ []string) []string {
 	env := make([]string, 0, len(environ)+4)
 	for _, kv := range environ {

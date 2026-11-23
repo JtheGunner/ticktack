@@ -36,9 +36,9 @@ const (
 	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
 	// that unlocks auto mode.
 	DefaultAutoTrustedDays = 10
-	// DefaultScanInterval is the agent's git scan interval; zero turns the
-	// periodic scan off.
-	DefaultScanInterval time.Duration = 0
+	// DefaultScanInterval is the agent's git scan interval. The scan only runs
+	// once repo_paths or repo_roots is set; zero turns it off.
+	DefaultScanInterval = 15 * time.Minute
 	// MinScanInterval is the shortest accepted non-zero scan interval.
 	MinScanInterval = 5 * time.Minute
 	// DefaultRetentionDays turns the retention cleanup off: raw events stay.
