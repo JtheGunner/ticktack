@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	"github.com/JtheGunner/ticktack/internal/event"
 )
 
@@ -19,15 +20,9 @@ const DefaultSampleTimeout = 5 * time.Second
 // ticks counts as a gap (typically the machine slept).
 const gapFactor = 3
 
-// Appender stores events. *store.Store satisfies it.
-type Appender interface {
-	Append(ctx context.Context, e event.Event) error
-}
-
 // Agent periodically samples presence and appends events.
 type Agent struct {
 	Sampler  Sampler
-	Sink     Appender
 	Interval time.Duration
 	// SampleTimeout bounds one Sampler call; zero means DefaultSampleTimeout.
 	SampleTimeout time.Duration
@@ -43,22 +38,25 @@ type Agent struct {
 	lastTick time.Time
 }
 
+// Name implements collector.Collector.
+func (a *Agent) Name() string { return "presence" }
+
 // Run samples once immediately and then on every tick until ctx is cancelled.
 // Cancellation is a clean stop and returns nil.
-func (a *Agent) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context, sink collector.Sink) error {
 	ticks := a.Ticks
 	if ticks == nil {
 		ticker := time.NewTicker(a.Interval)
 		defer ticker.Stop()
 		ticks = ticker.C
 	}
-	a.Tick(ctx)
+	a.Tick(ctx, sink)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticks:
-			a.Tick(ctx)
+			a.Tick(ctx, sink)
 		}
 	}
 }
@@ -69,7 +67,7 @@ func (a *Agent) Run(ctx context.Context) error {
 // mistaken for a sleep gap. A gap (more than three intervals since the
 // previous tick) is recorded as a single KindGap event; no samples are
 // invented for it.
-func (a *Agent) Tick(ctx context.Context) {
+func (a *Agent) Tick(ctx context.Context, sink collector.Sink) {
 	// Strip the monotonic clock reading: on macOS it does not advance while
 	// the system sleeps, so gap detection must compare wall-clock times.
 	now := a.Now().Round(0)
@@ -80,7 +78,7 @@ func (a *Agent) Tick(ctx context.Context) {
 		return
 	}
 	if !previous.IsZero() && now.Sub(previous) > gapFactor*a.Interval {
-		a.append(ctx, event.Event{
+		a.append(ctx, sink, event.Event{
 			At:          now,
 			Source:      "presence",
 			Kind:        event.KindGap,
@@ -91,7 +89,7 @@ func (a *Agent) Tick(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	a.append(ctx, event.Event{
+	a.append(ctx, sink, event.Event{
 		At:          now,
 		Source:      "presence",
 		Kind:        event.KindPresence,
@@ -123,8 +121,8 @@ func (a *Agent) sample(ctx context.Context) (time.Duration, string, error) {
 	return 0, "", err
 }
 
-func (a *Agent) append(ctx context.Context, e event.Event) {
-	if err := a.Sink.Append(ctx, e); err != nil {
+func (a *Agent) append(ctx context.Context, sink collector.Sink, e event.Event) {
+	if err := sink.Append(ctx, e); err != nil {
 		a.logf("append %s event failed: %v", e.Kind, err)
 	}
 }

@@ -236,3 +236,7 @@ func BenchmarkHook(b *testing.B) {
 		}
 	}
 }
+
+func (f *fakeSink) Append(ctx context.Context, e event.Event) error {
+	return f.AppendBatch(ctx, []event.Event{e})
+}

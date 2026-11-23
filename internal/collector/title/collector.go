@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	"github.com/JtheGunner/ticktack/internal/event"
 )
 
@@ -19,17 +20,11 @@ const DefaultInterval = 30 * time.Second
 // sampleTimeout bounds one title read.
 const sampleTimeout = 5 * time.Second
 
-// Appender stores events. *store.Store satisfies it.
-type Appender interface {
-	Append(ctx context.Context, e event.Event) error
-}
-
 // Collector samples the frontmost window title, reduces it to a Hint and
 // appends a context event when the hint is usable. The title itself never
 // leaves Tick: it is not stored, logged or put into an error.
 type Collector struct {
 	Source Source
-	Sink   Appender
 	// Projects maps an IDE project name to the absolute repository path.
 	Projects map[string]string
 	// TicketPattern extracts ticket IDs; nil means the default pattern.
@@ -51,8 +46,11 @@ type Collector struct {
 	statusFailing bool
 }
 
+// Name implements collector.Collector.
+func (c *Collector) Name() string { return EventSource }
+
 // Run samples once immediately and then on every tick until ctx is cancelled.
-func (c *Collector) Run(ctx context.Context) error {
+func (c *Collector) Run(ctx context.Context, sink collector.Sink) error {
 	ticks := c.Ticks
 	if ticks == nil {
 		interval := c.Interval
@@ -63,13 +61,13 @@ func (c *Collector) Run(ctx context.Context) error {
 		defer ticker.Stop()
 		ticks = ticker.C
 	}
-	c.Tick(ctx)
+	c.Tick(ctx, sink)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticks:
-			c.Tick(ctx)
+			c.Tick(ctx, sink)
 		}
 	}
 }
@@ -82,7 +80,7 @@ func (c *Collector) Run(ctx context.Context) error {
 // ticket ID (when found) and the
 // repository configured for the project name (when mapped). No event is
 // appended when neither is known.
-func (c *Collector) Tick(ctx context.Context) {
+func (c *Collector) Tick(ctx context.Context, sink collector.Sink) {
 	if c.Paused != nil && c.Paused() {
 		return
 	}
@@ -109,7 +107,7 @@ func (c *Collector) Tick(ctx context.Context) {
 	if e.Ticket == "" && e.Repo == "" {
 		return
 	}
-	if err := c.Sink.Append(ctx, e); err != nil {
+	if err := sink.Append(ctx, e); err != nil {
 		c.logf("append %s event failed: %v", EventSource, err)
 	}
 }

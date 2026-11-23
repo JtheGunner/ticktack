@@ -343,7 +343,7 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Production wiring of the agent; only the clock is replaced.
-	agent := newPresenceAgent(fakeSampler{}, st, presence.DefaultInterval, pausePath, nil)
+	agent := newPresenceAgent(fakeSampler{}, presence.DefaultInterval, pausePath, nil)
 	agent.Now = now
 
 	// The sources that read the past: a git scan that finds a checkout made
@@ -385,7 +385,7 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	if err := runHook(ctx, hook, "/work/api"); err != nil {
 		t.Fatal(err)
 	}
-	agent.Tick(ctx)
+	agent.Tick(ctx, st)
 	scanAndImport()
 	if n := countEvents(t, st); n != 0 {
 		t.Fatalf("%d events written while paused", n)
@@ -393,7 +393,7 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 
 	// The agent keeps ticking while paused, up to the resume.
 	clock = resumedAt
-	agent.Tick(ctx)
+	agent.Tick(ctx, st)
 	if n := countEvents(t, st); n != 0 {
 		t.Fatalf("%d events written while paused", n)
 	}
@@ -421,7 +421,7 @@ func TestPauseStopsAllCollectorsWrites(t *testing.T) {
 	if err := runHook(ctx, hook, "/work/api"); err != nil {
 		t.Fatal(err)
 	}
-	agent.Tick(ctx)
+	agent.Tick(ctx, st)
 	if n := countEvents(t, st); n != 3 {
 		t.Fatalf("%d events after resume, want 3 (hook context+presence, agent presence)", n)
 	}

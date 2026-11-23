@@ -241,3 +241,7 @@ func TestScanJobKeepsRunningWhenOneRepositoryFails(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func (s *syncSink) Append(ctx context.Context, e event.Event) error {
+	return s.AppendBatch(ctx, []event.Event{e})
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
@@ -67,6 +68,9 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Every collector of the agent writes through the one pause gate.
+	sink := collector.PauseGate(st, pauseFlagCheck(pausePath))
+
 	cfg, cfgOK := loadAgentConfig(logger.Printf)
 	var jobs []backgroundJob
 	if cfgOK {
@@ -74,8 +78,8 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 		if statusErr != nil {
 			logger.Printf("title probe status disabled: %v", statusErr)
 		}
-		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, titleStatusPath, interval, logger.Printf); collector != nil {
-			jobs = append(jobs, func(ctx context.Context) { _ = collector.Run(ctx) })
+		if titleCollector := newTitleCollector(cfg, title.NewSource(), pausePath, titleStatusPath, interval, logger.Printf); titleCollector != nil {
+			jobs = append(jobs, collectorJob(titleCollector, sink, logger.Printf))
 		}
 		if job := newRetentionJob(cfg, st, acquireBookingLock, retentionInterval, func() time.Time { return time.Now().Round(0) }, logger.Printf); job != nil {
 			jobs = append(jobs, job)
@@ -84,15 +88,15 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 		if homeErr != nil {
 			logger.Printf("git scan disabled: %v", homeErr)
 		} else {
-			jobs = append(jobs, newScanJob(cfg, home, st, defaultRepoScanner, pauseFlagCheck(pausePath),
+			jobs = append(jobs, newScanJob(cfg, home, sink, defaultRepoScanner, pauseFlagCheck(pausePath),
 				func(now time.Time) (pause.Intervals, error) { return pause.Load(pausePath, now) },
 				cfg.Scan.Interval, func() time.Time { return time.Now().Round(0) }, logger.Printf))
 		}
 	}
 
-	agent := newPresenceAgent(presence.NewSampler(), st, interval, pausePath, logger.Printf)
+	agent := newPresenceAgent(presence.NewSampler(), interval, pausePath, logger.Printf)
 	// All collector goroutines finish before the deferred store close runs.
-	return runWithBackground(ctx, jobs, agent.Run)
+	return runWithBackground(ctx, jobs, func(ctx context.Context) error { return agent.Run(ctx, sink) })
 }
 
 // newAgentLogger returns the logger of the agent and rotates the log once.
@@ -111,10 +115,9 @@ func newAgentLogger(logPath string) *logfile.Logger {
 
 // newPresenceAgent builds the production presence agent. It stores nothing
 // while the pause flag file at pausePath exists.
-func newPresenceAgent(sampler presence.Sampler, sink presence.Appender, interval time.Duration, pausePath string, logf func(format string, args ...any)) *presence.Agent {
+func newPresenceAgent(sampler presence.Sampler, interval time.Duration, pausePath string, logf func(format string, args ...any)) *presence.Agent {
 	return &presence.Agent{
 		Sampler:  sampler,
-		Sink:     sink,
 		Interval: interval,
 		// Round(0) strips the monotonic reading, which stops during system
 		// sleep on macOS and would hide sleep gaps.
@@ -124,12 +127,18 @@ func newPresenceAgent(sampler presence.Sampler, sink presence.Appender, interval
 	}
 }
 
-// pauseFlagCheck returns a function that reports whether the pause flag file
-// exists at path. The hook and the agent share it.
+// pauseFlagCheck returns the one pause check of the agent and the hook. It is
+// fail-closed: a flag that cannot be read counts as paused.
 func pauseFlagCheck(path string) func() bool {
-	return func() bool {
-		_, err := os.Stat(path)
-		return err == nil
+	return func() bool { return pause.IsPaused(path) }
+}
+
+// collectorJob runs c until ctx is cancelled and logs a failure that ends it.
+func collectorJob(c collector.Collector, sink collector.Sink, logf func(format string, args ...any)) backgroundJob {
+	return func(ctx context.Context) {
+		if err := c.Run(ctx, sink); err != nil && ctx.Err() == nil {
+			logf("%s collector stopped: %v", c.Name(), err)
+		}
 	}
 }
 
@@ -153,7 +162,7 @@ func loadAgentConfig(logf func(format string, args ...any)) (config.Config, bool
 // agent.
 // The collector records the outcome of each title read in the status file at
 // statusPath, which `ticktack doctor` reads; an empty path records nothing.
-func newTitleCollector(cfg config.Config, source title.Source, sink title.Appender, pausePath, statusPath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
+func newTitleCollector(cfg config.Config, source title.Source, pausePath, statusPath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
 	if !cfg.TitleHint.Enabled {
 		return nil
 	}
@@ -164,7 +173,6 @@ func newTitleCollector(cfg config.Config, source title.Source, sink title.Append
 	return &title.Collector{
 		Status:        status,
 		Source:        source,
-		Sink:          sink,
 		Projects:      cfg.TitleHint.Projects,
 		TicketPattern: cfg.TicketPattern,
 		Interval:      interval,

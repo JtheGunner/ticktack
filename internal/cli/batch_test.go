@@ -78,3 +78,7 @@ func TestScanStoresAPassInOneBatch(t *testing.T) {
 		})
 	}
 }
+
+func (b *batchSink) Append(ctx context.Context, e event.Event) error {
+	return b.AppendBatch(ctx, []event.Event{e})
+}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -25,14 +26,31 @@ func (r *recorder) Append(_ context.Context, e event.Event) error {
 
 var testNow = time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
 
-func newCollector(src Source, sink Appender, projects map[string]string) *Collector {
-	return &Collector{
+func (r *recorder) AppendBatch(ctx context.Context, events []event.Event) error {
+	for _, e := range events {
+		if err := r.Append(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// bound is a Collector with its sink, so tests can tick without passing it.
+type bound struct {
+	*Collector
+	sink collector.Sink
+}
+
+func (b bound) Tick(ctx context.Context)      { b.Collector.Tick(ctx, b.sink) }
+func (b bound) Run(ctx context.Context) error { return b.Collector.Run(ctx, b.sink) }
+
+func newCollector(src Source, sink collector.Sink, projects map[string]string) bound {
+	return bound{&Collector{
 		Source:   src,
-		Sink:     sink,
 		Projects: projects,
 		Now:      func() time.Time { return testNow },
 		Paused:   func() bool { return false },
-	}
+	}, sink}
 }
 
 func TestHintMapsProjectNameToRepo(t *testing.T) {
@@ -140,13 +158,12 @@ func TestTitleNeverReachesStore(t *testing.T) {
 	src.Push("com.example.mail", "Quarterly layoffs memo ABC-6")
 	src.Push("com.google.Chrome", "ABC-7 Quarterly layoffs memo - YouTrack")
 	src.Push("com.apple.dt.Xcode", "ticktack — TOPSECRETPLAN.swift")
-	c := &Collector{
+	c := bound{&Collector{
 		Source:   src,
-		Sink:     st,
 		Projects: map[string]string{"ticktack": "/work/ticktack"},
 		Now:      time.Now,
 		Paused:   func() bool { return false },
-	}
+	}, st}
 	for range 6 {
 		c.Tick(context.Background())
 	}
@@ -217,7 +234,7 @@ func TestTitleHintIsExtractedInMemoryButNotPersisted(t *testing.T) {
 	}
 	src := &Fake{}
 	src.Push("com.jetbrains.goland", title)
-	c := &Collector{Source: src, Sink: st, Now: time.Now, Paused: func() bool { return false }}
+	c := bound{&Collector{Source: src, Now: time.Now, Paused: func() bool { return false }}, st}
 	c.Tick(context.Background())
 	events, err := st.Events(context.Background(), time.Time{}, time.Now().Add(time.Hour))
 	if err != nil {
@@ -270,7 +287,7 @@ func TestTitleNeverReachesEveryTable(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	src := &Fake{}
 	src.Push("com.jetbrains.goland", "ticktack – hunter2-PASSWORD.go")
-	c := &Collector{Source: src, Sink: st, Projects: map[string]string{"ticktack": "/work/ticktack"}, Now: time.Now, Paused: func() bool { return false }}
+	c := bound{&Collector{Source: src, Projects: map[string]string{"ticktack": "/work/ticktack"}, Now: time.Now, Paused: func() bool { return false }}, st}
 	c.Tick(context.Background())
 
 	dump := dumpAllTables(t, dbPath)

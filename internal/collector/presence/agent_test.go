@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/collector"
 	"github.com/JtheGunner/ticktack/internal/event"
 )
 
@@ -27,10 +28,28 @@ func (m *memorySink) Append(_ context.Context, e event.Event) error {
 	return nil
 }
 
+func (m *memorySink) AppendBatch(ctx context.Context, events []event.Event) error {
+	for _, e := range events {
+		if err := m.Append(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// boundAgent is an Agent with its sink, so tests can tick without passing it.
+type boundAgent struct {
+	*Agent
+	sink collector.Sink
+}
+
+func (b boundAgent) Tick(ctx context.Context)      { b.Agent.Tick(ctx, b.sink) }
+func (b boundAgent) Run(ctx context.Context) error { return b.Agent.Run(ctx, b.sink) }
+
 var t0 = time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
 
 type harness struct {
-	agent  *Agent
+	agent  boundAgent
 	sink   *memorySink
 	fake   *Fake
 	now    time.Time
@@ -40,14 +59,13 @@ type harness struct {
 
 func newHarness() *harness {
 	h := &harness{sink: &memorySink{}, fake: &Fake{}, now: t0}
-	h.agent = &Agent{
+	h.agent = boundAgent{&Agent{
 		Sampler:  h.fake,
-		Sink:     h.sink,
 		Interval: 30 * time.Second,
 		Now:      func() time.Time { return h.now },
 		Paused:   func() bool { return h.paused },
 		Logf:     func(format string, _ ...any) { h.logs = append(h.logs, format) },
-	}
+	}, h.sink}
 	return h
 }
 
