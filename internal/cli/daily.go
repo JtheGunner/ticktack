@@ -16,6 +16,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
+	"github.com/JtheGunner/ticktack/internal/retention"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -23,7 +24,9 @@ import (
 // dailyStore is the part of the store the daily commands use.
 type dailyStore interface {
 	Append(ctx context.Context, e event.Event) error
+	AppendBatch(ctx context.Context, events []event.Event) error
 	Events(ctx context.Context, from, to time.Time) ([]event.Event, error)
+	CarriedContext(ctx context.Context, before time.Time, src store.CarrySources) ([]event.Event, error)
 	Overrides(ctx context.Context, from, to time.Time) ([]event.Override, error)
 	LearnedRules(ctx context.Context) ([]store.LearnedRule, error)
 	Projects(ctx context.Context) ([]store.Project, time.Time, error)
@@ -31,8 +34,15 @@ type dailyStore interface {
 	AddLearnedRule(ctx context.Context, r store.LearnedRule) (store.LearnedRule, error)
 	UpdateLearnedRule(ctx context.Context, r store.LearnedRule) error
 	DeleteLearnedRule(ctx context.Context, id int64) error
+	// InTx stores a rule write of the map command together with its rule
+	// change record.
+	InTx(ctx context.Context, fn func(tx store.Tx) error) error
 	Purge(ctx context.Context) error
 	Close() error
+	// retention.Store carries what the retention cleanup reads and writes;
+	// ArchivedDay lets commands refuse an archived day.
+	retention.Store
+	ArchivedDay(ctx context.Context, day string) (store.ArchivedDay, bool, error)
 }
 
 // dailyDeps holds everything the daily commands touch outside of pure logic.
@@ -53,6 +63,10 @@ type dailyDeps struct {
 	Out io.Writer
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
+	// AcquireLock takes the lock that admits one booking run at a time; the
+	// retention cleanup holds it so it never runs beside a sync. Nil runs
+	// without a lock.
+	AcquireLock func() (release func(), err error)
 }
 
 // defaultDailyDeps wires the real dependencies to the command's streams.
@@ -73,6 +87,8 @@ func defaultDailyDeps(cmd *cobra.Command) dailyDeps {
 		In:        cmd.InOrStdin(),
 		Out:       cmd.OutOrStdout(),
 		Render:    rendererFor(cmd, cmd.OutOrStdout()),
+
+		AcquireLock: acquireBookingLock,
 	}
 }
 

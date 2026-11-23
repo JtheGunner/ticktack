@@ -21,6 +21,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/shellhook"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/token"
+	"github.com/JtheGunner/ticktack/launchd"
 )
 
 func TestDoctorReportsEachCheckIndependently(t *testing.T) {
@@ -66,12 +67,7 @@ func TestDoctorFailureInOneCheckDoesNotHideOthers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	installTestAgent(t, env)
 	dbPath, _ := paths.DBPath()
 	now := time.Now()
 	seedEvents(t, dbPath,
@@ -201,14 +197,14 @@ func TestCheckHookNamesTheMissingHalf(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := checkHook(context.Background(), env.deps.Doctor)
-	if res.Status != statusFail || !strings.Contains(res.Detail, "no shell event") {
+	if res.Status != statusWarn || !strings.Contains(res.Detail, "no shell event") || res.Hint == "" {
 		t.Errorf("block present, no event: %+v", res)
 	}
 
 	dbPath, _ := paths.DBPath()
 	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-48 * time.Hour), Source: "shell", Kind: event.KindPresence})
-	if res := checkHook(context.Background(), env.deps.Doctor); res.Status != statusFail {
-		t.Errorf("stale event accepted: %+v", res)
+	if res := checkHook(context.Background(), env.deps.Doctor); res.Status != statusWarn {
+		t.Errorf("a quiet day must warn, not fail: %+v", res)
 	}
 
 	if err := os.Remove(filepath.Join(env.home, ".zshrc")); err != nil {
@@ -221,14 +217,145 @@ func TestCheckHookNamesTheMissingHalf(t *testing.T) {
 	}
 }
 
-func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
-	env := newTestEnv(t, "", "")
+// installTestAgent creates a stand-in binary under the test home, makes it the
+// running binary of the doctor and writes a plist that runs it. It returns the
+// path of the binary.
+func installTestAgent(t *testing.T, env *testEnv) string {
+	t.Helper()
+	binary := filepath.Join(env.home, "bin", "ticktack")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.deps.Doctor.Binary = func() (string, error) { return binary, nil }
+	writeTestPlist(t, env, binary)
+	return binary
+}
+
+// writeTestPlist writes the agent plist of the test home with program as the
+// program to run.
+func writeTestPlist(t *testing.T, env *testEnv, program string) {
+	t.Helper()
+	rendered, err := launchd.RenderAgentPlist(launchd.Params{Binary: program, LogPath: filepath.Join(env.home, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+	if err := os.WriteFile(agentPlistPath(env.home), []byte(rendered), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestCheckAgentVerifiesThePlistProgram(t *testing.T) {
+	tests := []struct {
+		name string
+		// arrange changes the installed agent and returns the doctor to run.
+		arrange    func(t *testing.T, env *testEnv, binary string)
+		wantStatus checkStatus
+		wantDetail string
+		wantHint   string
+	}{
+		{
+			name:       "program is the running binary",
+			arrange:    func(*testing.T, *testEnv, string) {},
+			wantStatus: statusOK,
+		},
+		{
+			name: "program is a symlink to the running binary",
+			arrange: func(t *testing.T, env *testEnv, binary string) {
+				link := filepath.Join(env.home, "opt-link")
+				if err := os.Symlink(binary, link); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, link)
+			},
+			wantStatus: statusOK,
+		},
+		{
+			name: "program does not exist",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				writeTestPlist(t, env, filepath.Join(env.home, "Cellar", "ticktack", "0.3.4", "bin", "ticktack"))
+			},
+			wantStatus: statusFail,
+			wantDetail: "does not exist",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "dangling symlink counts as missing",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				link := filepath.Join(env.home, "dangling")
+				if err := os.Symlink(filepath.Join(env.home, "gone"), link); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, link)
+			},
+			wantStatus: statusFail,
+			wantDetail: "does not exist",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "program is another binary",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				other := filepath.Join(env.home, "other-ticktack")
+				if err := os.WriteFile(other, []byte("old"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				writeTestPlist(t, env, other)
+			},
+			wantStatus: statusFail,
+			wantDetail: "not the binary you are running",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "plist without a program",
+			arrange: func(t *testing.T, env *testEnv, _ string) {
+				if err := os.WriteFile(agentPlistPath(env.home), []byte("plist"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus: statusFail,
+			wantDetail: "cannot be read",
+			wantHint:   "ticktack init",
+		},
+		{
+			name: "running binary unknown",
+			arrange: func(_ *testing.T, env *testEnv, _ string) {
+				env.deps.Doctor.Binary = func() (string, error) { return "", errors.New("no executable") }
+			},
+			wantStatus: statusFail,
+			wantDetail: "no executable",
+			wantHint:   "ticktack init",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			binary := installTestAgent(t, env)
+			dbPath, _ := paths.DBPath()
+			seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Second), Source: "presence", Kind: event.KindPresence})
+			tt.arrange(t, env, binary)
+
+			res := checkAgent(context.Background(), env.deps.Doctor)
+			if res.Status != tt.wantStatus {
+				t.Fatalf("status = %v, want %v: %+v", res.Status, tt.wantStatus, res)
+			}
+			if !strings.Contains(res.Detail, tt.wantDetail) {
+				t.Errorf("detail %q lacks %q", res.Detail, tt.wantDetail)
+			}
+			if !strings.Contains(res.Hint, tt.wantHint) {
+				t.Errorf("hint %q lacks %q", res.Hint, tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	installTestAgent(t, env)
 	dbPath, _ := paths.DBPath()
 	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Minute), Source: "presence", Kind: event.KindPresence})
 	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusFail {
@@ -236,6 +363,60 @@ func TestCheckAgentNeedsRecentPresenceSample(t *testing.T) {
 	}
 	seedEvents(t, dbPath, event.Event{At: time.Now().Add(-5 * time.Second), Source: "presence", Kind: event.KindPresence})
 	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusOK {
+		t.Errorf("%+v", res)
+	}
+}
+
+func TestDoctorTreatsPausedTrackingAsNoFailure(t *testing.T) {
+	tests := []struct {
+		name  string
+		check func(context.Context, doctorDeps) checkResult
+		setup func(t *testing.T, env *testEnv)
+	}{
+		{
+			name:  "agent",
+			check: checkAgent,
+			setup: func(t *testing.T, env *testEnv) { installTestAgent(t, env) },
+		},
+		{
+			name:  "hook",
+			check: checkHook,
+			setup: func(t *testing.T, env *testEnv) {
+				script, _ := shellhook.Script("zsh")
+				if err := os.WriteFile(filepath.Join(env.home, ".zshrc"), []byte(renderManagedBlock(script)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			tt.setup(t, env)
+			// Without the flag the missing events are a problem ...
+			if res := tt.check(context.Background(), env.deps.Doctor); res.Status == statusOK {
+				t.Fatalf("not paused, no events: %+v", res)
+			}
+			// ... and with the flag they are expected.
+			pausePath, _ := paths.PausePath()
+			if err := os.MkdirAll(filepath.Dir(pausePath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(pausePath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res := tt.check(context.Background(), env.deps.Doctor)
+			if res.Status != statusOK || !strings.Contains(res.Detail, "paused") {
+				t.Errorf("paused: %+v", res)
+			}
+		})
+	}
+}
+
+func TestCheckAgentStillFailsWithoutSamplesWhenNotPaused(t *testing.T) {
+	env := newTestEnv(t, "", "")
+	installTestAgent(t, env)
+	if res := checkAgent(context.Background(), env.deps.Doctor); res.Status != statusFail {
 		t.Errorf("%+v", res)
 	}
 }
@@ -284,7 +465,10 @@ func writeTitleHintConfig(t *testing.T, enabled bool) {
 func TestCheckTitleHintIsSkippedWhenDisabled(t *testing.T) {
 	env := newTestEnv(t, "", "")
 	doc := env.deps.Doctor
-	doc.TitleSource = func() title.Source { t.Fatal("source must not be read when disabled"); return nil }
+	statusPath, _ := paths.TitleStatusPath()
+	if err := (&title.StatusFile{Path: statusPath}).Record(title.ProbeDenied, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	if res := checkTitleHint(context.Background(), doc); res.Status != statusSkip {
 		t.Errorf("no config file: %+v", res)
@@ -295,32 +479,58 @@ func TestCheckTitleHintIsSkippedWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestCheckTitleHintReportsPermissionState(t *testing.T) {
-	env := newTestEnv(t, "", "")
-	writeTitleHintConfig(t, true)
-	doc := env.deps.Doctor
-
-	granted := &title.Fake{}
-	granted.Push("com.jetbrains.goland", "SECRET-TITLE – main.go")
-	doc.TitleSource = func() title.Source { return granted }
-	res := checkTitleHint(context.Background(), doc)
-	if res.Status != statusOK || strings.Contains(res.Detail, "SECRET") {
-		t.Errorf("granted: %+v", res)
+func TestCheckTitleHintReportsTheAgentsLastProbe(t *testing.T) {
+	now := time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		// state and age describe the status file; an empty state means no file.
+		state      title.ProbeState
+		age        time.Duration
+		paused     bool
+		garbage    bool
+		wantStatus checkStatus
+		wantDetail string
+		wantHint   string
+	}{
+		{name: "no status file yet", wantStatus: statusSkip, wantDetail: "not checked yet"},
+		{name: "probe worked", state: title.ProbeOK, age: time.Minute, wantStatus: statusOK, wantDetail: "could read window titles 1m0s ago"},
+		{name: "probe denied", state: title.ProbeDenied, age: time.Minute, wantStatus: statusFail, wantDetail: "denied the agent", wantHint: "Accessibility"},
+		{name: "probe failed", state: title.ProbeFailed, age: time.Minute, wantStatus: statusFail, wantDetail: "read failed", wantHint: "osascript"},
+		{name: "stale probe means the agent is not running", state: title.ProbeOK, age: time.Hour, wantStatus: statusWarn, wantDetail: "may not be running", wantHint: "agent"},
+		{name: "stale probe while paused is still reported", state: title.ProbeOK, age: time.Hour, paused: true, wantStatus: statusOK, wantDetail: "could read window titles"},
+		{name: "unreadable status file", garbage: true, wantStatus: statusWarn, wantDetail: "unreadable", wantHint: "delete"},
 	}
-
-	denied := &title.Fake{}
-	denied.PushError(title.ErrPermission)
-	doc.TitleSource = func() title.Source { return denied }
-	res = checkTitleHint(context.Background(), doc)
-	if res.Status != statusFail || !strings.Contains(res.Hint, "Accessibility") {
-		t.Errorf("denied: %+v", res)
-	}
-
-	broken := &title.Fake{}
-	broken.PushError(errors.New("osascript could not run"))
-	doc.TitleSource = func() title.Source { return broken }
-	if res = checkTitleHint(context.Background(), doc); res.Status != statusFail || res.Hint == "" {
-		t.Errorf("broken: %+v", res)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t, "", "")
+			writeTitleHintConfig(t, true)
+			doc := env.deps.Doctor
+			doc.Now = func() time.Time { return now }
+			statusPath, _ := paths.TitleStatusPath()
+			switch {
+			case tt.garbage:
+				if err := os.MkdirAll(filepath.Dir(statusPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(statusPath, []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case tt.state != "":
+				if err := (&title.StatusFile{Path: statusPath}).Record(tt.state, now.Add(-tt.age)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.paused {
+				pausePath, _ := paths.PausePath()
+				if err := os.WriteFile(pausePath, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			res := checkTitleHint(context.Background(), doc)
+			if res.Status != tt.wantStatus || !strings.Contains(res.Detail, tt.wantDetail) || !strings.Contains(res.Hint, tt.wantHint) {
+				t.Errorf("result = %+v, want status %v, detail %q, hint %q", res, tt.wantStatus, tt.wantDetail, tt.wantHint)
+			}
+		})
 	}
 }
 
@@ -380,10 +590,9 @@ func TestParseAgentInterval(t *testing.T) {
 
 func TestCheckAgentHonoursTheInstalledInterval(t *testing.T) {
 	env := newTestEnv(t, "", "")
-	if err := os.MkdirAll(filepath.Dir(agentPlistPath(env.home)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	plist := "<plist><array><string>/bin/ticktack</string><string>agent</string><string>--interval</string><string>2m</string></array></plist>"
+	binary := installTestAgent(t, env)
+	plist := "<plist><dict><key>ProgramArguments</key><array><string>" + binary +
+		"</string><string>agent</string><string>--interval</string><string>2m</string></array></dict></plist>"
 	if err := os.WriteFile(agentPlistPath(env.home), []byte(plist), 0o644); err != nil {
 		t.Fatal(err)
 	}

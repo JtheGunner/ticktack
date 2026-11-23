@@ -96,13 +96,21 @@ func (s *Store) CapAcknowledgementFor(ctx context.Context, day string) (CapAckno
 }
 
 // Tx is the write surface available inside InTx: the corrections a review
-// action stores together with its review log entry.
+// action stores together with its review log entry, and the rule writes of
+// the map command together with their rule change record.
 type Tx interface {
+	Append(ctx context.Context, e event.Event) error
 	AddOverride(ctx context.Context, o event.Override) error
+	// AddOverrideID stores an override and returns its id, so a session can
+	// take it back later with DeleteOverride.
+	AddOverrideID(ctx context.Context, o event.Override) (int64, error)
+	DeleteOverride(ctx context.Context, id int64) error
 	Confirm(ctx context.Context, c Confirmation) error
 	AcknowledgeCap(ctx context.Context, a CapAcknowledgement) error
 	AddLearnedRule(ctx context.Context, r LearnedRule) (LearnedRule, error)
 	UpdateLearnedRule(ctx context.Context, r LearnedRule) error
+	DeleteLearnedRule(ctx context.Context, id int64) error
+	RecordRuleChange(ctx context.Context, c RuleChange) error
 	SaveReviewRecord(ctx context.Context, r ReviewRecord) (int64, error)
 }
 

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/store"
 	"github.com/JtheGunner/ticktack/internal/ticketid"
@@ -27,7 +28,8 @@ const (
 
 // eventSink is the part of the store the hook needs.
 type eventSink interface {
-	Append(ctx context.Context, e event.Event) error
+	// AppendBatch stores all events in one transaction.
+	AppendBatch(ctx context.Context, events []event.Event) error
 	Close() error
 }
 
@@ -124,7 +126,10 @@ func gitRepoInfo(ctx context.Context, cwd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, hookGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD")
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	// Without the inherited GIT_DIR and friends: a prompt inside a hook, an
+	// alias or a `git rebase --exec` shell would otherwise report the outer
+	// repository instead of the one in cwd.
+	cmd.Env = gitscan.CommandEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -167,21 +172,15 @@ func markerDue(marker string, now time.Time, every time.Duration) bool {
 	return true
 }
 
-// fileLogf appends to the log file and stays silent when it cannot.
+// fileLogf appends to the size-limited log file and stays silent when it
+// cannot. A message repeated at every prompt is throttled across the hook
+// processes.
 func fileLogf(format string, args ...any) {
 	logPath, err := paths.LogPath()
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
-		return
-	}
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer func() { _ = f.Close() }()
-	log.New(f, "hook: ", log.LstdFlags).Printf(format, args...)
+	logfile.New(logPath, "hook: ").Printf(format, args...)
 }
 
 // runHook records a context and a presence event for the repository that
@@ -227,11 +226,10 @@ func runHook(ctx context.Context, deps hookDeps, cwd string) error {
 		{At: now, Source: hookSource, Kind: event.KindContext, Repo: root, Branch: branch, Ticket: ticketid.Extract(branch, pattern)},
 		{At: now, Source: hookSource, Kind: event.KindPresence},
 	}
-	for _, e := range events {
-		if err := sink.Append(ctx, e); err != nil {
-			deps.Logf("append %s event: %v", e.Kind, err)
-			return nil
-		}
+	// One transaction: the context and the presence event are stored together
+	// or not at all.
+	if err := sink.AppendBatch(ctx, events); err != nil {
+		deps.Logf("append events: %v", err)
 	}
 	return nil
 }

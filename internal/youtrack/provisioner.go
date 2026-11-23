@@ -100,6 +100,8 @@ func searchWords(marker string) string {
 // CreateIssue creates an issue in project assigned to the token owner, tagged
 // "manual", and returns its readable key. The tag is resolved (and created when
 // missing) before the issue, so a failure leaves no untagged issue behind.
+// Neither create request is repeated after a server or transport error; such
+// a failure is returned as ErrOutcomeUnclear.
 func (c *Client) CreateIssue(ctx context.Context, project, summary, description string) (string, error) {
 	var proj struct {
 		ID string `json:"id"`
@@ -133,7 +135,7 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 	var out struct {
 		ID string `json:"idReadable"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/api/issues", url.Values{"fields": {"idReadable"}}, body, &out); err != nil {
+	if err := c.doCreate(ctx, "/api/issues", url.Values{"fields": {"idReadable"}}, body, &out); err != nil {
 		return "", err
 	}
 	if out.ID == "" {
@@ -145,24 +147,30 @@ func (c *Client) CreateIssue(ctx context.Context, project, summary, description 
 // ensureTag returns the id of the tag called name, creating it when no tag of
 // that name (case-insensitive) is visible to the token owner.
 func (c *Client) ensureTag(ctx context.Context, name string) (string, error) {
-	var tags []struct {
+	type tag struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
+	var tagID string
 	q := url.Values{"query": {name}, "fields": {"id,name"}}
-	if err := c.do(ctx, http.MethodGet, "/api/tags", q, nil, &tags); err != nil {
+	err := getAllPages(ctx, c, "/api/tags", q, func(t tag) string { return t.ID }, func(t tag) bool {
+		if t.ID != "" && strings.EqualFold(t.Name, name) {
+			tagID = t.ID
+			return true
+		}
+		return false
+	})
+	if err != nil {
 		return "", err
 	}
-	for _, t := range tags {
-		if t.ID != "" && strings.EqualFold(t.Name, name) {
-			return t.ID, nil
-		}
+	if tagID != "" {
+		return tagID, nil
 	}
 	var created struct {
 		ID string `json:"id"`
 	}
 	body := map[string]any{"name": name}
-	if err := c.do(ctx, http.MethodPost, "/api/tags", url.Values{"fields": {"id"}}, body, &created); err != nil {
+	if err := c.doCreate(ctx, "/api/tags", url.Values{"fields": {"id"}}, body, &created); err != nil {
 		return "", err
 	}
 	if created.ID == "" {

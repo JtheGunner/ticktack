@@ -7,6 +7,7 @@ Proceed? [Y/n] Token (input hidden, empty to skip):
 Validate the token against YouTrack now? [Y/n]   +  token: valid (user jane)
 
   Step 3/4 - shell hook: add a managed block to <HOME>/.zshrc
+  i  The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)
 Proceed? [Y/n]   -  skipped
 
   Step 4/4 - agent: install and load the launchd agent at <HOME>/Library/LaunchAgents/dev.ticktack.agent.plist

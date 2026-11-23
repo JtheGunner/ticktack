@@ -90,8 +90,10 @@ func TestInitGolden(t *testing.T) {
 				tc.setup(env)
 			}
 			var out strings.Builder
-			if err := runInit(context.Background(), env.deps, tc.opts, &out); err != nil {
-				t.Fatal(err)
+			err := runInit(context.Background(), env.deps, tc.opts, &out)
+			// The exit status follows the closing line: any failure fails init.
+			if failed := strings.Contains(out.String(), msgInitFinishedWithFailures); failed != errors.Is(err, ErrInitIncomplete) || (!failed && err != nil) {
+				t.Fatalf("err = %v with failures reported = %v", err, failed)
 			}
 			got := scrubHome(env, out.String())
 			assertGolden(t, tc.name, got)
@@ -133,8 +135,8 @@ func TestInitSanitisesBeforeStyling(t *testing.T) {
 		env.deps.Binary = func() (string, error) { return "", failure }
 		var out strings.Builder
 		opts := initOptions{Yes: true, SkipToken: true, SkipConfig: true, SkipHook: true}
-		if err := runInit(context.Background(), env.deps, opts, &out); err != nil {
-			t.Fatal(err)
+		if err := runInit(context.Background(), env.deps, opts, &out); !errors.Is(err, ErrInitIncomplete) {
+			t.Fatalf("err = %v, want ErrInitIncomplete", err)
 		}
 		return out.String()
 	}
@@ -178,8 +180,9 @@ func TestInitFinalLineGlyphReflectsFailures(t *testing.T) {
 				tc.setup(env)
 			}
 			var out strings.Builder
-			if err := runInit(context.Background(), env.deps, tc.opts, &out); err != nil {
-				t.Fatal(err)
+			err := runInit(context.Background(), env.deps, tc.opts, &out)
+			if wantFail := strings.Contains(tc.want, msgInitFinishedWithFailures); wantFail != errors.Is(err, ErrInitIncomplete) {
+				t.Fatalf("err = %v, want failure = %v", err, wantFail)
 			}
 			lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 			if got := lines[len(lines)-1]; got != tc.want {

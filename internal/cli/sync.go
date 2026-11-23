@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/ticktack/internal/commitsubject"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/paths"
@@ -43,6 +44,14 @@ type syncDeps struct {
 	// log or return the token.
 	NewSink func(cfg config.Config, configPath string) (sink.TimeSink, error)
 	Now     func() time.Time
+	// AcquireLock takes the lock that admits one booking run at a time and
+	// returns the function that releases it. It fails with
+	// ErrBookingRunActive while another run holds the lock. Nil runs without
+	// a lock.
+	AcquireLock func() (release func(), err error)
+	// CommitReader reads commit subjects for the booked text. Nil uses the
+	// local git binary.
+	CommitReader commitsubject.Reader
 	// Render styles the output; the zero value renders plain text.
 	Render render.Renderer
 	// In supplies the answer to the question before standard tasks are
@@ -55,11 +64,12 @@ type syncDeps struct {
 
 func defaultSyncDeps() syncDeps {
 	return syncDeps{
-		LoadConfig: loadConfigFile,
-		OpenStore:  openLedgerStore,
-		NewSink:    newYouTrackSink,
-		Now:        func() time.Time { return time.Now().Round(0) },
-		RenderFor:  rendererFor,
+		LoadConfig:  loadConfigFile,
+		OpenStore:   openLedgerStore,
+		NewSink:     newYouTrackSink,
+		Now:         func() time.Time { return time.Now().Round(0) },
+		AcquireLock: acquireBookingLock,
+		RenderFor:   rendererFor,
 	}
 }
 
@@ -150,7 +160,7 @@ only booked after the cap warning was acknowledged in review.
 
 A work item booked earlier is deleted when the day no longer has time for its
 ticket, for example after the block was reassigned or discarded in review.
-"ticktack undo" books it again.`,
+"ticktack undo" books it again.` + msgBookingLockHelpDryRun,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSync(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
@@ -162,6 +172,12 @@ ticket, for example after the block was reassigned or discarded in review.
 }
 
 func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, dryRun bool) error {
+	// The lock comes first: nothing read below may change under another run.
+	release, err := deps.lockBookingRun(dryRun)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err
@@ -179,6 +195,11 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	// An archived day has no events left: it must not look like a day without
+	// time, or the booked items would be reconciled away.
+	if err := refuseArchivedDay(ctx, st, day); err != nil {
+		return err
+	}
 
 	// Only confirmed items are ever booked.
 	items, err := review.ConfirmedItems(ctx, st, cfg, day)
@@ -207,18 +228,31 @@ func runSync(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if err != nil {
 		return err
 	}
+	confirmed := items
 	items, provisioned, err := provisionStandardTasks(ctx, out, deps.In, deps.Render, cfg, st, target, items, dryRun)
+	if endsRun(ctx, err) {
+		// The run ends before anything is sent, so every item is listed as
+		// not sent, exactly as when booking itself is stopped.
+		printReport(out, deps.Render, ledger.NotSentReport(confirmed), dryRun)
+		return err
+	}
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 && len(provisioned.WouldBook) > 0 && !stale {
+	if len(items) == 0 && len(provisioned.WouldBook) > 0 && len(provisioned.Failed) == 0 && !stale {
 		// A dry run left out time that waits for a new standard task; the
 		// lines above name it, so "No time to book" would be wrong.
 		return nil
 	}
+	// Items whose standard task could not be provided are not booked; their
+	// failure is listed in the report next to the items that were. Which
+	// issue their time is booked on may be unknown, so no booking of their
+	// project is reconciled away in this run.
 	report, syncErr := ledger.Sync(ctx, items, target, ledger.SyncOptions{
 		Repo: st, DryRun: dryRun, Now: deps.Now,
 		Reconcile: []civil.Date{day}, Keep: keep,
+		HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
+		Describer: deps.describer(cfg),
 	})
 	printReport(out, deps.Render, report, dryRun)
 	return syncErr
@@ -256,7 +290,7 @@ func printReport(out io.Writer, r render.Renderer, report ledger.Report, planOnl
 	}
 	title := msgSyncSummaryTitle
 	summary := []string{
-		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered, report.Deleted),
+		fmt.Sprintf(msgSyncTotalsBooked, report.Created, report.Updated, report.Recovered, report.Repaired, report.Deleted),
 		fmt.Sprintf(msgSyncTotalsOutcome, report.Skipped, report.Failed, report.NotSent),
 	}
 	if planOnly {

@@ -38,7 +38,8 @@ type repoScanner func(ctx context.Context, repo string, from, to time.Time, patt
 
 // eventAppender is the part of the store a scan writes to.
 type eventAppender interface {
-	Append(ctx context.Context, e event.Event) error
+	// AppendBatch stores all events in one transaction.
+	AppendBatch(ctx context.Context, events []event.Event) error
 }
 
 // defaultRepoScanner runs the read-only reflog scanner. It reports a missing
@@ -110,10 +111,14 @@ type scanReport struct {
 
 // scanRepositories scans every configured path and appends the events. A
 // failing repository is recorded and does not stop the others. Only a failed
-// append or a cancelled ctx aborts the pass. Appending is idempotent because
-// every event carries a deterministic key.
+// append or a cancelled ctx aborts the pass. Events inside a pause are dropped
+// before storing. The events of all repositories
+// are stored in one transaction after the last scan, so a pass either stores
+// everything it found or nothing and holds the write lock only briefly.
+// Appending is idempotent because every event carries a deterministic key.
 func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, paused pause.Intervals, sink eventAppender) (scanReport, error) {
 	report := scanReport{Total: len(repos)}
+	var found []event.Event
 	for _, raw := range repos {
 		if err := ctx.Err(); err != nil {
 			return report, err
@@ -139,14 +144,13 @@ func scanRepositories(ctx context.Context, repos []string, home string, from, to
 			continue
 		}
 		events = outsidePauses(events, paused)
-		for _, e := range events {
-			if err := sink.Append(ctx, e); err != nil {
-				return report, err
-			}
-		}
+		found = append(found, events...)
 		report.Scanned++
 		report.Found += len(events)
 		report.Repos = append(report.Repos, scannedRepo{Path: raw, Found: len(events)})
+	}
+	if err := sink.AppendBatch(ctx, found); err != nil {
+		return report, err
 	}
 	return report, nil
 }

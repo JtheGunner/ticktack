@@ -156,7 +156,7 @@ func looksLikeCommit(name string) bool { return commitLike.MatchString(name) }
 // gitOutput runs git read-only inside dir and returns trimmed stdout.
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = CommandEnv()
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -206,25 +206,37 @@ func parseReflogLine(line string) (reflogEntry, bool) {
 }
 
 var (
-	checkoutLine = regexp.MustCompile(`^(?:checkout|switch): moving from (.+) to (\S+)$`)
-	rebaseLine   = regexp.MustCompile(`^rebase(?: -i)? \((\w+)\)`)
-	returningTo  = regexp.MustCompile(`returning to refs/heads/(.+)$`)
-	commitLine   = regexp.MustCompile(`^commit(?: \([^)]*\))?:`)
+	// checkoutLine captures the target up to the end of the line: git records
+	// it as typed, so a revision expression such as "main@{1 day ago}" or
+	// ":/some text" holds spaces. The origin never does; it is a branch name
+	// or a full commit hash.
+	checkoutLine = regexp.MustCompile(`^(?:checkout|switch): moving from (\S+) to (.+)$`)
+	// rebaseLine matches every line a rebase writes, in the current
+	// ("rebase (pick): …", "rebase -i (finish): …") and the legacy
+	// ("rebase: …", "rebase finished: …") wording.
+	rebaseLine = regexp.MustCompile(`^rebase(?: -[a-z])?(?: \(\w+\)| finished)?:`)
+	// returningTo matches only the closing line of a rebase. Replay lines
+	// ("rebase (pick): <subject>") carry a commit subject, which may read
+	// "returning to refs/heads/…" and must never move the branch.
+	returningTo = regexp.MustCompile(`^rebase(?:(?: -[a-z])? \((?:finish|abort)\)| finished): returning to refs/heads/(\S+)$`)
+	renameLine  = regexp.MustCompile(`^Branch: renamed refs/heads/(\S+) to refs/heads/(\S+)$`)
+	commitLine  = regexp.MustCompile(`^commit(?: \([^)]*\))?:`)
 )
 
 // buildEvents walks entries (oldest first) and emits one context event per
-// checkout, per commit and per finished rebase. Rebase replays are collapsed:
-// only the final branch state at the end of the rebase is reported. Reset,
-// pull and merge lines never change the branch. currentBranch seeds the
-// branch for commits that precede the first checkout when no checkout exists.
+// checkout, per commit, per rename of the checked-out branch and per rebase
+// that returned to its branch. Rebase replays are collapsed: only the branch
+// state on the closing (finish or abort) line of the rebase is reported. Reset, pull and merge lines
+// never change the branch.
+//
+// Every line is judged on its own text. There is deliberately no "inside a
+// rebase" state: `git rebase --quit` and a rebase that is still stopped write
+// no closing line, and such a state would swallow every later checkout.
+//
+// currentBranch seeds the branch for commits that precede the first checkout
+// or rename when the reflog holds neither.
 func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBranch func(string) bool, pattern *regexp.Regexp) []event.Event {
-	branch := currentBranch
-	for _, e := range entries {
-		if m := checkoutLine.FindStringSubmatch(e.Subject); m != nil {
-			branch = branchOrEmpty(m[1], isBranch)
-			break
-		}
-	}
+	branch := initialBranch(entries, currentBranch, isBranch)
 
 	var events []event.Event
 	seen := map[string]bool{}
@@ -245,30 +257,20 @@ func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBra
 		})
 	}
 
-	inRebase := false
 	for _, e := range entries {
-		if m := rebaseLine.FindStringSubmatch(e.Subject); m != nil {
-			switch m[1] {
-			case "start":
-				inRebase = true
-			case "finish", "abort":
-				inRebase = false
-				if r := returningTo.FindStringSubmatch(e.Subject); r != nil {
-					branch = r[1]
-					emit(e, "rebase", branch)
-				}
+		switch {
+		case rebaseLine.MatchString(e.Subject):
+			if r := returningTo.FindStringSubmatch(e.Subject); r != nil {
+				branch = r[1]
+				emit(e, "rebase", branch)
 			}
-			continue
-		}
-		if m := checkoutLine.FindStringSubmatch(e.Subject); m != nil {
-			if inRebase {
-				continue
-			}
-			branch = branchOrEmpty(m[2], isBranch)
+		case renameLine.MatchString(e.Subject):
+			branch = renameLine.FindStringSubmatch(e.Subject)[2]
+			emit(e, "rename", branch)
+		case checkoutLine.MatchString(e.Subject):
+			branch = branchOrEmpty(checkoutLine.FindStringSubmatch(e.Subject)[2], isBranch)
 			emit(e, "checkout", branch)
-			continue
-		}
-		if commitLine.MatchString(e.Subject) {
+		case commitLine.MatchString(e.Subject):
 			emit(e, "commit", branch)
 		}
 	}
@@ -282,9 +284,38 @@ func buildEvents(repo string, entries []reflogEntry, currentBranch string, isBra
 	return events
 }
 
-func branchOrEmpty(name string, isBranch func(string) bool) string {
-	if isBranch(name) {
-		return name
+// initialBranch returns the branch HEAD was on before the first reflog line
+// that names one: the origin of the first checkout or the old name of the
+// first rename. Without such a line HEAD never left currentBranch.
+func initialBranch(entries []reflogEntry, currentBranch string, isBranch func(string) bool) string {
+	for _, e := range entries {
+		if m := renameLine.FindStringSubmatch(e.Subject); m != nil {
+			return m[1]
+		}
+		if m := checkoutLine.FindStringSubmatch(e.Subject); m != nil {
+			return branchOrEmpty(m[1], isBranch)
+		}
 	}
-	return ""
+	return currentBranch
+}
+
+// branchOrEmpty returns name when a checkout of it lands on a local branch and
+// "" when it detaches HEAD.
+func branchOrEmpty(name string, isBranch func(string) bool) string {
+	if isRefExpression(name) || !isBranch(name) {
+		return ""
+	}
+	return name
+}
+
+// isRefExpression reports whether a checkout target is a revision expression
+// such as "main~1", "main^", "main@{1}", "main@{1 day ago}", "v1^{commit}" or
+// "@" rather than a plain ref name. Git forbids these characters and sequences
+// (whitespace included) in branch names, and checking out such an expression
+// always detaches HEAD.
+func isRefExpression(name string) bool {
+	return name == "@" ||
+		strings.ContainsAny(name, " \t~^:?*[\\") ||
+		strings.Contains(name, "@{") ||
+		strings.Contains(name, "..")
 }

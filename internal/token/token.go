@@ -28,6 +28,19 @@ func Get() (string, error) {
 	return secret, nil
 }
 
+// Delete removes the YouTrack token from the OS keychain. It returns
+// ErrNotSet when no token is stored.
+func Delete() error {
+	err := keyring.Delete(keychainService, keychainUser)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return ErrNotSet
+	}
+	if err != nil {
+		return fmt.Errorf("delete token from keychain: %w", err)
+	}
+	return nil
+}
+
 // Set stores the YouTrack token in the OS keychain. The token is never
 // persisted anywhere else and is not included in returned errors.
 func Set(secret string) error {

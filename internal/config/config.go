@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,9 +25,12 @@ const (
 	// longer counts as activity.
 	DefaultIdleThreshold    = 3 * time.Minute
 	DefaultMinBlockDuration = 10 * time.Minute
-	DefaultRounding         = 15 * time.Minute
-	DefaultDailyCap         = 10 * time.Hour
-	DefaultTicketPattern    = `[A-Z][A-Z0-9]+-\d+`
+	// DefaultContextMaxAge is how long context is carried at its own tier
+	// after it was last confirmed.
+	DefaultContextMaxAge = 2 * time.Hour
+	DefaultRounding      = 15 * time.Minute
+	DefaultDailyCap      = 10 * time.Hour
+	DefaultTicketPattern = `[A-Z][A-Z0-9]+-\d+`
 	// DefaultActivityWatchURL is where a local ActivityWatch server listens.
 	DefaultActivityWatchURL = "http://localhost:5600"
 	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
@@ -39,6 +41,10 @@ const (
 	DefaultScanInterval time.Duration = 0
 	// MinScanInterval is the shortest accepted non-zero scan interval.
 	MinScanInterval = 5 * time.Minute
+	// DefaultRetentionDays turns the retention cleanup off: raw events stay.
+	DefaultRetentionDays = 0
+	// MaxRetentionDays is the largest accepted retention_days (ten years).
+	MaxRetentionDays = 3650
 )
 
 // Scan configures the optional periodic git reflog scan run by the agent.
@@ -84,14 +90,24 @@ type Config struct {
 	GapThreshold     time.Duration
 	IdleThreshold    time.Duration
 	MinBlockDuration time.Duration
-	Rounding         time.Duration
-	DailyCap         time.Duration
+	// ContextMaxAge is how long context is carried at its own tier after it
+	// was last confirmed; older context is only a suggestion. Zero turns the
+	// limit off for automatic context. A manual pin does not depend on it: it
+	// is only a suggestion from the day after it was set.
+	ContextMaxAge time.Duration
+	Rounding      time.Duration
+	DailyCap      time.Duration
 	// DailyCapDisabled turns the daily cap off: no warning, no acknowledgement,
 	// and no block on sync or auto.
 	DailyCapDisabled bool
-	Rules            []Rule
-	TicketPattern    *regexp.Regexp
-	RepoPaths        []string
+	// DescriptionFromCommits makes the booked text of a work item name the
+	// subjects of the commits made in that time, read from the repository
+	// when `sync` runs. Off keeps the short summary. Load turns it on by
+	// default; the zero Config has it off.
+	DescriptionFromCommits bool
+	Rules                  []Rule
+	TicketPattern          *regexp.Regexp
+	RepoPaths              []string
 	// RepoRoots are folders whose immediate children that are Git
 	// repositories are tracked; entries are validated like RepoPaths.
 	RepoRoots []string
@@ -102,6 +118,13 @@ type Config struct {
 	TitleHint     TitleHint
 	Auto          Auto
 	Scan          Scan
+	// RetentionDays is how many days after a day the raw events of a fully
+	// booked day are deleted; zero keeps them. A cleaned day can no longer be
+	// re-derived.
+	RetentionDays int
+	// AppClasses maps a bundle ID to the class of that foreground app. It is
+	// empty by default; an app that is not listed is ClassWork.
+	AppClasses map[string]AppClass
 }
 
 // TitleHint configures the optional window-title collector. It is off unless
@@ -119,18 +142,23 @@ type titleHintFile struct {
 
 // fileConfig mirrors the TOML file; durations and patterns stay strings until validated.
 type fileConfig struct {
-	YouTrackURL      string   `toml:"youtrack_url"`
-	GapThreshold     string   `toml:"gap_threshold"`
-	IdleThreshold    string   `toml:"idle_threshold"`
-	MinBlockDuration string   `toml:"min_block_duration"`
-	Rounding         string   `toml:"rounding"`
-	DailyCap         string   `toml:"daily_cap"`
-	DailyCapEnabled  *bool    `toml:"daily_cap_enabled"`
-	Rules            []Rule   `toml:"rules"`
-	TicketPattern    string   `toml:"ticket_pattern"`
-	RepoPaths        []string `toml:"repo_paths"`
-	RepoRoots        []string `toml:"repo_roots"`
-	TimeZone         string   `toml:"time_zone"`
+	YouTrackURL      string `toml:"youtrack_url"`
+	GapThreshold     string `toml:"gap_threshold"`
+	IdleThreshold    string `toml:"idle_threshold"`
+	MinBlockDuration string `toml:"min_block_duration"`
+	ContextMaxAge    string `toml:"context_max_age"`
+	Rounding         string `toml:"rounding"`
+	DailyCap         string `toml:"daily_cap"`
+	DailyCapEnabled  *bool  `toml:"daily_cap_enabled"`
+
+	DescriptionFromCommits *bool `toml:"description_from_commits"`
+
+	Rules         []Rule   `toml:"rules"`
+	TicketPattern string   `toml:"ticket_pattern"`
+	RepoPaths     []string `toml:"repo_paths"`
+	RepoRoots     []string `toml:"repo_roots"`
+	TimeZone      string   `toml:"time_zone"`
+	RetentionDays *int     `toml:"retention_days"`
 
 	DefaultIssue *DefaultIssue `toml:"default_issue"`
 
@@ -141,6 +169,8 @@ type fileConfig struct {
 	} `toml:"activitywatch"`
 
 	TitleHint titleHintFile `toml:"titlehint"`
+
+	AppClasses map[string]string `toml:"app_classes"`
 
 	Scan struct {
 		Interval string `toml:"interval"`
@@ -214,36 +244,50 @@ func describeDecodeError(err error) error {
 }
 
 func build(raw fileConfig) (Config, error) {
-	cfg := Config{YouTrackURL: raw.YouTrackURL, Rules: raw.Rules, RepoPaths: raw.RepoPaths}
+	cfg := Config{YouTrackURL: raw.YouTrackURL, RepoPaths: raw.RepoPaths}
 
-	if raw.YouTrackURL != "" {
-		u, err := url.Parse(raw.YouTrackURL)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return Config{}, fmt.Errorf("youtrack_url %q is not an absolute URL", raw.YouTrackURL)
-		}
+	if err := CheckYouTrackURL(raw.YouTrackURL); err != nil {
+		return Config{}, err
 	}
 
+	// zeroFix is the hint appended when the value is zero. A zero duration
+	// is rejected because it would silently fall back to the default.
 	durations := []struct {
 		key      string
 		value    string
 		fallback time.Duration
 		target   *time.Duration
+		zeroFix  string
 	}{
-		{"gap_threshold", raw.GapThreshold, DefaultGapThreshold, &cfg.GapThreshold},
-		{"idle_threshold", raw.IdleThreshold, DefaultIdleThreshold, &cfg.IdleThreshold},
-		{"min_block_duration", raw.MinBlockDuration, DefaultMinBlockDuration, &cfg.MinBlockDuration},
-		{"rounding", raw.Rounding, DefaultRounding, &cfg.Rounding},
-		{"daily_cap", raw.DailyCap, DefaultDailyCap, &cfg.DailyCap},
+		{"gap_threshold", raw.GapThreshold, DefaultGapThreshold, &cfg.GapThreshold, msgZeroFixRemove},
+		{"idle_threshold", raw.IdleThreshold, DefaultIdleThreshold, &cfg.IdleThreshold, msgZeroFixRemove},
+		{"min_block_duration", raw.MinBlockDuration, DefaultMinBlockDuration, &cfg.MinBlockDuration, msgZeroFixRemove},
+		{"rounding", raw.Rounding, DefaultRounding, &cfg.Rounding, msgZeroFixRounding},
+		{"daily_cap", raw.DailyCap, DefaultDailyCap, &cfg.DailyCap, msgZeroFixDailyCap},
 	}
 	for _, d := range durations {
 		parsed, err := parseDuration(d.key, d.value, d.fallback)
 		if err != nil {
 			return Config{}, err
 		}
+		if parsed == 0 {
+			return Config{}, fmt.Errorf(msgZeroDuration, d.key, d.zeroFix)
+		}
 		*d.target = parsed
+	}
+	// Unlike the durations above, zero is a valid value here: it turns the
+	// age limit of automatic context off.
+	contextMaxAge, err := parseDuration("context_max_age", raw.ContextMaxAge, DefaultContextMaxAge)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ContextMaxAge = contextMaxAge
+	if cfg.Rounding%time.Minute != 0 {
+		return Config{}, fmt.Errorf(msgRoundingNotMinutes, raw.Rounding)
 	}
 
 	cfg.DailyCapDisabled = raw.DailyCapEnabled != nil && !*raw.DailyCapEnabled
+	cfg.DescriptionFromCommits = raw.DescriptionFromCommits == nil || *raw.DescriptionFromCommits
 
 	pattern := raw.TicketPattern
 	if pattern == "" {
@@ -264,11 +308,11 @@ func build(raw fileConfig) (Config, error) {
 		cfg.Location = loc
 	}
 
-	for i, rule := range raw.Rules {
-		if rule.Repo == "" || rule.Ticket == "" {
-			return Config{}, fmt.Errorf("rules[%d]: repo and ticket are both required", i)
-		}
+	rules, err := buildRules(raw.Rules, pattern)
+	if err != nil {
+		return Config{}, err
 	}
+	cfg.Rules = rules
 	aw, err := buildActivityWatch(raw)
 	if err != nil {
 		return Config{}, err
@@ -300,6 +344,16 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Scan = scan
+	appClasses, err := buildAppClasses(raw.AppClasses)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AppClasses = appClasses
+	retention, err := buildRetentionDays(raw.RetentionDays)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RetentionDays = retention
 	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
 	if days := raw.Auto.TrustedDays; days != nil {
 		if *days < 1 {
@@ -345,8 +399,9 @@ func buildActivityWatch(raw fileConfig) (ActivityWatch, error) {
 	return aw, nil
 }
 
-// buildTitleHint validates the project mapping. Errors name the project key
-// only, never the configured value.
+// buildTitleHint validates the project mapping and normalises the repository
+// paths, so they compare equal to the paths git reports. Errors name the
+// project key only, never the configured value.
 func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 	hint := TitleHint{Enabled: raw.Enabled}
 	if len(raw.Projects) == 0 {
@@ -360,9 +415,24 @@ func buildTitleHint(raw titleHintFile) (TitleHint, error) {
 		if !filepath.IsAbs(repo) {
 			return TitleHint{}, fmt.Errorf("titlehint.projects.%q: repo path must be absolute", name)
 		}
-		hint.Projects[name] = repo
+		hint.Projects[name] = resolvePath(repo)
 	}
 	return hint, nil
+}
+
+// buildRetentionDays validates retention_days: zero turns the cleanup off,
+// negative values and values above MaxRetentionDays are rejected.
+func buildRetentionDays(raw *int) (int, error) {
+	if raw == nil {
+		return DefaultRetentionDays, nil
+	}
+	if *raw < 0 {
+		return 0, fmt.Errorf("retention_days must not be negative, got %d: use 0 to keep events", *raw)
+	}
+	if *raw > MaxRetentionDays {
+		return 0, fmt.Errorf("retention_days must be at most %d, got %d", MaxRetentionDays, *raw)
+	}
+	return *raw, nil
 }
 
 // buildScan validates the [scan] table. Zero turns the periodic scan off;

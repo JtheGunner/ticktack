@@ -189,7 +189,12 @@ func runMapAdd(ctx context.Context, deps dailyDeps, repo, branch, ticket string)
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	rule, err := st.AddLearnedRule(ctx, store.LearnedRule{Repo: repo, BranchPattern: branch, Ticket: normalized, CreatedAt: deps.Now()})
+	var rule store.LearnedRule
+	err = changeRule(ctx, st, deps, store.RuleAdded, func(tx store.Tx) error {
+		var err error
+		rule, err = tx.AddLearnedRule(ctx, store.LearnedRule{Repo: repo, BranchPattern: branch, Ticket: normalized, CreatedAt: deps.Now()})
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -230,7 +235,8 @@ func runMapEdit(ctx context.Context, deps dailyDeps, idArg string, changes mapCh
 	if rule.Ticket, err = validateRule(cfg, rule.Repo, rule.BranchPattern, rule.Ticket, changes.repo != nil); err != nil {
 		return err
 	}
-	if err := st.UpdateLearnedRule(ctx, rule); err != nil {
+	err = changeRule(ctx, st, deps, store.RuleEdited, func(tx store.Tx) error { return tx.UpdateLearnedRule(ctx, rule) })
+	if err != nil {
 		return mapStoreError(err, id)
 	}
 	printRuleChange(deps, msgMapEdited, rule)
@@ -247,12 +253,25 @@ func runMapRemove(ctx context.Context, deps dailyDeps, idArg string) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	if err := st.DeleteLearnedRule(ctx, id); err != nil {
+	err = changeRule(ctx, st, deps, store.RuleRemoved, func(tx store.Tx) error { return tx.DeleteLearnedRule(ctx, id) })
+	if err != nil {
 		return mapStoreError(err, id)
 	}
 	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, fmt.Sprintf(msgMapRemoved, id)))
 	_, _ = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusInfo, msgMapRederive))
 	return nil
+}
+
+// changeRule runs a rule write and records it as a rule change in one
+// transaction. The trust gate of auto mode counts every recorded change as a
+// correction on its calendar day, so the two must never drift apart.
+func changeRule(ctx context.Context, st dailyStore, deps dailyDeps, action store.RuleChangeAction, write func(tx store.Tx) error) error {
+	return st.InTx(ctx, func(tx store.Tx) error {
+		if err := write(tx); err != nil {
+			return err
+		}
+		return tx.RecordRuleChange(ctx, store.RuleChange{ChangedAt: deps.Now(), Action: action})
+	})
 }
 
 func findLearnedRule(ctx context.Context, st dailyStore, id int64) (store.LearnedRule, error) {

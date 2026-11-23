@@ -182,7 +182,7 @@ func TestFindByMarkerMatchesVerbatim(t *testing.T) {
 			_, _ = io.WriteString(w, `{"login":"me"}`)
 			return
 		}
-		_, _ = io.WriteString(w, `[
+		writeFirstPageOnly(w, r, `[
 			{"id":"1-0","text":"colleague [ticktack:ABC-1]","author":{"login":"colleague"}},
 			{"id":"1-1","text":"x [ticktack:ABC-10]","author":{"login":"me"}},
 			{"id":"1-2","text":"no marker","author":{"login":"me"}},

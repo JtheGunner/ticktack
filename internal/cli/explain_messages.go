@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
@@ -28,12 +29,37 @@ const (
 	msgExplainMergedSignal = "none single: the block was merged from several signals with different rules"
 	msgExplainMergedItem   = "- %s -> %s"
 	msgExplainNoContext    = "none: presence without any earlier context event"
-	msgExplainTooShort     = "none: the block is shorter than the minimum duration and has no same-ticket neighbour"
+	msgExplainTooShort     = "none: the block is shorter than the minimum duration and has no same-ticket neighbour, nor blocks of one ticket on both sides"
+	msgLabelFolded         = "Folded"
 	msgExplainNoRule       = "no rule matched (no ticket on the event or in the branch, no configured or learned rule)"
 )
 
 func msgExplainEventSignal(source, kind, at, repo, branch, ticket string) string {
 	return fmt.Sprintf("%s event from %s at %s (repo %s, branch %s, ticket %s)", kind, source, at, repo, branch, ticket)
+}
+
+// msgExplainStale names the age of the context as the reason a block is only
+// a suggestion. confirmedAt is when the context was last confirmed.
+func msgExplainStale(reason, confirmedAt, maxAge string, pinned bool) string {
+	if pinned {
+		return fmt.Sprintf("%s: the manual switch was set at %s and is exempt from context_max_age only on that day; confirm the ticket in review", reason, confirmedAt)
+	}
+	return fmt.Sprintf("%s: last confirmed at %s, limit %s (context_max_age); confirm the ticket in review", reason, confirmedAt, maxAge)
+}
+
+// msgExplainAppClass names the app class as the reason a block is only a
+// suggestion. app is the bundle ID and can be empty.
+func msgExplainAppClass(class config.AppClass, app string) string {
+	if app == "" {
+		return fmt.Sprintf("%s: the foreground app is in class %q (app_classes); the ticket stays, confirm it in review", sessionizer.NeutralAppReason, class)
+	}
+	return fmt.Sprintf("%s: the foreground app %s is in class %q (app_classes); the ticket stays, confirm it in review", sessionizer.NeutralAppReason, app, class)
+}
+
+// msgExplainFolded names the rule that put a short block of another ticket
+// into this block. ticket is the display label of the folded block's ticket.
+func msgExplainFolded(start, end, ticket string) string {
+	return fmt.Sprintf("%s-%s (%s) was shorter than the minimum duration and lies between blocks of this ticket; folded in (rule: confirmed short block between two blocks of one ticket; the tier is the lower of the two)", start, end, ticket)
 }
 
 func msgExplainOverrideSignal(start, end string) string {
@@ -42,6 +68,14 @@ func msgExplainOverrideSignal(start, end string) string {
 
 func msgExplainOverrideRule(ticket string) string {
 	return "override assigns " + ticket + " (corrections are stored as overrides, never as events)"
+}
+
+func msgExplainFillSignal(start, end string) string {
+	return fmt.Sprintf("manual fill %s-%s (no presence recorded)", start, end)
+}
+
+func msgExplainFillRule(ticket string) string {
+	return "you filled idle time with " + ticket + " in review; the time exists only because of that action (fills are stored as overrides, never as events)"
 }
 
 func msgExplainRuleText(d resolver.Decision, ticket string) string {

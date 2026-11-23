@@ -7,12 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/localday"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
+	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -49,6 +52,9 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	if err := refuseArchivedDay(ctx, st, civilDayOf(start, loc)); err != nil {
+		return err
+	}
 
 	derived, err := deriveDay(ctx, st, cfg, start)
 	if err != nil {
@@ -94,6 +100,7 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 			SanitizeForTerminal(ticketLabel(item.Ticket)),
 			formatMinutes(item.Minutes),
 			formatMinutes(item.RawMinutes),
+			formatCertainty(item.Certainty),
 		})
 	}
 	lines = append(lines, "", r.Heading(msgTotalsHeading))
@@ -101,9 +108,13 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 		{Header: msgColTicket},
 		{Header: msgColTime, Right: true},
 		{Header: msgColRaw, Right: true},
+		{Header: msgColCertainty, Flex: true},
 	}, totalRows)...)
 	lines = append(lines, "")
 	lines = append(lines, r.Labels([]render.LabelRow{{Label: msgLabelTotal, Value: formatMinutes(total)}}, 2)...)
+	if m := breakMinutes(derived.Breaks); m > 0 {
+		lines = append(lines, r.Gutter(render.StatusInfo, msgReviewBreakTotal(m)))
+	}
 	if overCap {
 		lines = append(lines, r.Gutter(render.StatusWarn, msgOverDailyCap(cfg.DailyCap)))
 	}
@@ -111,17 +122,17 @@ func runToday(ctx context.Context, deps dailyDeps, day string) error {
 	return err
 }
 
-// dayStart returns local midnight of the requested day (default: today).
+// dayStart returns the first instant of the requested local day (default:
+// today). That is local midnight unless the zone skips it.
 func dayStart(day string, now time.Time, loc *time.Location) (time.Time, error) {
 	if day == "" {
-		local := now.In(loc)
-		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc), nil
+		return localday.StartOf(civil.DateOf(now.In(loc)), loc), nil
 	}
-	parsed, err := time.ParseInLocation(dayLayout, day, loc)
+	parsed, err := time.Parse(dayLayout, day)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("--day %q: expected format YYYY-MM-DD", day)
 	}
-	return parsed, nil
+	return localday.StartOf(civil.DateOf(parsed), loc), nil
 }
 
 func ticketLabel(ticket string) string {
@@ -140,25 +151,27 @@ type derivedDay struct {
 	Overrides []event.Override
 	Rules     resolver.Rules
 	Blocks    []sessionizer.Block
+	Breaks    []sessionizer.Break
+}
+
+// breakMinutes is the break total in whole minutes, rounded to the nearest.
+func breakMinutes(breaks []sessionizer.Break) int {
+	var sum time.Duration
+	for _, b := range breaks {
+		sum += b.Duration()
+	}
+	return int((sum + 30*time.Second) / time.Minute)
 }
 
 // deriveDay loads the events, overrides and rules of the local day starting at
-// start and derives its blocks. Block numbers (1-based) are indexes into
+// start and derives its blocks through the loader review uses, so the day
+// starts with the context carried over from before it. Block numbers (1-based) are indexes into
 // Blocks, so today and explain agree.
 func deriveDay(ctx context.Context, st dailyStore, cfg config.Config, start time.Time) (derivedDay, error) {
-	end := time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, cfg.Location)
-	events, err := st.Events(ctx, start, end)
+	end := localday.Next(start, cfg.Location)
+	in, err := review.LoadDayInput(ctx, st, cfg, start, end)
 	if err != nil {
 		return derivedDay{}, err
 	}
-	overrides, err := st.Overrides(ctx, start, end)
-	if err != nil {
-		return derivedDay{}, err
-	}
-	rules, err := resolverRules(ctx, st, cfg)
-	if err != nil {
-		return derivedDay{}, err
-	}
-	blocks := sessionizer.Derive(events, overrides, sessionizer.ConfigFrom(cfg), rules)
-	return derivedDay{Events: events, Overrides: overrides, Rules: rules, Blocks: blocks}, nil
+	return derivedDay{Events: in.Events, Overrides: in.Overrides, Rules: in.Rules, Blocks: in.Blocks, Breaks: in.Breaks}, nil
 }

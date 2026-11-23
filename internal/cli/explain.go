@@ -47,6 +47,9 @@ func runExplain(ctx context.Context, deps dailyDeps, day, target string) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	if err := refuseArchivedDay(ctx, st, civilDayOf(start, loc)); err != nil {
+		return err
+	}
 	derived, err := deriveDay(ctx, st, cfg, start)
 	if err != nil {
 		return err
@@ -64,7 +67,7 @@ func runExplain(ctx context.Context, deps dailyDeps, day, target string) error {
 		Block: b, Events: derived.Events, Overrides: derived.Overrides,
 		Rules: derived.Rules, Config: sessionizer.ConfigFrom(cfg),
 	})
-	printExplanation(deps, ex, n, label, loc)
+	printExplanation(deps, ex, n, label, start, loc)
 	return nil
 }
 
@@ -102,9 +105,18 @@ func selectBlock(blocks []sessionizer.Block, target string, dayStart time.Time, 
 	return 0, fmt.Errorf(msgExplainNoBlockAt, target, label)
 }
 
-func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label string, loc *time.Location) {
+// printExplanation prints the explanation of block n of the day starting at
+// dayStart. Times are clock times of that day, except for a deciding event
+// from before it (carried context), which is printed with its date.
+func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label string, dayStart time.Time, loc *time.Location) {
 	r := deps.Render
 	clock := func(t time.Time) string { return t.In(loc).Format("15:04:05") }
+	eventTime := func(t time.Time) string {
+		if t.Before(dayStart) {
+			return t.In(loc).Format(dayLayout + " 15:04:05")
+		}
+		return clock(t)
+	}
 	b := ex.Block
 	minutes := int(b.Duration() / time.Minute)
 
@@ -122,12 +134,16 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		rows = append(rows,
 			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainOverrideSignal(clock(ex.Override.Start), clock(ex.Override.End)))},
 			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainOverrideRule(ex.Override.Ticket))})
+	case explain.SourceFill:
+		rows = append(rows,
+			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainFillSignal(clock(ex.Override.Start), clock(ex.Override.End)))},
+			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainFillRule(ex.Override.Ticket))})
 	case explain.SourceMerged:
 		rows = append(rows, render.LabelRow{Label: msgLabelSignal, Value: msgExplainMergedSignal})
 		for _, m := range ex.Merged {
 			me := m.Event
 			merged = append(merged, fmt.Sprintf(msgExplainMergedItem, SanitizeForTerminal(msgExplainEventSignal(
-				me.Source, string(me.Kind), clock(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
+				me.Source, string(me.Kind), eventTime(me.At), noneIfEmpty(me.Repo), noneIfEmpty(me.Branch), noneIfEmpty(me.Ticket))),
 				SanitizeForTerminal(msgExplainRuleText(m.Decision, m.Decision.Ticket))))
 		}
 	case explain.SourceNoContext:
@@ -138,7 +154,7 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		e := ex.Event
 		rows = append(rows,
 			render.LabelRow{Label: msgLabelSignal, Value: SanitizeForTerminal(msgExplainEventSignal(
-				e.Source, string(e.Kind), clock(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket)))},
+				e.Source, string(e.Kind), eventTime(e.At), noneIfEmpty(e.Repo), noneIfEmpty(e.Branch), noneIfEmpty(e.Ticket)))},
 			render.LabelRow{Label: msgLabelRule, Value: SanitizeForTerminal(msgExplainRuleText(ex.Decision, b.Ticket))})
 		var skipped []string
 		for _, kind := range ex.Skipped {
@@ -147,6 +163,16 @@ func printExplanation(deps dailyDeps, ex explain.Explanation, n int, label strin
 		if len(skipped) > 0 {
 			rows = append(rows, render.LabelRow{Label: msgLabelNotApplied, Value: SanitizeForTerminal(strings.Join(skipped, "; "))})
 		}
+		if ex.AppClass != "" {
+			conclusions = append(conclusions, r.Gutter(render.StatusWarn, SanitizeForTerminal(msgExplainAppClass(ex.AppClass, ex.App))))
+		}
+		if ex.Stale {
+			conclusions = append(conclusions, r.Gutter(render.StatusWarn, SanitizeForTerminal(msgExplainStale(
+				sessionizer.StaleReason(ex.Age), eventTime(ex.ConfirmedAt), sessionizer.FormatAge(ex.MaxAge), ex.Pinned))))
+		}
+	}
+	for _, f := range ex.Folded {
+		rows = append(rows, render.LabelRow{Label: msgLabelFolded, Value: SanitizeForTerminal(msgExplainFolded(clock(f.Start), clock(f.End), ticketLabel(f.Ticket)))})
 	}
 	p := ex.Presence
 	if p.Samples == 0 {

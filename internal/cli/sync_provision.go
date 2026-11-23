@@ -20,7 +20,9 @@ import (
 // point at exist and swaps their placeholders for the real issue keys. It asks
 // once, on in, before creating anything; an empty or missing answer declines.
 // Items whose task could not be provided are dropped from the result and the
-// reason is printed, so they are never booked on a guess.
+// reason is printed, so they are never booked on a guess. Items of a project
+// whose lookup or creation failed are dropped too and returned in the
+// report's Failed for the sync report; a stop error ends the run instead.
 func provisionStandardTasks(ctx context.Context, out io.Writer, in io.Reader, r render.Renderer, cfg config.Config, st *store.Store, target sink.TimeSink, items []sessionizer.DayItem, dryRun bool) ([]sessionizer.DayItem, ledger.ProvisionReport, error) {
 	if cfg.DefaultIssue == nil {
 		return items, ledger.ProvisionReport{}, nil

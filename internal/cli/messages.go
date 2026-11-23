@@ -8,6 +8,7 @@ const (
 	msgInitConfigWritten = "config written: %s"
 	msgInitConfigURL     = "YouTrack base URL (empty to set it later): "
 	msgInitConfigBadURL  = "config not written: %q is not an absolute URL"
+	msgInitConfigNoHTTPS = "config not written: %v"
 	msgInitConfigFailed  = "config failed: %v"
 
 	msgInitTokenIntro    = "Step 2/4 - token: store the YouTrack permanent token in the OS keychain"
@@ -27,6 +28,17 @@ const (
 	msgInitHookWritten       = "shell hook written: %s (open a new shell to activate it)"
 	msgInitHookFailed        = "shell hook failed: %v"
 
+	// The tt alias lives in the same managed block as the hook.
+	msgInitAliasExplain  = "The block also gets an optional alias, tt for ticktack (skip it with --skip-alias)"
+	msgInitAliasSet      = "alias tt set (open a new shell to use it)"
+	msgInitAliasSkipped  = "alias tt skipped (--skip-alias)"
+	msgInitAliasConflict = "alias tt not set: tt already exists (%s)"
+
+	// msgAliasConflictCommand and msgAliasConflictRC say what already provides
+	// tt. Only a command on PATH and the rc file init edits are inspected.
+	msgAliasConflictCommand = "command %s"
+	msgAliasConflictRC      = "defined in your shell startup file"
+
 	msgInitAgentIntro   = "Step 4/4 - agent: install and load the launchd agent at %s"
 	msgInitAgentNotMac  = "launchd agent is macOS-only; skipped"
 	msgInitAgentWritten = "plist written: %s"
@@ -43,6 +55,8 @@ const (
 
 	msgDoctorSummaryOK     = "All %d checks passed."
 	msgDoctorSummaryFailed = "%d of %d checks failed."
+	// msgDoctorSummaryWarned closes a report without failures but with warnings.
+	msgDoctorSummaryWarned = "No check failed; %d of %d with a warning."
 	msgDoctorSummaryTitle  = "Summary"
 
 	msgNoColorUsage = "disable coloured output; NO_COLOR and TERM=dumb are honoured too"

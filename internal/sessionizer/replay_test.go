@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 )
@@ -20,6 +21,9 @@ type fixture struct {
 		GapThreshold  string `json:"gapThreshold"`
 		IdleThreshold string `json:"idleThreshold"`
 		MinBlock      string `json:"minBlock"`
+		ContextMaxAge string `json:"contextMaxAge"`
+		// AppClasses maps a bundle ID to a class name (neutral, personal).
+		AppClasses map[string]config.AppClass `json:"appClasses"`
 	} `json:"config"`
 	Rules struct {
 		Repos []resolver.RepoRule `json:"repos"`
@@ -52,6 +56,25 @@ func parseDuration(t *testing.T, s string) time.Duration {
 //     the gap, the order in which the agent writes them (the marker first, then
 //     the sample). Earlier the order did not matter; now a sample sorted ahead
 //     of its own gap marker would start a span that the marker closes at once.
+//   - Every fixture sets contextMaxAge to the default of two hours, and each
+//     has a single context event per branch, so nothing confirms the context
+//     later. Time from two hours after that event on is tier suggested with
+//     the reason "context unconfirmed for <age>" and keeps its ticket.
+//     normal_day.json: the morning block ends one second short of the limit
+//     and keeps tier rule; the block after the break starts 2h20m after the
+//     only context event and is suggested as a whole.
+//     sleep_gap.json: the block after the sleep gap is cut at 10:00, two hours
+//     after the context event; the part before stays explicit.
+//     ticket_switches.json: no context is older than two hours, so nothing
+//     changes.
+//   - fold_short_block.json (minBlock 10m): an 8 min look at another branch
+//     between two stretches of APP-2 is folded into one APP-2 block that lists
+//     the folded time; a 6 min block of APP-5 between APP-2 and APP-6 has no
+//     enclosing ticket and stays unknown.
+//   - app_classes.json: chat is neutral, music is personal. The chat stretch
+//     (08:20-08:40) keeps APP-1 as suggested; the music stretch (09:00-09:24)
+//     is not counted and splits the work into two blocks, with no unknown
+//     block in between.
 func TestReplayFixtures(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "*.json"))
 	if err != nil {
@@ -77,6 +100,8 @@ func TestReplayFixtures(t *testing.T) {
 				GapThreshold:  parseDuration(t, fx.Config.GapThreshold),
 				IdleThreshold: parseDuration(t, fx.Config.IdleThreshold),
 				MinBlock:      parseDuration(t, fx.Config.MinBlock),
+				ContextMaxAge: parseDuration(t, fx.Config.ContextMaxAge),
+				AppClasses:    fx.Config.AppClasses,
 			}
 			blocks := Derive(fx.Events, fx.Overrides, cfg, resolver.Rules{Repos: fx.Rules.Repos})
 			for i := range blocks {

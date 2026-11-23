@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/collector/presence"
 	"github.com/JtheGunner/ticktack/internal/collector/title"
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
 	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -56,12 +56,7 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
 	}
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("open log file: %w", err)
-	}
-	defer func() { _ = logFile.Close() }()
-	logger := log.New(logFile, "agent: ", log.LstdFlags)
+	logger := newAgentLogger(logPath)
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -75,8 +70,15 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	cfg, cfgOK := loadAgentConfig(logger.Printf)
 	var jobs []backgroundJob
 	if cfgOK {
-		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, interval, logger.Printf); collector != nil {
+		titleStatusPath, statusErr := paths.TitleStatusPath()
+		if statusErr != nil {
+			logger.Printf("title probe status disabled: %v", statusErr)
+		}
+		if collector := newTitleCollector(cfg, title.NewSource(), st, pausePath, titleStatusPath, interval, logger.Printf); collector != nil {
 			jobs = append(jobs, func(ctx context.Context) { _ = collector.Run(ctx) })
+		}
+		if job := newRetentionJob(cfg, st, acquireBookingLock, retentionInterval, func() time.Time { return time.Now().Round(0) }, logger.Printf); job != nil {
+			jobs = append(jobs, job)
 		}
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil {
@@ -91,6 +93,20 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 	agent := newPresenceAgent(presence.NewSampler(), st, interval, pausePath, logger.Printf)
 	// All collector goroutines finish before the deferred store close runs.
 	return runWithBackground(ctx, jobs, agent.Run)
+}
+
+// newAgentLogger returns the logger of the agent and rotates the log once.
+// launchd appends stdout and stderr of the agent to the same file, so it is
+// bounded at start even when the agent itself has nothing to log. The rotation
+// is best effort: a log that cannot be rotated (full disk, wrong permissions)
+// must never keep the agent from recording presence, so the failure is only
+// logged.
+func newAgentLogger(logPath string) *logfile.Logger {
+	logger := logfile.New(logPath, "agent: ")
+	if err := logger.Rotate(); err != nil {
+		logger.Printf("log rotation failed: %v", err)
+	}
+	return logger
 }
 
 // newPresenceAgent builds the production presence agent. It stores nothing
@@ -135,11 +151,18 @@ func loadAgentConfig(logf func(format string, args ...any)) (config.Config, bool
 // newTitleCollector builds the window-title collector, or returns nil while
 // the feature is disabled. It honours the same pause flag as the presence
 // agent.
-func newTitleCollector(cfg config.Config, source title.Source, sink title.Appender, pausePath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
+// The collector records the outcome of each title read in the status file at
+// statusPath, which `ticktack doctor` reads; an empty path records nothing.
+func newTitleCollector(cfg config.Config, source title.Source, sink title.Appender, pausePath, statusPath string, interval time.Duration, logf func(format string, args ...any)) *title.Collector {
 	if !cfg.TitleHint.Enabled {
 		return nil
 	}
+	var status title.StatusRecorder
+	if statusPath != "" {
+		status = &title.StatusFile{Path: statusPath}
+	}
 	return &title.Collector{
+		Status:        status,
 		Source:        source,
 		Sink:          sink,
 		Projects:      cfg.TitleHint.Projects,

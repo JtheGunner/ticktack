@@ -8,7 +8,8 @@
 # The YouTrack token is NOT stored here. It lives in the OS keychain; store it
 # with `ticktack init`.
 
-# Base URL of your YouTrack instance. Replace the placeholder.
+# Base URL of your YouTrack instance. Replace the placeholder. Must use https
+# (http only for localhost).
 youtrack_url = "https://example.youtrack.cloud"
 
 # Presence gaps longer than this end a work block.
@@ -20,7 +21,16 @@ idle_threshold = "3m0s"
 # Blocks shorter than this join a same-ticket neighbour or become one block that needs a ticket.
 min_block_duration = "10m0s"
 
-# Booked durations are rounded to a multiple of this.
+# Context (repository, branch) that was not confirmed for this long is only a
+# suggestion to confirm in review. Any context event on the same repository
+# and branch confirms it: a shell prompt, a checkout, a commit, a title hint.
+# "0" turns this limit off. A manual pin (`ticktack switch`) does not depend
+# on it: on the day it was set it counts in full, on the following days it is
+# only a suggestion, also with "0".
+context_max_age = "2h0m0s"
+
+# Booked durations are rounded to a multiple of this. Must be whole minutes;
+# "1m" books exact minutes.
 rounding = "15m0s"
 
 # Maximum time booked per day. A day above the cap needs an explicit
@@ -30,6 +40,15 @@ daily_cap = "10h0m0s"
 # Set to false to turn the daily cap off: no warning, and neither `ticktack sync`
 # nor `ticktack auto` is ever blocked by it.
 # daily_cap_enabled = true
+
+# Name the commits of the booked time in the work item text. `ticktack sync`
+# reads their subjects from the repository when it runs (never stored with the
+# events): the unique subjects in the order they were made, at most 5 of them
+# and 200 characters each, then "+N more". Merge commits and fixup!/squash!
+# commits are left out. Without commits, or with an unreadable repository, the
+# text stays the short summary. The booked text is kept in the local sync
+# history so `ticktack undo` can restore it. false always keeps the summary.
+# description_from_commits = true
 
 # Regular expression that extracts a ticket id from a branch name.
 ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
@@ -44,6 +63,27 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # YouTrack project of the same name (see "Standard tasks" in the README).
 # repo_roots = ["~/Projects", "~/StudioProjects"]
 
+# Time zone for day boundaries (default: the system zone).
+# time_zone = "Europe/Zurich"
+
+# Delete the raw events of a day (the signals ticktack derived it from) this
+# many days after it, but only once the day is fully booked: every confirmed
+# item is in the ledger with the same minutes and nothing of the day is
+# unconfirmed. "0" (the default) keeps all events.
+#
+# WARNING: a cleaned day can no longer be re-derived, reviewed, explained or
+# synced; it is frozen. Overrides, the ledger and the sync history stay, and
+# the bookings in YouTrack are not touched. Values from 1 to 6 are allowed but
+# leave little time to review and correct a week. The auto mode track record
+# only counts days that can still be derived, so keep the value well above
+# auto.trusted_days. Maximum 3650.
+# The agent cleans up once a day; `ticktack purge --expired --dry-run` shows
+# what would be deleted, `ticktack purge --expired` does it by hand.
+# retention_days = 0
+
+# Tables follow. Top-level keys such as the ones above must stay before the
+# first table.
+
 # Standard task for time without a ticket: one catch-all issue in this project,
 # and per matching project when repo_roots is set. Created by `ticktack sync`
 # after one confirmation.
@@ -56,10 +96,9 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # [scan]
 # interval = "0"
 
-# Time zone for day boundaries (default: the system zone).
-# time_zone = "Europe/Zurich"
-
-# Fixed repository to ticket mappings. Repeat the table for more rules.
+# Fixed repository to ticket mappings. Repeat the table for more rules. The
+# repo is an absolute path or starts with ~/; the ticket must match
+# ticket_pattern.
 # [[rules]]
 # repo = "/path/to/repo"
 # ticket = "ABC-1"
@@ -72,6 +111,21 @@ enabled = false
 
 # [titlehint.projects]
 # "my-ide-project" = "/abs/path/to/repo"
+
+# Optional classes for the foreground app, by macOS bundle ID. Nothing is
+# listed by default and ticktack ships no app list: an app that is not listed
+# counts as "work" (the ticket of the current context applies in full).
+#   "neutral"  keeps the ticket, but only as a suggestion to confirm in review
+#              (chat, video calls).
+#   "personal" ends the time: it is not counted and does not show as unassigned.
+# Only the bundle ID of the frontmost app is used, never a window title.
+# Bundle IDs are matched exactly and case-sensitively, as macOS reports them
+# (surrounding spaces are ignored). Listing one app twice, also with different
+# case, is an error.
+# [app_classes]
+# "com.tinyspeck.slackmacgap" = "neutral"
+# "us.zoom.xos" = "neutral"
+# "com.apple.Music" = "personal"
 
 # Optional import from a local ActivityWatch server (off by default). Only
 # loopback addresses are accepted.

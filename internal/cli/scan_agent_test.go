@@ -21,10 +21,10 @@ type syncSink struct {
 	events []event.Event
 }
 
-func (s *syncSink) Append(_ context.Context, e event.Event) error {
+func (s *syncSink) AppendBatch(_ context.Context, events []event.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.events = append(s.events, e)
+	s.events = append(s.events, events...)
 	return nil
 }
 

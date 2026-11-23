@@ -14,12 +14,19 @@ const (
 	msgAutoLong = `Book the safe blocks of a day without a review, once auto mode has earned
 trust. It is off by default and unlocks only when "[auto] enabled = true" is
 set and the last N consecutive reviewed days (default 10, "[auto] trusted_days")
-passed without a single correction. A later correction in "ticktack review"
-locks it again.
+passed without a single correction. A later correction locks it again.
 
-A day counts towards that streak only when its review session took place on
-the same calendar day or the next one (in your configured time zone). Reviews
-made later with "ticktack review --day" stay valid for booking but do not count.
+A day counts towards that streak only when every item that has a ticket was
+confirmed with the minutes it has now: an item whose minutes changed after you
+confirmed it has to be confirmed again. Unassigned time may stay open. The
+confirmations must be made on the same calendar day or the next one (in your
+configured time zone). Reviews made later with "ticktack review --day" stay
+valid for booking but do not count.
+
+A correction ends the streak: reassigning, discarding, splitting or marking as
+a break time that already had a ticket, and every "ticktack map add", "edit"
+or "rm" (on the day of the change). Giving unassigned time a ticket is not a
+correction, and neither is "ticktack switch".
 
 Only blocks attributed at the explicit or rule tier are booked, and only when
 the day total stays within the daily cap. An item with any lower-tier block is
@@ -72,8 +79,8 @@ func msgDigestCap(d auto.Digest) string {
 }
 
 func msgDigestTotals(d auto.Digest) string {
-	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
-		d.Created, d.Updated, d.Recovered, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
+	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
+		d.Created, d.Updated, d.Recovered, d.Repaired, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 
 // renderDigest formats the digest text that is printed (with the run's

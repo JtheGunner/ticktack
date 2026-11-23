@@ -1,7 +1,9 @@
 package shellhook
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,6 +50,49 @@ func TestScriptHookRegistration(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("%s: missing %q", shell, want)
 		}
+	}
+}
+
+// TestBashHookKeepsExitStatus runs the prompt hook in front of another
+// PROMPT_COMMAND entry, as the hook prepends itself, and checks that the entry
+// still sees the status of the last command.
+func TestBashHookKeepsExitStatus(t *testing.T) {
+	bin, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not installed")
+	}
+	fakeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fakeDir, "ticktack"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hook, err := Script("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		disabled string
+	}{
+		{"hook enabled", ""},
+		{"hook disabled", "1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			script := "PATH=" + fakeDir + ":$PATH\n" + hook +
+				"PROMPT_COMMAND=\"$PROMPT_COMMAND;echo status=\\$?\"\n" +
+				"(exit 7)\n" +
+				"eval \"$PROMPT_COMMAND\"\n"
+			cmd := exec.Command(bin, "--norc", "--noprofile")
+			cmd.Env = append(os.Environ(), "TICKTACK_HOOK_DISABLED="+tt.disabled, "PROMPT_COMMAND=")
+			cmd.Stdin = strings.NewReader(script)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("bash failed: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), "status=7") {
+				t.Errorf("the status of the last command was lost:\n%s", out)
+			}
+		})
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/JtheGunner/ticktack/internal/ledger"
-	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -43,18 +42,9 @@ func reconciliation(ctx context.Context, st *store.Store, dayItems []sessionizer
 func keptKeys(items []sessionizer.DayItem, defaultTasks map[string]string) []string {
 	keys := make([]string, 0, len(items))
 	for _, it := range items {
-		ticket := it.Ticket
-		if project, isPlaceholder := resolver.ParseDefaultRef(ticket); isPlaceholder {
-			ticket = defaultTasks[project]
+		if key, ok := ledger.ItemKey(it, defaultTasks); ok {
+			keys = append(keys, key)
 		}
-		if ticket == "" {
-			continue
-		}
-		typ := it.Type
-		if typ == "" {
-			typ = sessionizer.DefaultWorkItemType
-		}
-		keys = append(keys, ledger.Key(ticket, it.Date.String(), typ))
 	}
 	return keys
 }

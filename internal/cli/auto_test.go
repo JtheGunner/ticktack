@@ -34,19 +34,40 @@ func autoTestDeps(t *testing.T, enabled bool, trustedDays int) (syncDeps, *recor
 	return deps, rec
 }
 
-// seedCleanDays stores n clean review records on the n days before 2026-01-05.
+// seedCleanDays reviews the n days before 2026-01-05 cleanly: each gets an
+// hour for ABC-1 that is confirmed unchanged the same evening.
 func seedCleanDays(t *testing.T, deps syncDeps, n int) {
 	t.Helper()
+	ctx := context.Background()
 	st, err := deps.OpenStore()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
+	cfg, _, err := deps.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 	day := civil.Date{Year: 2026, Month: 1, Day: 5}
 	for i := 1; i <= n; i++ {
-		at := time.Date(2026, 1, 5-i, 18, 0, 0, 0, time.UTC)
-		rec := store.ReviewRecord{Day: day.AddDays(-i).String(), SessionStart: at, FinishedAt: at, Confirmed: 1}
-		if _, err := st.SaveReviewRecord(context.Background(), rec); err != nil {
+		start := time.Date(2026, 1, 5-i, 9, 0, 0, 0, time.UTC)
+		if err := st.Append(ctx, event.Event{At: start, Source: "test", Kind: event.KindContext, Ticket: "ABC-1"}); err != nil {
+			t.Fatal(err)
+		}
+		for m := 0; m <= 60; m++ {
+			if err := st.Append(ctx, event.Event{At: start.Add(time.Duration(m) * time.Minute), Source: "test", Kind: event.KindPresence}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		evening := start.Add(9 * time.Hour)
+		s, err := review.NewSession(ctx, st, cfg, day.AddDays(-i), func() time.Time { return evening })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if confirmed, err := s.ConfirmAll(ctx); err != nil || confirmed != 1 {
+			t.Fatalf("confirmed %d item(s), err %v", confirmed, err)
+		}
+		if err := s.Finish(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,7 +170,11 @@ func TestAutoModeLockedUntilTrackRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = st.Close() }()
-		streak, err := review.TrackRecord(context.Background(), st, deps.Now())
+		cfg, _, err := deps.LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		streak, err := review.TrackRecord(context.Background(), st, cfg, deps.Now(), 0)
 		if err != nil || streak != 3 {
 			t.Fatalf("streak = %d (err %v), want 3: auto-booking must not add a reviewed day", streak, err)
 		}

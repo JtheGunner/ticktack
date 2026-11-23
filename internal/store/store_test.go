@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,6 +21,36 @@ func openTemp(t *testing.T) (*Store, string) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s, path
+}
+
+func TestOpenCreatesDatabaseWithOwnerOnlyMode(t *testing.T) {
+	_, path := openTemp(t)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("new database mode = %v, want 0600", got)
+	}
+}
+
+func TestOpenNarrowsExistingDatabaseMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ticktack.db")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("existing database mode = %v, want 0600", got)
+	}
 }
 
 var base = time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
@@ -105,11 +136,17 @@ func TestEventsAreImmutable(t *testing.T) {
 	typ := reflect.TypeOf(&Store{})
 	allowed := map[string]bool{
 		"Append": true, "Events": true, "AddOverride": true, "Overrides": true,
-		"Purge": true, "Close": true, "InTx": true, "CheckWritable": true,
+		"AppendBatch": true,
+		"Purge":       true, "Close": true, "InTx": true, "CheckWritable": true,
+		// CarriedContext only reads the events table.
+		"CarriedContext": true,
 		// Ledger and sync history methods never touch the events table.
 		"LedgerGet": true, "BeginSyncRun": true, "RecordBooking": true,
 		"LastSyncRun": true, "RevertEntry": true,
-		"LedgerRowsForDate": true, "RecordDeletion": true,
+		"LedgerRowsForDate": true, "RecordDeletion": true, "LastBookedText": true,
+		// Overrides are corrections in their own table; a review session takes
+		// its own last one back.
+		"AddOverrideID": true, "DeleteOverride": true,
 		// Review state (confirmations and cap acknowledgements) lives in its
 		// own tables and never touches events.
 		"Confirm": true, "Confirmations": true,
@@ -122,12 +159,19 @@ func TestEventsAreImmutable(t *testing.T) {
 		// runs live in their own tables and never touch events.
 		"SaveReviewRecord": true, "ReviewRecords": true,
 		"AddDigest": true, "LastDigest": true,
+		"RecordRuleChange": true, "RuleChanges": true,
 		// The project cache, standard task keys and consent live in their own
 		// tables; renaming a confirmation only edits review state.
 		"ReplaceProjects": true, "Projects": true,
 		"DefaultTasks": true, "SetDefaultTask": true,
 		"ConsentedProjects": true, "SetConsent": true,
 		"RenameConfirmationIssue": true,
+		// ArchiveDay is the retention cleanup: the one deliberate event
+		// deletion besides Purge. It is scoped to a single local day, keeps the
+		// carried-context anchors and records the day in archived_days in the
+		// same transaction. The other two only read.
+		"ArchiveDay": true, "ArchivedDay": true, "ArchivedDays": true,
+		"EarliestEventAt": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {
 		name := typ.Method(i).Name
@@ -205,18 +249,111 @@ func TestPurgeRemovesEventsOverridesAndLedger(t *testing.T) {
 	if _, err := s.AddDigest(ctx, Digest{Day: "2026-01-06", CreatedAt: base, Text: "digest"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.RecordRuleChange(ctx, RuleChange{ChangedAt: base, Action: RuleAdded}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceProjects(ctx, []Project{{Key: "TICKT", Name: "ticktack"}}, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultTask(ctx, "TICKT", "TICKT-9"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetConsent(ctx, "TICKT", base); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveStart := base.AddDate(0, 0, -5)
+	if _, err := s.ArchiveDay(ctx, ArchiveRequest{Day: "2026-01-01", From: archiveStart, To: archiveStart.Add(24 * time.Hour), ArchivedAt: base}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The tables come from the schema itself, so a table added by a later
+	// migration fails here until it is seeded above and emptied by Purge.
+	tables := userTables(t, s)
+	if len(tables) == 0 {
+		t.Fatal("the schema lists no data tables")
+	}
+	for _, table := range tables {
+		if n := rowCount(t, s, table); n == 0 {
+			t.Errorf("%s has no rows before purge: seed it in this test", table)
+		}
+	}
+	migrationsBefore := rowCount(t, s, migrationsTable)
+
 	if err := s.Purge(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"events", "overrides", "ledger", "sync_runs", "sync_entries", "confirmations", "cap_acknowledgements", "learned_rules", "review_log", "digests"} {
-		var n int
-		if err := s.root.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
+	for _, table := range tables {
+		if n := rowCount(t, s, table); n != 0 {
 			t.Errorf("%s has %d rows after purge", table, n)
 		}
 	}
+	if got := rowCount(t, s, migrationsTable); got != migrationsBefore || got == 0 {
+		t.Errorf("%s has %d rows after purge, want %d", migrationsTable, got, migrationsBefore)
+	}
+}
+
+// A purged database opens again and accepts new data without re-running the
+// migrations.
+func TestPurgedDatabaseReopens(t *testing.T) {
+	s, path := openTemp(t)
+	ctx := context.Background()
+	if err := s.Append(ctx, ev(0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Purge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen after purge: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	if err := reopened.Append(ctx, ev(0)); err != nil {
+		t.Fatalf("append after purge: %v", err)
+	}
+	got, err := reopened.Events(ctx, base, base.Add(time.Hour))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("events after purge and reopen = %v, err %v", got, err)
+	}
+}
+
+// userTables lists every table of the schema that holds user data: all but
+// SQLite's own tables and the migration bookkeeping.
+func userTables(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.root.Query(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		if name == migrationsTable || strings.HasPrefix(name, "sqlite_") {
+			continue
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return tables
+}
+
+func rowCount(t *testing.T, s *Store, table string) int {
+	t.Helper()
+	var n int
+	if err := s.root.QueryRow(`SELECT COUNT(*) FROM "` + table + `"`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestOverridesRangeAndRoundTrip(t *testing.T) {

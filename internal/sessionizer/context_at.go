@@ -19,8 +19,14 @@ type ContextDecision struct {
 	Signal resolver.ContextSignal
 	// ManualTicket is set while a manual switch pins the attribution.
 	ManualTicket string
+	// ConfirmedAt is when the context was last confirmed, which can be
+	// earlier than At (see the package comment on context age). It is zero
+	// when the step carries no context.
+	ConfirmedAt time.Time
 	// Decision is the resolver's verdict; for a manual switch it is explicit
-	// with the reason "manual switch to <ID>" and rule kind ManualRule.
+	// with the reason "manual switch to <ID>" and rule kind ManualRule. It
+	// ignores the age of the context: Config.StaleFrom tells from when on
+	// Derive turns it into a suggestion (StaleAttribution).
 	Decision resolver.Decision
 }
 
@@ -33,13 +39,10 @@ func ContextSteps(events []event.Event, rules resolver.Rules) []ContextDecision 
 	steps, _ := contextTimeline(sortedEvents(events))
 	out := make([]ContextDecision, 0, len(steps))
 	for _, step := range steps {
-		cd := ContextDecision{At: step.at, Event: step.event, Signal: step.signal, ManualTicket: step.manualTicket}
-		if step.manualTicket != "" {
-			cd.Decision = resolver.Decision{Attribution: step.attribution(rules), Rule: ManualRule}
-		} else {
-			cd.Decision = resolver.Decide(step.signal, rules)
-		}
-		out = append(out, cd)
+		out = append(out, ContextDecision{
+			At: step.at, Event: step.event, Signal: step.signal, ManualTicket: step.manualTicket,
+			ConfirmedAt: step.confirmedAt, Decision: step.decision(rules),
+		})
 	}
 	return out
 }
@@ -61,6 +64,7 @@ func ContextAt(events []event.Event, rules resolver.Rules, at time.Time) (Contex
 // before any context event.
 const (
 	OverrideReason  = overrideReason
+	FillReason      = fillReason
 	MinBlockReason  = minBlockReason
 	NoContextReason = noContextReason
 )

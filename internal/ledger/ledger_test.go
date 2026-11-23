@@ -33,6 +33,8 @@ type fakeSink struct {
 	updateErr  map[string]error
 	deleteErr  map[string]error // by work item id
 	createLand bool             // Create stores the item but still returns an error
+	existsErr  error            // returned by every WorkItemExists call
+	findErrs   []error          // consumed one per FindByMarker call; nil looks up normally
 }
 
 func newFakeSink() *fakeSink {
@@ -75,8 +77,24 @@ func (f *fakeSink) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeSink) WorkItemExists(_ context.Context, issue, id string) (bool, error) {
+	f.calls = append(f.calls, "exists:"+id)
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	fi, ok := f.items[id]
+	return ok && fi.item.Issue == issue, nil
+}
+
 func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string, bool, error) {
 	f.calls = append(f.calls, "find:"+issue)
+	if len(f.findErrs) > 0 {
+		err := f.findErrs[0]
+		f.findErrs = f.findErrs[1:]
+		if err != nil {
+			return "", false, err
+		}
+	}
 	ids := make([]string, 0, len(f.items))
 	for id := range f.items {
 		ids = append(ids, id)
@@ -93,7 +111,7 @@ func (f *fakeSink) FindByMarker(_ context.Context, issue, marker string) (string
 func (f *fakeSink) mutating() []string {
 	var out []string
 	for _, c := range f.calls {
-		if !strings.HasPrefix(c, "find:") {
+		if !strings.HasPrefix(c, "find:") && !strings.HasPrefix(c, "exists:") {
 			out = append(out, c)
 		}
 	}
@@ -160,6 +178,22 @@ func (r *fakeRepo) LastSyncRun(context.Context) (store.SyncRun, bool, error) {
 		return store.SyncRun{}, false, nil
 	}
 	return *r.runs[best], true, nil
+}
+
+func (r *fakeRepo) LastBookedText(_ context.Context, issue, date, typ string) (string, bool, error) {
+	var bestRun int64
+	var text string
+	for id, run := range r.runs {
+		for _, e := range run.Entries {
+			if e.Issue != issue || e.Date != date || e.Type != typ || id < bestRun {
+				continue
+			}
+			if e.Action == entryActionCreated || e.Action == entryActionUpdated || e.Action == entryActionRecovered {
+				bestRun, text = id, e.Text
+			}
+		}
+	}
+	return text, bestRun != 0, nil
 }
 
 func (r *fakeRepo) RevertEntry(_ context.Context, runID int64, e store.SyncEntry, restore *store.LedgerRow) error {
@@ -243,7 +277,7 @@ func TestSyncSkipsUnchanged(t *testing.T) {
 	mustSync(t, items, s, opts(repo))
 	s.calls = nil
 	rep := mustSync(t, items, s, opts(repo))
-	if rep.Skipped != 1 || len(s.calls) != 0 {
+	if rep.Skipped != 1 || len(s.mutating()) != 0 {
 		t.Fatalf("report=%+v calls=%v", rep, s.calls)
 	}
 }
@@ -352,6 +386,32 @@ func TestSyncRecoversAfterAmbiguousCreateFailure(t *testing.T) {
 	}
 	if len(s.items) != 1 || len(repo.rows) != 0 {
 		t.Fatalf("items=%d rows=%d", len(s.items), len(repo.rows))
+	}
+}
+
+func TestSyncReportsUnclearCreateAndNextSyncFindsTheItem(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	s.createErr["ABC-1"] = fmt.Errorf("POST /api/issues/ABC-1/timeTracking/workItems: %w: status 504", youtrack.ErrOutcomeUnclear)
+	s.createLand = true
+	// The lookup before the create works, the one right after it fails too.
+	s.findErrs = []error{nil, errors.New("youtrack: unexpected status 504")}
+	items := []sessionizer.DayItem{dayItem("ABC-1", 30)}
+
+	rep := mustSync(t, items, s, opts(repo))
+	if rep.Failed != 1 || rep.Created != 0 || len(repo.rows) != 0 {
+		t.Fatalf("report=%+v rows=%d", rep, len(repo.rows))
+	}
+	if got := rep.Items[0]; got.Action != ActionFailed || !strings.Contains(got.Error, "outcome unclear") {
+		t.Fatalf("item = %+v, want a failure reported as unclear outcome", got)
+	}
+
+	s.createErr = map[string]error{}
+	rep = mustSync(t, items, s, opts(repo))
+	if rep.Recovered != 1 || rep.Created != 0 || rep.Failed != 0 {
+		t.Fatalf("second report = %+v", rep)
+	}
+	if len(s.items) != 1 || len(repo.rows) != 1 {
+		t.Fatalf("items=%d rows=%d, want one work item adopted by the ledger", len(s.items), len(repo.rows))
 	}
 }
 
@@ -513,6 +573,56 @@ func TestSyncKeepsRowsOfOtherDaysAndKeptKeys(t *testing.T) {
 	got := sinkMinutes(s)
 	if got["OLD-1"] != 30 || got["ABC-2"] != 15 || len(got) != 2 {
 		t.Fatalf("sink = %v, want OLD-1 and ABC-2 untouched", got)
+	}
+}
+
+func TestSyncDoesNotReconcileRowsOfHeldProjects(t *testing.T) {
+	tests := []struct {
+		name string
+		hold []string
+		// wantKept lists the issues whose booking survives a run without items.
+		wantKept []string
+	}{
+		{"nothing held", nil, nil},
+		{"one project held", []string{"GEN"}, []string{"GEN-5"}},
+		{"held project in another case", []string{"gen"}, []string{"GEN-5"}},
+		{"a longer project key is not a match", []string{"GE"}, nil},
+		{"a project key with a dash", []string{"GEN-X"}, []string{"GEN-X-2"}},
+		{"several projects held", []string{"GEN", "GEN-X"}, []string{"GEN-5", "GEN-X-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, repo := newFakeSink(), newFakeRepo()
+			mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("GEN-5", 30), dayItem("GEN-X-2", 15)}, s, opts(repo))
+			o := reconciling(repo)
+			o.HoldProjects = tt.hold
+			rep := mustSync(t, nil, s, o)
+
+			if want := 3 - len(tt.wantKept); rep.Deleted != want || rep.Failed != 0 {
+				t.Fatalf("report = %+v, want %d deleted", rep, want)
+			}
+			got := sinkMinutes(s)
+			if len(got) != len(tt.wantKept) || len(repo.rows) != len(tt.wantKept) {
+				t.Fatalf("sink = %v, ledger rows = %+v, want only %v", got, repo.rows, tt.wantKept)
+			}
+			for _, issue := range tt.wantKept {
+				if _, ok := repo.rows[Key(issue, "2026-01-05", "Development")]; !ok || got[issue] == 0 {
+					t.Errorf("%s was reconciled away: sink %v, ledger rows %+v", issue, got, repo.rows)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncDryRunPlansNoDeletionForHeldProjects(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("GEN-5", 30)}, s, opts(repo))
+	o := reconciling(repo)
+	o.HoldProjects = []string{"GEN"}
+	o.DryRun = true
+	rep := mustSync(t, nil, s, o)
+	if rep.Planned != 1 || len(rep.Items) != 1 || rep.Items[0].Key != Key("ABC-1", "2026-01-05", "Development") {
+		t.Fatalf("report = %+v, want only ABC-1 planned for deletion", rep)
 	}
 }
 

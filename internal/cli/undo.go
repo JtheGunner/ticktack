@@ -9,6 +9,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/store"
 )
 
 func newUndoCommand() *cobra.Command {
@@ -21,7 +22,7 @@ func newUndoCommandWith(deps syncDeps) *cobra.Command {
 		Short: "Revert the last sync",
 		Long: `Revert the last booking run: items it created are deleted from YouTrack,
 items it updated are restored to their previous minutes and items it deleted
-are booked again. Running undo again reverts the run before it.`,
+are booked again. Running undo again reverts the run before it.` + msgBookingLockHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
@@ -30,6 +31,12 @@ are booked again. Running undo again reverts the run before it.`,
 }
 
 func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
+	// The lock comes first: nothing read below may change under another run.
+	release, err := deps.lockBookingRun(false)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, cfgPath, err := deps.LoadConfig()
 	if err != nil {
 		return err
@@ -39,11 +46,20 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	if _, found, err := st.LastSyncRun(ctx); err != nil {
+	last, found, err := st.LastSyncRun(ctx)
+	if err != nil {
 		return err
-	} else if !found {
+	}
+	if !found {
 		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgNothingToUndo))
 		return nil
+	}
+	archivedDays, err := countArchivedDays(ctx, st, last)
+	if err != nil {
+		return err
+	}
+	if archivedDays > 0 {
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgUndoArchivedNote, archivedDays)))
 	}
 	target, err := deps.NewSink(cfg, cfgPath)
 	if err != nil {
@@ -57,4 +73,25 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	line := msgUndoResult(res.Deleted, res.Restored, res.Recreated, res.Forgotten)
 	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
 	return err
+}
+
+// countArchivedDays returns how many distinct days of the run's entries were
+// archived by the retention cleanup.
+func countArchivedDays(ctx context.Context, st archivedDayReader, run store.SyncRun) (int, error) {
+	seen := map[string]bool{}
+	count := 0
+	for _, e := range run.Entries {
+		if seen[e.Date] {
+			continue
+		}
+		seen[e.Date] = true
+		_, archived, err := st.ArchivedDay(ctx, e.Date)
+		if err != nil {
+			return 0, err
+		}
+		if archived {
+			count++
+		}
+	}
+	return count, nil
 }

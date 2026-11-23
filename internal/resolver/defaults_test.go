@@ -81,6 +81,14 @@ func TestDecideDefaultStepsYieldToRepoAndLearnedRules(t *testing.T) {
 	if d := Decide(ContextSignal{Repo: "/work/ticktack"}, rules); d.Ticket != "LRN-2" || d.Rule != RuleLearned {
 		t.Errorf("learned rule lost to a default step: %+v", d)
 	}
+	// A repo that matches no project would get the global standard task.
+	rules.Learned = []LearnedRule{{Repo: "/work/other", Ticket: "LRN-3"}}
+	if d := Decide(ContextSignal{Repo: "/work/other"}, rules); d.Ticket != "LRN-3" || d.Rule != RuleLearned {
+		t.Errorf("learned rule lost to the global default step: %+v", d)
+	}
+	if d := Decide(ContextSignal{Repo: "/work/third"}, rules); d.Rule != RuleGlobalDefault {
+		t.Errorf("Decide = %+v, want the global standard task without a learned rule", d)
+	}
 }
 
 func TestDecideWithoutDefaultsKeepsUnknown(t *testing.T) {

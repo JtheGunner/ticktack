@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
@@ -22,13 +23,17 @@ const (
 	SourceContext Source = "context"
 	// SourceOverride: a user override covers the block.
 	SourceOverride Source = "override"
+	// SourceFill: the user filled an idle gap with a ticket in review. There is
+	// no presence behind the block; Override is the deciding fill.
+	SourceFill Source = "fill"
 	// SourceNoContext: presence without any earlier context event.
 	SourceNoContext Source = "no-context"
 	// SourceMerged: the block was merged from several context signals with
 	// different rules (Merged lists them).
 	SourceMerged Source = "merged"
 	// SourceTooShort: the block was shorter than the minimum duration and
-	// could not be merged into a same-ticket neighbour.
+	// could neither be merged into a same-ticket neighbour nor folded between
+	// two blocks of one ticket.
 	SourceTooShort Source = "too-short"
 )
 
@@ -77,8 +82,32 @@ type Explanation struct {
 	// Override is the deciding override (SourceOverride only).
 	Override event.Override
 	// Signal is the repo, branch and ticket the resolver saw.
-	Signal   resolver.ContextSignal
+	Signal resolver.ContextSignal
+	// Stale reports that the deciding context was unconfirmed for too long
+	// (SourceContext only): the block keeps the ticket of Decision, but only
+	// as a suggestion.
+	Stale bool
+	// AppClass is config.ClassNeutral when the foreground app lowered the block
+	// to a suggestion (SourceContext only), empty otherwise. App is the bundle
+	// ID of that app, taken from the presence samples; it can be empty.
+	AppClass config.AppClass
+	App      string
+	// Age is how long the context was unconfirmed when its stale time in the
+	// block began (the block start, unless a short confirmed block was merged
+	// in front of it or an override cut the front of the block off) and
+	// ConfirmedAt when it was last confirmed (both set when Stale). Age is the
+	// age the block reason names.
+	Age         time.Duration
+	ConfirmedAt time.Time
+	// Pinned reports that the stale context is a manual pin from an earlier
+	// day, which does not depend on MaxAge; otherwise it outlived MaxAge.
+	Pinned   bool
+	MaxAge   time.Duration
 	Presence Presence
+	// Folded lists the short blocks of other attributions that were folded
+	// into the block because blocks of its ticket enclose them. Their time
+	// carries the attribution the explanation names.
+	Folded []sessionizer.Fold
 }
 
 var resolutionOrder = []resolver.RuleKind{
@@ -88,10 +117,14 @@ var resolutionOrder = []resolver.RuleKind{
 // Block explains in.Block, which must come from sessionizer.Derive over the
 // same events, overrides, config and rules.
 func Block(in Input) Explanation {
-	ex := Explanation{Block: in.Block, Presence: presenceFor(in)}
+	ex := Explanation{Block: in.Block, Presence: presenceFor(in), Folded: in.Block.Folded}
 	switch in.Block.Reason {
 	case sessionizer.OverrideReason:
 		ex.Source = SourceOverride
+		ex.Override = overrideFor(in)
+		return ex
+	case sessionizer.FillReason:
+		ex.Source = SourceFill
 		ex.Override = overrideFor(in)
 		return ex
 	case sessionizer.MinBlockReason:
@@ -103,13 +136,29 @@ func Block(in Input) Explanation {
 		ex.Source = SourceNoContext
 		return ex
 	}
-	cd, ok := matchingStep(steps, in.Block)
+	neutral := in.Block.Reason == sessionizer.NeutralAppReason
+	cd, ok := matchingStep(steps, in.Block, neutral)
+	if !ok && !neutral {
+		var age time.Duration
+		cd, age, ok = staleStep(in)
+		if ok {
+			ex.Stale = true
+			ex.Age = age
+			ex.ConfirmedAt = cd.ConfirmedAt
+			ex.Pinned = cd.ManualTicket != ""
+			ex.MaxAge = in.Config.Normalized().ContextMaxAge
+		}
+	}
 	if !ok {
 		ex.Source = SourceMerged
 		ex.Merged = distinctSteps(steps)
 		return ex
 	}
 	ex.Source = SourceContext
+	if neutral {
+		ex.AppClass = config.ClassNeutral
+		ex.App = neutralApp(in)
+	}
 	ex.Event = cd.Event
 	ex.Signal = cd.Signal
 	ex.Decision = cd.Decision
@@ -146,15 +195,114 @@ func stepsOf(in Input) []sessionizer.ContextDecision {
 
 // matchingStep returns the first step whose attribution equals the block's
 // own ticket, tier and reason; a merged short block keeps the neighbour's
-// reason, so the step at its start does not always match.
-func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block) (sessionizer.ContextDecision, bool) {
+// reason, so the step at its start does not always match. Time in a neutral
+// app has the tier and reason of the app class instead of the step's, so it
+// matches by ticket only (ticketOnly).
+func matchingStep(steps []sessionizer.ContextDecision, b sessionizer.Block, ticketOnly bool) (sessionizer.ContextDecision, bool) {
 	for _, s := range steps {
 		a := s.Decision.Attribution
-		if a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+		if a.Ticket != b.Ticket {
+			continue
+		}
+		if ticketOnly || (a.Tier == b.Tier && a.Reason == b.Reason) {
 			return s, true
 		}
 	}
 	return sessionizer.ContextDecision{}, false
+}
+
+// neutralApp returns the bundle ID of the first neutral foreground app seen
+// in the block, from the presence samples already in the events; empty when
+// none is found. A sample belongs to the block by its moment of activity (its
+// time minus its idle time), as in Derive, so a sample stamped after the block
+// end still counts when its activity lies inside.
+func neutralApp(in Input) string {
+	idleLimit := in.Config.Normalized().IdleThreshold
+	for _, e := range sortedByTime(in.Events) {
+		if e.Kind != event.KindPresence {
+			continue
+		}
+		idle := time.Duration(e.IdleSeconds) * time.Second
+		active := e.At.Add(-idle)
+		if idle >= idleLimit || active.Before(in.Block.Start) || active.After(in.Block.End) {
+			continue
+		}
+		if in.Config.AppClasses[e.App] == config.ClassNeutral {
+			return e.App
+		}
+	}
+	return ""
+}
+
+func sortedByTime(events []event.Event) []event.Event {
+	out := append([]event.Event(nil), events...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	return out
+}
+
+// staleStep returns the first step whose context was stale during the block
+// and whose stale attribution (see sessionizer.StaleAttribution) equals the
+// block's own, together with the age of that context when its stale time in
+// the block began. That moment is not always the block start: a short
+// confirmed block that merged into a stale neighbour takes the neighbour's
+// tier and reason, so the block can begin before its context went stale.
+//
+// The block is looked at as Derive built it before the overrides: a piece
+// that an override left of a stale block keeps the reason of the whole block,
+// which names the age at the start of the whole block's stale time.
+func staleStep(in Input) (sessionizer.ContextDecision, time.Duration, bool) {
+	in.Block = uncutBlock(in)
+	b := in.Block
+	steps := stepsOf(in)
+	for i, s := range steps {
+		staleFrom, ok := in.Config.StaleFrom(s)
+		if !ok {
+			continue
+		}
+		// The step is in effect inside the block from from to until.
+		from, until := laterOf(b.Start, s.At), b.End
+		if i+1 < len(steps) {
+			until = steps[i+1].At
+		}
+		staleStart := laterOf(from, staleFrom)
+		if !staleStart.Before(until) {
+			continue
+		}
+		age := staleStart.Sub(s.ConfirmedAt)
+		a := sessionizer.StaleAttribution(s.Decision.Attribution, age)
+		if a != s.Decision.Attribution && a.Ticket == b.Ticket && a.Tier == b.Tier && a.Reason == b.Reason {
+			return s, age, true
+		}
+	}
+	return sessionizer.ContextDecision{}, 0, false
+}
+
+// uncutBlock returns the block in.Block was part of before the overrides were
+// applied. Overrides only cut blocks and never change what is left of them, so
+// that is the block of the derivation without overrides that contains
+// in.Block and carries its attribution. Without overrides, or without such a
+// block, it is in.Block itself.
+func uncutBlock(in Input) sessionizer.Block {
+	piece := in.Block
+	if len(in.Overrides) == 0 {
+		return piece
+	}
+	for _, b := range sessionizer.Derive(in.Events, nil, in.Config, in.Rules) {
+		if b.Start.After(piece.Start) || b.End.Before(piece.End) {
+			continue
+		}
+		if b.Ticket == piece.Ticket && b.Tier == piece.Tier && b.Reason == piece.Reason && b.Repo == piece.Repo && b.Branch == piece.Branch {
+			return b
+		}
+	}
+	return piece
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // distinctSteps drops steps that repeat an earlier attribution.
@@ -204,6 +352,10 @@ func presenceFor(in Input) Presence {
 			// A sample is evidence of activity at the last input, the same
 			// moment Derive uses; judging it by its own timestamp would place
 			// the sample that ends a block outside of it.
+			if in.Config.AppClasses[e.App] == config.ClassPersonal {
+				// Time in a personal app is not presence evidence.
+				continue
+			}
 			active := e.At.Add(-idle)
 			switch {
 			case active.Before(b.Start):

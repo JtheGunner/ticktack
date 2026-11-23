@@ -46,11 +46,17 @@ type TaskProvisioner interface {
 // TimeSink stores, changes and looks up work items.
 //
 // The id returned by Create and FindByMarker is opaque to callers and must be
-// passed back unchanged to Update and Delete.
+// passed back unchanged to Update, Delete and WorkItemExists.
 type TimeSink interface {
 	Create(ctx context.Context, w WorkItem) (id string, err error)
 	Update(ctx context.Context, id string, w WorkItem) error
 	Delete(ctx context.Context, id string) error
+	// WorkItemExists reports whether the work item id, as returned by Create
+	// or FindByMarker, still exists on issue. It looks the item up by its id
+	// and is therefore definitive, unlike a FindByMarker that finds nothing.
+	// A missing item (or a missing issue) is exists == false with a nil error;
+	// any other failure is an error and says nothing about the item.
+	WorkItemExists(ctx context.Context, issue, id string) (exists bool, err error)
 	// FindByMarker reports the work item on issue, authored by the user the
 	// sink acts for, whose text contains marker verbatim. Items of other users
 	// are never returned. Sinks do not deduplicate, so this is how callers stay
