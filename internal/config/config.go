@@ -229,6 +229,12 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
+	return Parse(data)
+}
+
+// Parse decodes and validates the contents of a configuration file. Unknown
+// keys are an error, as in Load.
+func Parse(data []byte) (Config, error) {
 	var raw fileConfig
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()

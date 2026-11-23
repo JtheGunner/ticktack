@@ -37,6 +37,9 @@ const (
 	kindComment
 	kindHeader
 	kindKey
+	// kindContinuation marks a line inside a multi-line value. parseLines
+	// never sets it; the update planner does.
+	kindContinuation
 )
 
 // lineEntry classifies one line of a configuration file. Table is the table
