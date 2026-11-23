@@ -100,6 +100,23 @@ func (s *Store) AddDigest(ctx context.Context, d Digest) (Digest, error) {
 	return d, nil
 }
 
+// LastDigestForDay returns the most recent digest written for day.
+func (s *Store) LastDigestForDay(ctx context.Context, day string) (Digest, bool, error) {
+	var d Digest
+	var at int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, day, created_at, text FROM digests WHERE day = ? ORDER BY id DESC LIMIT 1`, day).
+		Scan(&d.ID, &d.Day, &at, &d.Text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Digest{}, false, nil
+	}
+	if err != nil {
+		return Digest{}, false, fmt.Errorf("read last digest of %s: %w", day, err)
+	}
+	d.CreatedAt = time.Unix(0, at).UTC()
+	return d, true, nil
+}
+
 // LastDigest returns the most recent digest.
 func (s *Store) LastDigest(ctx context.Context) (Digest, bool, error) {
 	var d Digest

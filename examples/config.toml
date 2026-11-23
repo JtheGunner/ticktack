@@ -139,6 +139,14 @@ url = "http://localhost:5600"
 # Optional auto mode (off by default). `ticktack auto` books only explicit and
 # rule blocks, and only after this many consecutive reviewed days without a
 # correction.
+#
+# The autopilot mode is an explicit opt-in (it needs enabled = true as well) and
+# replaces that trust gate: the agent books completed days itself, every 30
+# minutes, going back autopilot_lookback_days (1 to 31). Days you confirmed in
+# `ticktack review` are never touched, and today is never booked. Switch it off
+# by setting mode back to "gated" or enabled to false.
 [auto]
 enabled = false
 trusted_days = 10
+mode = "gated"
+autopilot_lookback_days = 7

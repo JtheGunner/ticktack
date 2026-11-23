@@ -27,6 +27,7 @@ var purgePromptWording = map[string]string{
 	"default_tasks":        "standard tasks",
 	"default_task_consent": "consent to create them",
 	"archived_days":        "list of archived days",
+	"autopilot_holds":      "autopilot holds",
 }
 
 // The question names everything purge deletes. The tables are read from the

@@ -37,9 +37,19 @@ human in "ticktack review". Bookings use the same idempotent ledger as
 A work item booked earlier is deleted when the day no longer has any time for
 its ticket. Bookings of items auto mode merely skips are left alone.
 
-There is no background scheduler: run this command by hand or schedule it
-yourself (for example from cron or launchd). After every run a digest lists
-every item, and "ticktack digest" shows it again.`
+In the default gated mode there is no background scheduler: run this command by
+hand or schedule it yourself (for example from cron or launchd). After every
+run a digest lists every item, and "ticktack digest" shows it again.
+
+Autopilot: with "[auto] enabled = true" and "mode = "autopilot"" the trust gate
+does not apply and the agent runs this booking itself every 30 minutes, for
+every completed day (before today) of the last "autopilot_lookback_days" days
+(default 7), oldest first. Today is never booked. A day you confirmed or
+corrected in "ticktack review" is yours and is left alone. Run by hand in
+autopilot mode, this command does one such pass; with --day it books that one
+completed day. "ticktack undo" reverts the last run and holds its completed
+days: the autopilot skips a held day until you book it again with
+"ticktack auto --day YYYY-MM-DD", which lifts the hold, or confirm it in review.`
 
 	msgDigestLong = `Show the digest of the most recent auto run: every booked, updated, deleted
 and skipped item with ticket, date, minutes, tier and reason.`
@@ -49,6 +59,17 @@ and skipped item with ticket, date, minutes, tier and reason.`
 	msgAutoLockedNothing  = "Nothing was booked."
 	msgAutoLockedProceed  = "To build the track record, run `ticktack review` each day and confirm without corrections."
 	msgAutoNothingToBook  = "Nothing to book automatically for %s."
+
+	msgAutopilotOpenDay       = "%s is not a completed day: the autopilot never books today or a future day; use a day before today, or run `ticktack auto` without --day to work through the lookback window"
+	msgAutopilotNothingToBook = "Autopilot: nothing to book on the completed days of the lookback window."
+	msgAutopilotUndoHeld      = "Autopilot: held %s. It will not book these days again until you run `ticktack auto --day <day>` or confirm the day in `ticktack review`."
+	msgAutopilotHeldDays      = "Autopilot: held (undone by you), skipped: %s. Run `ticktack auto --day <day>` to book a day again."
+	msgAutopilotLogHeld       = "autopilot: held (undone by you), skipped: %s"
+	msgAutopilotItemsFailed   = "%d items failed and %d were not sent (first error: %s); see `ticktack digest`"
+	msgAutopilotLogFail       = "autopilot: run failed: %v"
+	msgAutopilotLogConfig     = "autopilot: skipped, config not loadable: %v"
+	msgAutopilotLogBusy       = "autopilot: skipped, another booking run is active"
+	msgAutopilotLogLock       = "autopilot: skipped, booking lock failed: %v"
 
 	msgDigestNone = "No digest yet: `ticktack auto` has not booked anything."
 
@@ -78,8 +99,14 @@ func msgDigestCap(d auto.Digest) string {
 		formatMinutes(d.TotalMinutes), formatMinutes(d.CapMinutes))
 }
 
+// msgDigestTotalsFormat is the whole totals line of the digest. `ticktack
+// doctor` builds its parser from the same string, so the two cannot drift
+// apart. The verbs, in order: created, updated, recovered, repaired, deleted,
+// skipped, failed, not sent (all %d) and the booked time (%s).
+const msgDigestTotalsFormat = "Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked."
+
 func msgDigestTotals(d auto.Digest) string {
-	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
+	return fmt.Sprintf(msgDigestTotalsFormat,
 		d.Created, d.Updated, d.Recovered, d.Repaired, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 
@@ -134,7 +161,7 @@ func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
 
 // Help texts and flag descriptions of the auto command.
 const (
-	msgAutoAutoShort   = "Book the safe blocks of a day automatically (opt-in, needs a track record)"
+	msgAutoAutoShort   = "Book the safe blocks of a day without a review (opt-in: gated by a track record, or autopilot)"
 	msgAutoAutoLong    = msgAutoLong + msgBookingLockHelpDryRun
 	msgAutoDayFlag     = "local day to book as YYYY-MM-DD (default: today)"
 	msgAutoDryRunFlag  = "print the plan without booking anything"

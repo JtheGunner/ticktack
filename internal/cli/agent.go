@@ -92,6 +92,10 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 		}
 	}
 
+	// The autopilot loads the configuration before every run, so a configuration
+	// that was broken at start does not keep it from starting later.
+	jobs = append(jobs, newAutopilotJob(agentAutopilotDeps(), pauseFlagCheck(pausePath), autopilotStartDelay, autopilotInterval, logger.Printf))
+
 	agent := newPresenceAgent(presence.NewSampler(), interval, pausePath, logger.Printf)
 	// All collector goroutines finish before the deferred store close runs.
 	return runWithBackground(ctx, jobs, func(ctx context.Context) error { return agent.Run(ctx, sink) })

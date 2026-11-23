@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestConfirmationsRoundTripAndReplace(t *testing.T) {
@@ -38,5 +39,27 @@ func TestCapAcknowledgementRoundTrip(t *testing.T) {
 	got, ok, err := s.CapAcknowledgementFor(ctx, "2026-01-06")
 	if err != nil || !ok || got.TotalMinutes != 700 {
 		t.Fatalf("ack = %+v ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestConfirmedDaysListsEachDayOnceInOrder(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	at := time.Date(2026, 1, 5, 20, 0, 0, 0, time.UTC)
+	for _, c := range []Confirmation{
+		{Day: "2026-01-05", Issue: "ABC-1", Type: "Development", Minutes: 60, ConfirmedAt: at},
+		{Day: "2026-01-05", Issue: "ABC-2", Type: "Development", Minutes: 30, ConfirmedAt: at},
+		{Day: "2026-01-03", Issue: "ABC-1", Type: "Development", Minutes: 15, ConfirmedAt: at},
+	} {
+		if err := s.Confirm(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ConfirmedDays(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "2026-01-03" || got[1] != "2026-01-05" {
+		t.Fatalf("days = %v", got)
 	}
 }

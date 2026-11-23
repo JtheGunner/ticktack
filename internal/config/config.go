@@ -36,6 +36,19 @@ const (
 	// DefaultAutoTrustedDays is the number of consecutive clean reviewed days
 	// that unlocks auto mode.
 	DefaultAutoTrustedDays = 10
+	// AutoModeGated is the default auto mode: it books only once the trust gate
+	// is met.
+	AutoModeGated = "gated"
+	// AutoModeAutopilot is the explicit opt-in form: no trust gate, the agent
+	// books completed days itself.
+	AutoModeAutopilot = "autopilot"
+	// DefaultAutopilotLookbackDays is how many completed days back the autopilot
+	// looks for time to book.
+	DefaultAutopilotLookbackDays = 7
+	// MinAutopilotLookbackDays and MaxAutopilotLookbackDays bound
+	// autopilot_lookback_days.
+	MinAutopilotLookbackDays = 1
+	MaxAutopilotLookbackDays = 31
 	// DefaultScanInterval is the agent's git scan interval. The scan only runs
 	// once repo_paths or repo_roots is set; zero turns it off.
 	DefaultScanInterval = 15 * time.Minute
@@ -54,10 +67,23 @@ type Scan struct {
 }
 
 // Auto configures the optional auto mode. It is off by default and only
-// books once TrustedDays consecutive reviewed days passed without correction.
+// books once TrustedDays consecutive reviewed days passed without correction,
+// unless Mode is the autopilot, which replaces that trust gate.
 type Auto struct {
 	Enabled     bool
 	TrustedDays int
+	// Mode is AutoModeGated or AutoModeAutopilot; an empty value counts as
+	// gated.
+	Mode string
+	// AutopilotLookbackDays is how many completed days back the autopilot
+	// looks. It only matters in autopilot mode.
+	AutopilotLookbackDays int
+}
+
+// Autopilot reports whether the autopilot is active: auto mode is enabled and
+// its mode is the autopilot. Anything else is the gated mode.
+func (a Auto) Autopilot() bool {
+	return a.Enabled && a.Mode == AutoModeAutopilot
 }
 
 // ActivityWatch configures the optional ActivityWatch importer. It is off by
@@ -177,8 +203,10 @@ type fileConfig struct {
 	} `toml:"scan"`
 
 	Auto struct {
-		Enabled     bool `toml:"enabled"`
-		TrustedDays *int `toml:"trusted_days"`
+		Enabled               bool    `toml:"enabled"`
+		TrustedDays           *int    `toml:"trusted_days"`
+		Mode                  *string `toml:"mode"`
+		AutopilotLookbackDays *int    `toml:"autopilot_lookback_days"`
 	} `toml:"auto"`
 }
 
@@ -354,12 +382,27 @@ func build(raw fileConfig) (Config, error) {
 		return Config{}, err
 	}
 	cfg.RetentionDays = retention
-	cfg.Auto = Auto{Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays}
+	cfg.Auto = Auto{
+		Enabled: raw.Auto.Enabled, TrustedDays: DefaultAutoTrustedDays,
+		Mode: AutoModeGated, AutopilotLookbackDays: DefaultAutopilotLookbackDays,
+	}
 	if days := raw.Auto.TrustedDays; days != nil {
 		if *days < 1 {
 			return Config{}, errors.New("auto.trusted_days must be at least 1")
 		}
 		cfg.Auto.TrustedDays = *days
+	}
+	if mode := raw.Auto.Mode; mode != nil {
+		if *mode != AutoModeGated && *mode != AutoModeAutopilot {
+			return Config{}, fmt.Errorf("auto.mode %q is not valid: use %q (default) or %q", *mode, AutoModeGated, AutoModeAutopilot)
+		}
+		cfg.Auto.Mode = *mode
+	}
+	if days := raw.Auto.AutopilotLookbackDays; days != nil {
+		if *days < MinAutopilotLookbackDays || *days > MaxAutopilotLookbackDays {
+			return Config{}, fmt.Errorf("auto.autopilot_lookback_days must be between %d and %d", MinAutopilotLookbackDays, MaxAutopilotLookbackDays)
+		}
+		cfg.Auto.AutopilotLookbackDays = *days
 	}
 	return cfg, nil
 }

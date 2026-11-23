@@ -195,6 +195,7 @@ func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 		checkRepoRoots,
 		checkStandardTasks,
 		checkRetention,
+		checkAutopilot,
 		checkAlias,
 	}
 	results := make([]checkResult, 0, len(checks))
