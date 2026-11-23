@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 // WorkItemExists reports whether the work item id still exists on issue, with
@@ -26,7 +28,7 @@ func (c *Client) WorkItemExists(ctx context.Context, issue, id string) (bool, er
 		ID string `json:"id"`
 	}
 	err = c.do(ctx, http.MethodGet, itemPath(issue, itemID), url.Values{"fields": {"id"}}, nil, &out)
-	if errors.Is(err, ErrIssueNotFound) {
+	if errors.Is(err, sink.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {

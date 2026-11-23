@@ -22,7 +22,7 @@ func TestSplitUnassignedGap(t *testing.T) {
 			st := openStore(t)
 			seed(t, st, dayStart, 60, "")
 			s := newSession(t, st, testConfig())
-			if got := s.Entries(); len(got) != 1 || got[0].Kind != KindGap {
+			if got := s.Entries(); len(got) != 1 || got[0].Kind != KindUnassigned {
 				t.Fatalf("entries = %+v, want one gap", got)
 			}
 			err := s.Split(ctx, 1, "09:30", tt.ticket)

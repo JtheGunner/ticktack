@@ -31,6 +31,26 @@ func refuseArchivedDay(ctx context.Context, st archivedDayReader, day civil.Date
 	return errors.New(msgDayArchived(day.String(), archived.EventsDeleted, archived.ArchivedAt.UTC().Format(dayLayout)))
 }
 
+// openStoreForDay opens the store with open and refuses day when it was
+// archived. The caller closes the returned store; on an error it is already
+// closed.
+func openStoreForDay[S interface {
+	archivedDayReader
+	Close() error
+}](ctx context.Context, open func() (S, error), day civil.Date) (S, error) {
+	st, err := open()
+	if err != nil {
+		var zero S
+		return zero, err
+	}
+	if err := refuseArchivedDay(ctx, st, day); err != nil {
+		_ = st.Close()
+		var zero S
+		return zero, err
+	}
+	return st, nil
+}
+
 // civilDayOf returns the local calendar day of t in loc.
 func civilDayOf(t time.Time, loc *time.Location) civil.Date {
 	if loc == nil {

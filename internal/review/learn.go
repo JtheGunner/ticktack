@@ -101,7 +101,7 @@ func (s *Session) Suggestions(ctx context.Context, n int) ([]suggest.Candidate, 
 	if err != nil {
 		return nil, err
 	}
-	if e.Kind != KindGap || s.issues == nil {
+	if e.Kind != KindUnassigned || s.issues == nil {
 		return nil, nil
 	}
 	if !s.fetched {

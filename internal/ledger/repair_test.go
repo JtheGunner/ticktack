@@ -7,7 +7,6 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 const repairKey = "ABC-1:2026-01-05:Development"
@@ -185,8 +184,8 @@ func TestSyncReportsFailedExistenceCheck(t *testing.T) {
 		wantStop bool
 	}{
 		{name: "server error", err: errors.New("HTTP 500")},
-		{name: "unauthorized stops the run", err: youtrack.ErrUnauthorized, wantStop: true},
-		{name: "rate limited stops the run", err: youtrack.ErrRateLimited, wantStop: true},
+		{name: "unauthorized stops the run", err: sink.ErrUnauthorized, wantStop: true},
+		{name: "rate limited stops the run", err: sink.ErrRateLimited, wantStop: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -248,9 +247,9 @@ func TestSyncReportsFailedLookupOfBookedRow(t *testing.T) {
 	}{
 		{name: "unchanged: lookup fails", minutes: 30, findErr: errors.New("HTTP 500")},
 		{name: "changed: lookup fails", minutes: 45, findErr: errors.New("HTTP 500")},
-		{name: "changed: issue is gone", minutes: 45, findErr: youtrack.ErrIssueNotFound},
-		{name: "unchanged: rate limited stops the run", minutes: 30, findErr: youtrack.ErrRateLimited, wantStop: true},
-		{name: "changed: unauthorized stops the run", minutes: 45, findErr: youtrack.ErrUnauthorized, wantStop: true},
+		{name: "changed: issue is gone", minutes: 45, findErr: sink.ErrNotFound},
+		{name: "unchanged: rate limited stops the run", minutes: 30, findErr: sink.ErrRateLimited, wantStop: true},
+		{name: "changed: unauthorized stops the run", minutes: 45, findErr: sink.ErrUnauthorized, wantStop: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -293,7 +292,7 @@ func TestSyncReportsFailedRepairAndRetries(t *testing.T) {
 func TestSyncKeepsUpdateFailureWhenItemStillListed(t *testing.T) {
 	s, repo := newFakeSink(), newFakeRepo()
 	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 30)}, s, opts(repo))
-	s.updateErr["ABC-1"] = youtrack.ErrIssueNotFound
+	s.updateErr["ABC-1"] = sink.ErrNotFound
 
 	rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 45)}, s, opts(repo))
 

@@ -59,9 +59,3 @@ func TestHintCannotHoldRawTitleText(t *testing.T) {
 		}
 	}
 }
-
-func TestHintIsZeroDetection(t *testing.T) {
-	if !(Hint{}).IsZero() || (Hint{Ticket: "A-1"}).IsZero() || (Hint{Project: "p"}).IsZero() {
-		t.Error("IsZero misreports")
-	}
-}

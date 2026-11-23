@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/ticktack/internal/render"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 // scrubHome replaces the temp home so goldens do not depend on it.
@@ -73,7 +73,7 @@ func TestInitGolden(t *testing.T) {
 			answers: "y\nhttps://yt.example.com\ny\ny\nn\nn\n",
 			render:  render.Plain(),
 			setup: func(env *testEnv) {
-				env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{err: youtrack.ErrUnauthorized}, nil }
+				env.deps.Doctor.NewMe = func(string, string) (meClient, error) { return stubMe{err: sink.ErrUnauthorized}, nil }
 			},
 		},
 		{

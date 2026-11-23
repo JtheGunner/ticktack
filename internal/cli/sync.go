@@ -112,10 +112,21 @@ func newYouTrackSink(cfg config.Config, configPath string) (sink.TimeSink, error
 	if cfg.YouTrackURL == "" {
 		return nil, fmt.Errorf(msgNoURL, configPath)
 	}
-	secret, err := token.Get()
+	client, err := newYouTrackClient(cfg)
 	if errors.Is(err, token.ErrNotSet) {
 		return nil, errors.New(msgNoToken)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// newYouTrackClient builds a client for the configured instance with the
+// token from the keychain. It returns token.ErrNotSet (unwrapped) when no
+// token is stored.
+func newYouTrackClient(cfg config.Config) (*youtrack.Client, error) {
+	secret, err := token.Get()
 	if err != nil {
 		return nil, err
 	}
@@ -132,15 +143,11 @@ func newIssueSource(cfg config.Config) (review.IssueSource, error) {
 	if cfg.YouTrackURL == "" {
 		return nil, errors.New("youtrack_url is not set")
 	}
-	secret, err := token.Get()
+	client, err := newYouTrackClient(cfg)
 	if err != nil {
 		return nil, err
 	}
-	opts := []youtrack.Option{}
-	if cfg.Location != nil {
-		opts = append(opts, youtrack.WithLocation(cfg.Location))
-	}
-	return youtrack.New(cfg.YouTrackURL, secret, opts...)
+	return client, nil
 }
 
 func newSyncCommand() *cobra.Command {

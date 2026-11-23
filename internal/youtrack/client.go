@@ -19,32 +19,28 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
-// Typed errors, usable with errors.Is.
-var (
-	ErrUnauthorized         = errors.New("youtrack: unauthorized (token invalid or expired)")
-	ErrForbidden            = errors.New("youtrack: forbidden (time tracking disabled or no permission)")
-	ErrIssueNotFound        = errors.New("youtrack: issue not found")
-	ErrRateLimited          = errors.New("youtrack: rate limited")
-	ErrTimeTrackingDisabled = errors.New("youtrack: time tracking is disabled for the project")
-	ErrWorkItemTypeNotFound = errors.New("youtrack: work item type not found in project")
-	ErrInvalidID            = errors.New("youtrack: invalid work item id")
-	// ErrOutcomeUnclear marks a failed create request that the server may
-	// have stored all the same: no usable answer arrived. Such a request is
-	// never repeated; the caller looks the object up by its marker instead.
-	ErrOutcomeUnclear = errors.New("youtrack: outcome unclear (the request may have been stored)")
-)
+// ErrInvalidID reports a work item id that this client cannot have issued.
+// The other typed errors live in package sink.
+var ErrInvalidID = errors.New("youtrack: invalid work item id")
 
 const (
 	defaultTimeout    = 30 * time.Second
 	defaultMaxRetries = 3
 	maxRetryAfter     = 60 * time.Second
 	issuesPageSize    = 100
-	// maxResponseBytes bounds how much of one response body is read.
+	// maxResponseBytes bounds one successful response body; a larger body is
+	// an error, never a silent truncation.
 	maxResponseBytes = 8 << 20
+	// maxErrorBodyBytes bounds how much of an error response is inspected
+	// for the server's reason.
+	maxErrorBodyBytes = 16 << 10
+	// maxReasonRunes bounds the server reason quoted in an error message.
+	maxReasonRunes = 200
 )
 
 // WorkItemType is a work item type configured for a project.
@@ -111,6 +107,7 @@ type Client struct {
 	loc        *time.Location
 	backoff    func(attempt int) time.Duration
 	sleep      func(ctx context.Context, d time.Duration) error
+	now        func() time.Time // clock for a Retry-After given as an HTTP date
 	maxRetries int
 	log        *slog.Logger
 
@@ -137,6 +134,7 @@ func New(baseURL, token string, opts ...Option) (*Client, error) {
 		loc:        time.Local,
 		backoff:    defaultBackoff,
 		sleep:      sleepContext,
+		now:        time.Now,
 		maxRetries: defaultMaxRetries,
 		log:        slog.New(slog.DiscardHandler),
 		types:      map[string][]WorkItemType{},
@@ -185,7 +183,7 @@ func (c *Client) Me(ctx context.Context) (string, error) {
 
 // Create books w and returns its id. The work item type name is resolved to
 // the project's type id first. The request is not repeated after a server or
-// transport error: ErrOutcomeUnclear then tells the caller that the item may
+// transport error: sink.ErrOutcomeUnclear then tells the caller that the item may
 // exist and has to be looked up by its marker.
 func (c *Client) Create(ctx context.Context, w sink.WorkItem) (string, error) {
 	project, err := projectKey(w.Issue)
@@ -301,7 +299,7 @@ func (c *Client) FindByMarker(ctx context.Context, issue, marker string) (string
 }
 
 // WorkItemTypes lists the work item types of a project (by project key).
-// It returns ErrTimeTrackingDisabled if time tracking is off for the project.
+// It returns sink.ErrTimeTrackingDisabled if time tracking is off for the project.
 func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemType, error) {
 	c.mu.Lock()
 	cached, ok := c.types[project]
@@ -319,7 +317,7 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 		return nil, err
 	}
 	if !settings.Enabled {
-		return nil, fmt.Errorf("project %s: %w", project, ErrTimeTrackingDisabled)
+		return nil, fmt.Errorf("project %s: %w", project, sink.ErrTimeTrackingDisabled)
 	}
 	c.mu.Lock()
 	c.types[project] = settings.WorkItemTypes
@@ -356,7 +354,7 @@ func (c *Client) typeID(ctx context.Context, project, name string) (string, erro
 			return t.ID, nil
 		}
 	}
-	return "", fmt.Errorf("type %q in project %s: %w", name, project, ErrWorkItemTypeNotFound)
+	return "", fmt.Errorf("type %q in project %s: %w", name, project, sink.ErrWorkItemTypeNotFound)
 }
 
 // dateMillis returns local noon of the work item's date: safely inside the
@@ -396,7 +394,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 // doCreate performs a POST that creates an object. YouTrack offers no
 // idempotency key, so the request is sent again only after a 429, which
 // rejects it before anything is stored. Any failure that leaves open whether
-// the object exists is returned as ErrOutcomeUnclear.
+// the object exists is returned as sink.ErrOutcomeUnclear.
 func (c *Client) doCreate(ctx context.Context, path string, query url.Values, body, out any) error {
 	return c.send(ctx, http.MethodPost, path, query, body, out, false)
 }
@@ -423,7 +421,7 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 		retryable := status == http.StatusTooManyRequests || (idempotent && status >= 500)
 		if !retryable || attempt >= c.maxRetries {
 			if !idempotent && mayHaveBeenStored(status) {
-				return fmt.Errorf("%s %s: %w: %w", method, path, ErrOutcomeUnclear, err)
+				return fmt.Errorf("%s %s: %w: %w", method, path, sink.ErrOutcomeUnclear, err)
 			}
 			return fmt.Errorf("%s %s: %w", method, path, err)
 		}
@@ -465,34 +463,93 @@ func (c *Client) once(ctx context.Context, method, target string, payload []byte
 		return 0, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body := io.LimitReader(resp.Body, maxResponseBytes)
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		if out == nil {
 			return resp.StatusCode, 0, nil
 		}
-		if err := json.NewDecoder(body).Decode(out); err != nil {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+		if err != nil {
+			return resp.StatusCode, 0, fmt.Errorf("youtrack: read response: %w", err)
+		}
+		if len(data) > maxResponseBytes {
+			return resp.StatusCode, 0, fmt.Errorf("youtrack: response exceeds %d bytes", maxResponseBytes)
+		}
+		if err := json.Unmarshal(data, out); err != nil {
 			return resp.StatusCode, 0, fmt.Errorf("youtrack: decode response: %w", err)
 		}
 		return resp.StatusCode, 0, nil
 	case resp.StatusCode == http.StatusUnauthorized:
-		return resp.StatusCode, 0, ErrUnauthorized
+		return resp.StatusCode, 0, sink.ErrUnauthorized
 	case resp.StatusCode == http.StatusForbidden:
-		return resp.StatusCode, 0, ErrForbidden
+		return resp.StatusCode, 0, sink.ErrForbidden
 	case resp.StatusCode == http.StatusNotFound:
-		return resp.StatusCode, 0, ErrIssueNotFound
+		return resp.StatusCode, 0, sink.ErrNotFound
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After")), ErrRateLimited
+		return resp.StatusCode, c.parseRetryAfter(resp.Header.Get("Retry-After")), sink.ErrRateLimited
+	case resp.StatusCode == http.StatusServiceUnavailable:
+		return resp.StatusCode, c.parseRetryAfter(resp.Header.Get("Retry-After")), c.statusError(resp.StatusCode, resp.Body)
 	default:
-		return resp.StatusCode, 0, fmt.Errorf("youtrack: unexpected status %d", resp.StatusCode)
+		return resp.StatusCode, 0, c.statusError(resp.StatusCode, resp.Body)
 	}
 }
 
-func parseRetryAfter(v string) time.Duration {
-	secs, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || secs <= 0 {
+// statusError describes an unexpected status, quoting the server's reason when
+// the body is a JSON object with an "error_description" or "error" text. Other
+// bodies (HTML error pages, proxies) are never quoted. The reason is cut to a
+// short single line and the token is masked in case a server echoes it back.
+func (c *Client) statusError(status int, body io.Reader) error {
+	reason := c.errorReason(body)
+	if reason == "" {
+		return fmt.Errorf("youtrack: unexpected status %d", status)
+	}
+	return fmt.Errorf("youtrack: unexpected status %d: %s", status, reason)
+}
+
+func (c *Client) errorReason(body io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(body, maxErrorBodyBytes))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Description string `json:"error_description"`
+		Error       string `json:"error"`
+	}
+	if json.Unmarshal(data, &payload) != nil {
+		return ""
+	}
+	reason := payload.Description
+	if reason == "" {
+		reason = payload.Error
+	}
+	reason = strings.ReplaceAll(reason, c.token, "[redacted]")
+	reason = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, reason)
+	reason = strings.Join(strings.Fields(reason), " ")
+	if r := []rune(reason); len(r) > maxReasonRunes {
+		reason = string(r[:maxReasonRunes]) + "..."
+	}
+	return reason
+}
+
+// parseRetryAfter reads a Retry-After header, either delay seconds or an HTTP
+// date. It returns 0 when the value is missing, malformed or not in the future.
+func (c *Client) parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	at, err := http.ParseTime(v)
+	if err != nil {
 		return 0
 	}
-	return time.Duration(secs) * time.Second
+	return max(at.Sub(c.now()), 0)
 }

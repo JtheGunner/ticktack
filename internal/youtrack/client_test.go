@@ -98,7 +98,7 @@ func TestCreateFailsWhenTimeTrackingDisabled(t *testing.T) {
 		_, _ = io.WriteString(w, `{"enabled":false,"workItemTypes":[]}`)
 	}))
 	_, err := c.Create(context.Background(), sampleItem())
-	if !errors.Is(err, ErrTimeTrackingDisabled) {
+	if !errors.Is(err, sink.ErrTimeTrackingDisabled) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestCreateFailsOnUnknownType(t *testing.T) {
 	}))
 	w := sampleItem()
 	w.Type = "Nope"
-	if _, err := c.Create(context.Background(), w); !errors.Is(err, ErrWorkItemTypeNotFound) {
+	if _, err := c.Create(context.Background(), w); !errors.Is(err, sink.ErrWorkItemTypeNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestUnauthorizedIsTypedAndNotRetried(t *testing.T) {
 		_, _ = io.WriteString(w, `{"error":"Unauthorized"}`)
 	}))
 	_, err := c.MyOpenIssues(context.Background())
-	if !errors.Is(err, ErrUnauthorized) {
+	if !errors.Is(err, sink.ErrUnauthorized) {
 		t.Fatalf("err = %v", err)
 	}
 	if calls.Load() != 1 {
@@ -235,7 +235,7 @@ func TestRateLimitIsRetriedThenReturned(t *testing.T) {
 		return nil
 	}
 	_, err := c.MyOpenIssues(context.Background())
-	if !errors.Is(err, ErrRateLimited) {
+	if !errors.Is(err, sink.ErrRateLimited) {
 		t.Fatalf("err = %v", err)
 	}
 	if calls.Load() != 3 {
@@ -294,7 +294,7 @@ func TestIssueNotFoundIsTyped(t *testing.T) {
 		_, _ = io.WriteString(w, `<html><body>404 Not Found</body></html>`)
 	}))
 	_, _, err := c.FindByMarker(context.Background(), "ABC-1", "[m]")
-	if !errors.Is(err, ErrIssueNotFound) {
+	if !errors.Is(err, sink.ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 	if strings.Contains(err.Error(), "<html>") {
@@ -308,7 +308,7 @@ func TestForbiddenWithHTMLBodyIsTyped(t *testing.T) {
 		_, _ = io.WriteString(w, `<html><body>Forbidden</body></html>`)
 	}))
 	err := c.Delete(context.Background(), "ABC-1/1-1")
-	if !errors.Is(err, ErrForbidden) {
+	if !errors.Is(err, sink.ErrForbidden) {
 		t.Fatalf("err = %v", err)
 	}
 	if strings.Contains(err.Error(), "<html>") {
@@ -363,8 +363,8 @@ func TestMeMapsStatusCodesToTypedErrors(t *testing.T) {
 		status int
 		want   error
 	}{
-		{http.StatusUnauthorized, ErrUnauthorized},
-		{http.StatusForbidden, ErrForbidden},
+		{http.StatusUnauthorized, sink.ErrUnauthorized},
+		{http.StatusForbidden, sink.ErrForbidden},
 	}
 	for _, tc := range tests {
 		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

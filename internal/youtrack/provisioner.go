@@ -101,7 +101,7 @@ func searchWords(marker string) string {
 // "manual", and returns its readable key. The tag is resolved (and created when
 // missing) before the issue, so a failure leaves no untagged issue behind.
 // Neither create request is repeated after a server or transport error; such
-// a failure is returned as ErrOutcomeUnclear.
+// a failure is returned as sink.ErrOutcomeUnclear.
 func (c *Client) CreateIssue(ctx context.Context, project, summary, description string) (string, error) {
 	var proj struct {
 		ID string `json:"id"`

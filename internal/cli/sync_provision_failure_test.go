@@ -9,7 +9,7 @@ import (
 
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/event"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
+	"github.com/JtheGunner/ticktack/internal/sink"
 )
 
 var errYouTrackDown = errors.New("youtrack down")
@@ -98,7 +98,7 @@ func TestSyncDryRunListsAFailedStandardTaskProject(t *testing.T) {
 }
 
 func TestSyncStopErrorWhileProvidingStandardTasksMarksEverythingNotSent(t *testing.T) {
-	for name, stop := range map[string]error{"unauthorized": youtrack.ErrUnauthorized, "rate limited": youtrack.ErrRateLimited} {
+	for name, stop := range map[string]error{"unauthorized": sink.ErrUnauthorized, "rate limited": sink.ErrRateLimited} {
 		t.Run(name, func(t *testing.T) {
 			deps, prov := standardTaskDeps(t)
 			seedTicketHour(t, deps)
@@ -176,10 +176,10 @@ func TestAutoReportsAFailedStandardTaskProjectAsFailed(t *testing.T) {
 func TestAutoStopErrorWhileProvidingStandardTasksMarksEverythingNotSent(t *testing.T) {
 	deps, prov := autoStandardTaskDeps(t)
 	seedTicketHour(t, deps)
-	prov.findErrs = map[string]error{"GEN": youtrack.ErrUnauthorized}
+	prov.findErrs = map[string]error{"GEN": sink.ErrUnauthorized}
 
 	out, err := runAutoFor(t, deps)
-	if !errors.Is(err, youtrack.ErrUnauthorized) {
+	if !errors.Is(err, sink.ErrUnauthorized) {
 		t.Fatalf("err = %v, want the stop error\n%s", err, out)
 	}
 	if len(prov.items) != 0 {

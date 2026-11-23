@@ -14,7 +14,6 @@ import (
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
-	"github.com/JtheGunner/ticktack/internal/youtrack"
 )
 
 var provisionDay = civil.Date{Year: 2026, Month: time.March, Day: 2}
@@ -343,10 +342,10 @@ func TestProvisionStopErrorsEndTheRun(t *testing.T) {
 		prov *fakeProvisioner
 		want error
 	}{
-		{"lookup unauthorized", &fakeProvisioner{findErrs: map[string]error{"A": youtrack.ErrUnauthorized}}, youtrack.ErrUnauthorized},
-		{"lookup rate limited", &fakeProvisioner{findErrs: map[string]error{"A": youtrack.ErrRateLimited}}, youtrack.ErrRateLimited},
-		{"create unauthorized", &fakeProvisioner{createErrs: map[string]error{"A": youtrack.ErrUnauthorized}}, youtrack.ErrUnauthorized},
-		{"create rate limited", &fakeProvisioner{createErrs: map[string]error{"A": youtrack.ErrRateLimited}}, youtrack.ErrRateLimited},
+		{"lookup unauthorized", &fakeProvisioner{findErrs: map[string]error{"A": sink.ErrUnauthorized}}, sink.ErrUnauthorized},
+		{"lookup rate limited", &fakeProvisioner{findErrs: map[string]error{"A": sink.ErrRateLimited}}, sink.ErrRateLimited},
+		{"create unauthorized", &fakeProvisioner{createErrs: map[string]error{"A": sink.ErrUnauthorized}}, sink.ErrUnauthorized},
+		{"create rate limited", &fakeProvisioner{createErrs: map[string]error{"A": sink.ErrRateLimited}}, sink.ErrRateLimited},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

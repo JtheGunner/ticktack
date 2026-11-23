@@ -292,8 +292,8 @@ func TestProvisionerErrorsDoNotLeakTheToken(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	_, err := c.Projects(context.Background())
-	if !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	if !errors.Is(err, sink.ErrUnauthorized) {
+		t.Fatalf("err = %v, want sink.ErrUnauthorized", err)
 	}
 	if strings.Contains(fmt.Sprint(err), testToken) {
 		t.Errorf("error leaks the token: %v", err)

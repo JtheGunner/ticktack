@@ -4,19 +4,19 @@ import "strings"
 
 // Glyphs is the set of symbols used for status markers, rules and boxes.
 type Glyphs struct {
-	Info, OK, Warn, Fail, Skip, Go, Dot, Ellipsis string
+	Info, OK, Warn, Fail, Skip, Go, Ellipsis string
 	// H and V are the horizontal and vertical line characters; TL, TR, BL and
 	// BR are the corners of a box.
 	H, V, TL, TR, BL, BR string
 }
 
 var unicodeGlyphs = Glyphs{
-	Info: "ℹ", OK: "✓", Warn: "⚠", Fail: "✗", Skip: "–", Go: "→", Dot: "·", Ellipsis: "…",
+	Info: "ℹ", OK: "✓", Warn: "⚠", Fail: "✗", Skip: "–", Go: "→", Ellipsis: "…",
 	H: "─", V: "│", TL: "╭", TR: "╮", BL: "╰", BR: "╯",
 }
 
 var asciiGlyphs = Glyphs{
-	Info: "i", OK: "+", Warn: "!", Fail: "x", Skip: "-", Go: ">", Dot: "*", Ellipsis: "...",
+	Info: "i", OK: "+", Warn: "!", Fail: "x", Skip: "-", Go: ">", Ellipsis: "...",
 	H: "-", V: "|", TL: "+", TR: "+", BL: "+", BR: "+",
 }
 

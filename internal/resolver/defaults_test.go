@@ -111,22 +111,6 @@ func TestNormalizeName(t *testing.T) {
 	}
 }
 
-func TestMatchProject(t *testing.T) {
-	projects := []ProjectInfo{{Key: "A", Name: "Alpha"}, {Key: "B1", Name: "be-ta"}, {Key: "B2", Name: "Be_Ta"}}
-	if p, r := MatchProject("alpha", projects); r != MatchOne || p.Key != "A" {
-		t.Errorf("alpha = (%+v, %v), want A / MatchOne", p, r)
-	}
-	if _, r := MatchProject("gamma", projects); r != MatchNone {
-		t.Errorf("gamma result = %v, want MatchNone", r)
-	}
-	if _, r := MatchProject("beta", projects); r != MatchAmbiguous {
-		t.Errorf("beta result = %v, want MatchAmbiguous", r)
-	}
-	if _, r := MatchProject("", projects); r != MatchNone {
-		t.Errorf("empty folder result = %v, want MatchNone", r)
-	}
-}
-
 func TestParseDefaultRef(t *testing.T) {
 	if got := DefaultRef("TICKT"); got != "TICKT:default" {
 		t.Errorf("DefaultRef = %q", got)

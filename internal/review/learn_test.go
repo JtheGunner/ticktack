@@ -55,7 +55,7 @@ func TestLearnedRuleAppliesToFutureBlocks(t *testing.T) {
 	ctx := context.Background()
 	seedContext(t, st, dayStart, 60, learnRepo, learnBranch)
 	s := newSession(t, st, testConfig())
-	if e := s.Entries()[0]; e.Kind != KindGap || e.Repo != learnRepo || e.Branch != learnBranch {
+	if e := s.Entries()[0]; e.Kind != KindUnassigned || e.Repo != learnRepo || e.Branch != learnBranch {
 		t.Fatalf("entry = %+v", e)
 	}
 	if _, ok := s.Remembering(); ok {

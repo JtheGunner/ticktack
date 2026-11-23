@@ -16,16 +16,6 @@ type ProjectInfo struct {
 	Name string
 }
 
-// MatchResult is the outcome of matching a folder name to project names.
-type MatchResult int
-
-// Match outcomes.
-const (
-	MatchNone MatchResult = iota
-	MatchOne
-	MatchAmbiguous
-)
-
 // DefaultRef returns the placeholder ticket for the standard task of project.
 func DefaultRef(project string) string { return project + defaultRefSuffix }
 
@@ -66,20 +56,6 @@ func matchingProjects(folder string, projects []ProjectInfo) []ProjectInfo {
 		}
 	}
 	return found
-}
-
-// MatchProject matches a folder name to exactly one project by name. Zero or
-// several matches never guess: the result says which.
-func MatchProject(folder string, projects []ProjectInfo) (ProjectInfo, MatchResult) {
-	found := matchingProjects(folder, projects)
-	switch len(found) {
-	case 0:
-		return ProjectInfo{}, MatchNone
-	case 1:
-		return found[0], MatchOne
-	default:
-		return ProjectInfo{}, MatchAmbiguous
-	}
 }
 
 // defaultTicket returns the real issue key of a project's standard task when
