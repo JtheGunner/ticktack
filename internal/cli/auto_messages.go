@@ -99,8 +99,14 @@ func msgDigestCap(d auto.Digest) string {
 		formatMinutes(d.TotalMinutes), formatMinutes(d.CapMinutes))
 }
 
+// msgDigestTotalsFormat is the whole totals line of the digest. `ticktack
+// doctor` builds its parser from the same string, so the two cannot drift
+// apart. The verbs, in order: created, updated, recovered, repaired, deleted,
+// skipped, failed, not sent (all %d) and the booked time (%s).
+const msgDigestTotalsFormat = "Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked."
+
 func msgDigestTotals(d auto.Digest) string {
-	return fmt.Sprintf("Totals: created %d, updated %d, recovered %d, repaired %d, deleted %d, skipped %d, failed %d, not sent %d; %s booked.",
+	return fmt.Sprintf(msgDigestTotalsFormat,
 		d.Created, d.Updated, d.Recovered, d.Repaired, d.Deleted, d.Skipped, d.Failed, d.NotSent, formatMinutes(d.BookedMinutes))
 }
 

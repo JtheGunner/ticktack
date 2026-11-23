@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -57,24 +58,51 @@ func lastDigestAge(ctx context.Context, deps doctorDeps) string {
 		return msgAutopilotNoRun
 	}
 	age := formatAge(deps.Now().Sub(digest.CreatedAt))
-	if failed, notSent := digestFailureCounts(digest.Text); failed+notSent > 0 {
+	failed, notSent, readable := digestFailureCounts(digest.Text)
+	switch {
+	case !readable:
+		// Never healthy on a doubt: a digest whose totals cannot be read is shown
+		// as such.
+		return fmt.Sprintf(msgAutopilotLastUnreadable, age)
+	case failed > 0 || notSent > 0:
 		return fmt.Sprintf(msgAutopilotLastFail, failed+notSent, failed, notSent, age)
 	}
 	return fmt.Sprintf(msgAutopilotLastRun, age)
 }
 
-// digestTotalsFailures matches the failed and not-sent counts in the totals
-// line that renderDigest writes into every stored digest.
-var digestTotalsFailures = regexp.MustCompile(`failed (\d+), not sent (\d+)`)
+// digestTotalsLine matches the whole totals line that renderDigest writes, from
+// the same format string, alone on its line after the one-glyph gutter of the
+// stored digest. Item texts of the digest come from the YouTrack server; they
+// are sanitised to one line inside a table row, so none of them can open a
+// line of its own, and a long one that the table wraps is still not the last
+// line: the real totals line follows all entries and the caller takes the last
+// match.
+var digestTotalsLine = regexp.MustCompile(`(?m)^[ \t]*\S[ \t]+` +
+	strings.NewReplacer("%d", `(\d+)`, "%s", `.+?`).Replace(regexp.QuoteMeta(msgDigestTotalsFormat)) + "$")
 
-// digestFailureCounts reads the failed and not-sent counts of a stored digest
-// text. A text without a totals line counts as no failure.
-func digestFailureCounts(text string) (failed, notSent int) {
-	m := digestTotalsFailures.FindStringSubmatch(text)
-	if m == nil {
-		return 0, 0
+// Positions of the failed and not-sent counts among the %d verbs of the format.
+const (
+	totalsFailedGroup  = 7
+	totalsNotSentGroup = 8
+)
+
+// digestFailureCounts reads the failed and not-sent counts from the last totals
+// line of a stored digest text. It reports readable false when there is no
+// totals line or a count does not fit an int, so a doubt is never taken for a
+// run without failures.
+func digestFailureCounts(text string) (failed, notSent int, readable bool) {
+	all := digestTotalsLine.FindAllStringSubmatch(text, -1)
+	if len(all) == 0 {
+		return 0, 0, false
 	}
-	failed, _ = strconv.Atoi(m[1])
-	notSent, _ = strconv.Atoi(m[2])
-	return failed, notSent
+	m := all[len(all)-1]
+	failed, err := strconv.Atoi(m[totalsFailedGroup])
+	if err != nil {
+		return 0, 0, false
+	}
+	notSent, err = strconv.Atoi(m[totalsNotSentGroup])
+	if err != nil {
+		return 0, 0, false
+	}
+	return failed, notSent, true
 }
