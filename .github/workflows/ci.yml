@@ -13,10 +13,20 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The Linux jobs (lint, test on ubuntu-latest, tidy) run on the self-hosted runner
+# when the repository variable USE_LOCAL_RUNNER is "true" and the run is trusted:
+# a push, or a pull request from a branch of this repository. Fork pull requests
+# and every run with the variable unset or not "true" use GitHub-hosted
+# ubuntu-latest. macOS jobs always stay on GitHub-hosted runners. The runs-on
+# expression is repeated per job because workflow YAML has no shared variables.
+# The condition only routes trusted runs; it is NOT a security boundary, because a
+# pull request can edit this file. The real protection is server-side: the
+# Actions setting that requires approval for all outside contributors, and an
+# ephemeral runner without shared volumes (see the README).
 jobs:
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ (vars.USE_LOCAL_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","local","docker","debian"]') || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -50,7 +60,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' && vars.USE_LOCAL_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","local","docker","debian"]') || matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -87,7 +97,7 @@ jobs:
 
   tidy:
     name: tidy
-    runs-on: ubuntu-latest
+    runs-on: ${{ (vars.USE_LOCAL_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","local","docker","debian"]') || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

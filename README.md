@@ -432,6 +432,27 @@ Tests are table-driven and the YouTrack client is tested against an `httptest` s
 
 Register `lint`, `test (macos-latest)`, `test (ubuntu-latest)`, `build` and `tidy` as required status checks when protecting `main`. `make test-race` runs the race tests locally.
 
+#### Optional self-hosted runner
+
+The three Linux jobs (`lint`, `test (ubuntu-latest)`, `tidy`) can run on a self-hosted runner instead of a GitHub-hosted one. By default they do not. The maintainer opts in with the repository variable `USE_LOCAL_RUNNER` (Settings → Secrets and variables → Actions → Variables):
+
+| Situation | Runner |
+|-----------|--------|
+| `USE_LOCAL_RUNNER` is unset or not `true` | GitHub-hosted `ubuntu-latest` |
+| `USE_LOCAL_RUNNER=true`, push to `main` or pull request from a branch of this repository | self-hosted, labels `self-hosted`, `local`, `docker`, `debian` |
+| `USE_LOCAL_RUNNER=true`, pull request from a fork | GitHub-hosted `ubuntu-latest` |
+
+The macOS jobs, `docs-drift` and the release workflow always use GitHub-hosted runners; the release workflow holds the `HOMEBREW_TAP_GITHUB_TOKEN` secret. If the self-hosted runner is offline, set the variable to `false`, otherwise the jobs wait for a runner. The runner needs Go build tools (`gcc` for `go test -race`) and no Docker.
+
+> [!WARNING]
+> A job on a self-hosted runner runs the repository's code on that machine, and this repository is public. The condition in `ci.yml` only routes trusted runs to the runner; it is **not** a security boundary, because a pull request can change the workflow file itself. The protection is server-side:
+>
+> - Keep the Actions setting *Require approval for all outside collaborators* (Settings → Actions → General).
+> - Register the runner as ephemeral and recreate its container for every job. Do not share caches or volumes (`GOCACHE`, `GOPATH`, the work directory) between jobs, so a pull request cannot leave anything behind for a later run on `main`.
+> - Do not mount the Docker socket into a runner that does not need it: access to the socket is root-equivalent on the host. The jobs here need no Docker.
+> - Register the runner with a fine-grained personal access token limited to this repository, with only the *Administration: read and write* permission that runner registration needs. The token belongs to the runner's own setup outside this repository: it is not a repository secret and no job receives it. Rotate it if it ever reaches a job or a log.
+> - Consider `CODEOWNERS` for `.github/workflows` so a change to the workflows needs the maintainer's review.
+
 [`.github/workflows/docs-drift.yml`](.github/workflows/docs-drift.yml) also runs on every pull request. It uses [doc-drift-checker](https://github.com/JtheGunner/doc-drift-checker) to flag README sections whose code changed while the section did not, and reports them as annotations. It never fails the build, so its `docs-drift` job is advisory and not a required check. Configuration lives in [`.docdrift.yaml`](.docdrift.yaml). To run it locally against `main`:
 
 ```sh
