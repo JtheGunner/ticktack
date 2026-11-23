@@ -116,6 +116,14 @@ const (
 	msgRetentionOff       = "off (retention_days = 0): every raw event is kept, %d archived days"
 	msgRetentionOn        = "%d days: the agent deletes the events of fully booked days older than that, %d archived days"
 
+	msgCheckAutopilot     = "autopilot"
+	msgAutopilotConfigBad = "skipped because the config cannot be read (see the config check)"
+	msgAutopilotOff       = "off: auto mode is not enabled ([auto] enabled = false)"
+	msgAutopilotGated     = "off: auto mode is gated, it books only after the trust gate is met (mode = \"gated\")"
+	msgAutopilotActive    = "active: the agent books completed days every 30 minutes, looking back %d days"
+	msgAutopilotLastRun   = "last digest written %s ago"
+	msgAutopilotNoRun     = "no digest written yet"
+
 	msgFixPrefix = "fix: "
 )
 

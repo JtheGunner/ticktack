@@ -255,7 +255,7 @@ func TestDoctorAliasHintDoesNotChangeTheOutcome(t *testing.T) {
 	if strings.Contains(text, "x  alias tt") {
 		t.Errorf("alias reported as failure:\n%s", text)
 	}
-	if !strings.Contains(text, "of 13 checks failed.") {
+	if !strings.Contains(text, "of 14 checks failed.") {
 		t.Errorf("the hint must not count as a check:\n%s", text)
 	}
 }

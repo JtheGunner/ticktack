@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -11,9 +12,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/ticktack/internal/auto"
+	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/review"
+	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
 
@@ -71,15 +74,34 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		loc = time.Local
 	}
 	now := deps.Now().In(loc)
-	day, err := parseDay(dayFlag, now)
-	if err != nil {
-		return err
+	autopilot := cfg.Auto.Autopilot()
+	var day civil.Date
+	// The autopilot without --day works through the lookback window instead.
+	if !autopilot || dayFlag != "" {
+		if day, err = parseDay(dayFlag, now); err != nil {
+			return err
+		}
 	}
 	st, err := deps.OpenStore()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+
+	if autopilot {
+		if dayFlag == "" {
+			return runAutopilotPass(ctx, out, deps, cfg, cfgPath, st, civil.DateOf(now), dryRun)
+		}
+		if !auto.Completed(day, civil.DateOf(now)) {
+			return fmt.Errorf(msgAutopilotOpenDay, day)
+		}
+		if err := refuseArchivedDay(ctx, st, day); err != nil {
+			return err
+		}
+		_, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false)
+		return err
+	}
+
 	if err := refuseArchivedDay(ctx, st, day); err != nil {
 		return err
 	}
@@ -93,10 +115,20 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		printAutoLocked(out, deps.Render, lock, cfgPath, streak, auto.RequiredDays(cfg.Auto))
 		return nil
 	}
+	_, err = bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false)
+	return err
+}
 
+// bookAutoDay books the safe items of one day: the part of an auto run that
+// is the same in the gated mode and the autopilot. The caller has decided that
+// auto mode may book this day. With quiet set (the autopilot) a day without
+// news prints nothing and a digest is stored only when the run changed or
+// failed something, so the periodic runs do not flood the digest table. It
+// reports whether it printed anything.
+func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, day civil.Date, dryRun, quiet bool) (bool, error) {
 	d, err := review.LoadDay(ctx, st, cfg, day)
 	if err != nil {
-		return err
+		return false, err
 	}
 	sel := auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes)
 
@@ -106,7 +138,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	if !sel.CapExceeded {
 		keep, stale, err = reconciliation(ctx, st, d.Items, day)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -117,7 +149,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		// to book or a stale booking to remove.
 		target, err := deps.NewSink(cfg, cfgPath)
 		if err != nil {
-			return err
+			return false, err
 		}
 		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
 		switch {
@@ -125,7 +157,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 			// Nothing is sent; the digest lists every item as not sent.
 			report, syncErr = ledger.NotSentReport(sel.Items()), err
 		case err != nil:
-			return err
+			return false, err
 		default:
 			sel = provided
 			// No booking of a project whose standard task could not be
@@ -140,21 +172,132 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 	}
 	digest := auto.BuildDigest(day, sel, report, dryRun)
 	text := renderDigest(digest, storedDigestRenderer())
-	if !dryRun {
+	hasNews := digest.Changed() || digest.Failed > 0 || digest.NotSent > 0
+	if quiet && syncErr == nil {
+		// The ledger reports a failed item in its report only; the autopilot has
+		// nobody reading the report, so the failure must surface as an error.
+		syncErr = autopilotItemFailure(report)
+	}
+	if !dryRun && (!quiet || hasNews) {
 		// The digest of a cancelled run is still stored: it lists what was not
 		// sent, so the write must not use the cancelled context.
 		digestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), digestWriteTimeout)
 		defer cancel()
 		if _, err := st.AddDigest(digestCtx, store.Digest{Day: day.String(), CreatedAt: deps.Now(), Text: text}); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if len(sel.Book) == 0 && len(sel.Skipped) == 0 && len(report.Items) == 0 {
+		if quiet {
+			return false, syncErr
+		}
 		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, fmt.Sprintf(msgAutoNothingToBook, day)))
-		return syncErr
+		return true, syncErr
 	}
 	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
-	return syncErr
+	return true, syncErr
+}
+
+// autopilotItemFailure turns the failed and unsent items of a report into one
+// error, or nil when every item went through. The error text is sanitised
+// server text and carries the first failure only; the digest lists them all.
+func autopilotItemFailure(report ledger.Report) error {
+	if report.Failed == 0 && report.NotSent == 0 {
+		return nil
+	}
+	first := ""
+	for _, it := range report.Items {
+		if it.Error != "" {
+			first = SanitizeForTerminal(it.Error)
+			break
+		}
+	}
+	return fmt.Errorf(msgAutopilotItemsFailed, report.Failed, report.NotSent, first)
+}
+
+// runAutopilotPass books every completed day of the lookback window, oldest
+// first, that is not the user's own: the autopilot has no trust gate. A day
+// the user reviewed or booked by hand is skipped, an archived day too (it can
+// no longer be derived). An error on one day never stops the other days; the
+// errors are joined and returned, and the next pass retries. A failing sink
+// (no token, unreachable instance) would fail every remaining day the same
+// way, so it ends the pass after the first.
+func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, today civil.Date, dryRun bool) error {
+	manual, err := manualDays(ctx, st)
+	if err != nil {
+		return err
+	}
+	var sinkErr error
+	newSink := deps.NewSink
+	deps.NewSink = func(c config.Config, path string) (sink.TimeSink, error) {
+		target, err := newSink(c, path)
+		if err != nil {
+			sinkErr = err
+		}
+		return target, err
+	}
+	var errs []error
+	printed := false
+	for _, day := range auto.AutopilotDays(today, auto.LookbackDays(cfg.Auto)) {
+		if ctx.Err() != nil {
+			break
+		}
+		if manual[day.String()] {
+			continue
+		}
+		archived, err := isArchivedDay(ctx, st, day)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", day, err))
+			continue
+		}
+		if archived {
+			continue
+		}
+		did, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, true)
+		printed = printed || did
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", day, err))
+		}
+		if sinkErr != nil {
+			break
+		}
+	}
+	if !printed && len(errs) == 0 {
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgAutopilotNothingToBook))
+	}
+	return errors.Join(errs...)
+}
+
+// manualDays returns the days that are the user's own decision and which the
+// autopilot therefore never touches: a day with a confirmation made through
+// `ticktack review` (the only way to book by hand with `ticktack sync`), and a
+// day whose review session confirmed or corrected something. A session that
+// only looked at a day does not claim it. The autopilot itself records
+// neither, so the days it booked stay its own.
+func manualDays(ctx context.Context, st *store.Store) (map[string]bool, error) {
+	records, err := st.ReviewRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	manual := map[string]bool{}
+	for _, r := range records {
+		if r.Confirmed > 0 || r.Corrections > 0 {
+			manual[r.Day] = true
+		}
+	}
+	days, err := st.ConfirmedDays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range days {
+		manual[d] = true
+	}
+	return manual, nil
+}
+
+func isArchivedDay(ctx context.Context, st archivedDayReader, day civil.Date) (bool, error) {
+	_, found, err := st.ArchivedDay(ctx, day.String())
+	return found, err
 }
 
 // digestWriteTimeout bounds the digest write after a cancelled run.

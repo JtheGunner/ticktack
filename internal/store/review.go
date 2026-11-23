@@ -66,6 +66,28 @@ func (s *Store) Confirmations(ctx context.Context, day string) ([]Confirmation, 
 	return out, nil
 }
 
+// ConfirmedDays returns every day that has at least one confirmation, in
+// ascending order.
+func (s *Store) ConfirmedDays(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT day FROM confirmations ORDER BY day`)
+	if err != nil {
+		return nil, fmt.Errorf("query confirmed days: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var day string
+		if err := rows.Scan(&day); err != nil {
+			return nil, fmt.Errorf("scan confirmed day: %w", err)
+		}
+		out = append(out, day)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate confirmed days: %w", err)
+	}
+	return out, nil
+}
+
 // AcknowledgeCap stores or replaces the cap acknowledgement of a day.
 func (s *Store) AcknowledgeCap(ctx context.Context, a CapAcknowledgement) error {
 	_, err := s.db.ExecContext(ctx,

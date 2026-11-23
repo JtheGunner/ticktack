@@ -70,6 +70,9 @@ func runUndo(ctx context.Context, out io.Writer, deps syncDeps) error {
 	}
 	line := msgUndoResult(res.Deleted, res.Restored, res.Recreated, res.Forgotten)
 	_, _ = fmt.Fprintln(out, deps.Render.Gutter(status, line))
+	if cfg.Auto.Autopilot() {
+		_, _ = fmt.Fprintln(out, deps.Render.Gutter(render.StatusInfo, msgAutopilotUndoHint))
+	}
 	return err
 }
 

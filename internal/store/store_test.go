@@ -171,6 +171,8 @@ func TestEventsAreImmutable(t *testing.T) {
 		// carried-context anchors and records the day in archived_days in the
 		// same transaction. The other two only read.
 		"ArchiveDay": true, "ArchivedDay": true, "ArchivedDays": true,
+		// ConfirmedDays only reads the confirmations table.
+		"ConfirmedDays":   true,
 		"EarliestEventAt": true,
 	}
 	for i := 0; i < typ.NumMethod(); i++ {

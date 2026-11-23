@@ -37,9 +37,19 @@ human in "ticktack review". Bookings use the same idempotent ledger as
 A work item booked earlier is deleted when the day no longer has any time for
 its ticket. Bookings of items auto mode merely skips are left alone.
 
-There is no background scheduler: run this command by hand or schedule it
-yourself (for example from cron or launchd). After every run a digest lists
-every item, and "ticktack digest" shows it again.`
+In the default gated mode there is no background scheduler: run this command by
+hand or schedule it yourself (for example from cron or launchd). After every
+run a digest lists every item, and "ticktack digest" shows it again.
+
+Autopilot: with "[auto] enabled = true" and "mode = "autopilot"" the trust gate
+does not apply and the agent runs this booking itself every 30 minutes, for
+every completed day (before today) of the last "autopilot_lookback_days" days
+(default 7), oldest first. Today is never booked. A day you confirmed or
+corrected in "ticktack review" is yours and is left alone. Run by hand in
+autopilot mode, this command does one such pass; with --day it books that one
+completed day. "ticktack undo" reverts the last run, but the autopilot books
+again on its next run unless you set the mode back to "gated" or enabled to
+false first.`
 
 	msgDigestLong = `Show the digest of the most recent auto run: every booked, updated, deleted
 and skipped item with ticket, date, minutes, tier and reason.`
@@ -49,6 +59,15 @@ and skipped item with ticket, date, minutes, tier and reason.`
 	msgAutoLockedNothing  = "Nothing was booked."
 	msgAutoLockedProceed  = "To build the track record, run `ticktack review` each day and confirm without corrections."
 	msgAutoNothingToBook  = "Nothing to book automatically for %s."
+
+	msgAutopilotOpenDay       = "%s is not a completed day: the autopilot never books today or a future day. use a day before today, or run `ticktack auto` without --day to work through the lookback window"
+	msgAutopilotNothingToBook = "Autopilot: nothing to book on the completed days of the lookback window."
+	msgAutopilotUndoHint      = "Autopilot is on: it books this again on its next run. Set mode = \"gated\" or enabled = false in [auto] first to keep the undo."
+	msgAutopilotItemsFailed   = "%d items failed and %d were not sent (first error: %s); see `ticktack digest`"
+	msgAutopilotLogFail       = "autopilot: run failed: %v"
+	msgAutopilotLogConfig     = "autopilot: skipped, config not loadable: %v"
+	msgAutopilotLogBusy       = "autopilot: skipped, another booking run is active"
+	msgAutopilotLogLock       = "autopilot: skipped, booking lock failed: %v"
 
 	msgDigestNone = "No digest yet: `ticktack auto` has not booked anything."
 
