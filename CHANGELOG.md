@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The agent's periodic git scan is now on by default: `[scan] interval` defaults to `15m` instead of off. It still runs only once `repo_paths` or `repo_roots` is set, scans at start and then at the interval, and skips scans while capture is paused. Set `interval = "0"` to turn it off; the minimum stays `5m`.
 - The content hash in the ledger now decides: `ticktack sync` skips a booked item only when its minutes and its text are unchanged, and updates it when the text changed. `ticktack undo` restores the earlier text together with the earlier minutes, and books a deleted item again with the text it had; entries of earlier versions keep the old behaviour.
 - Context no longer vouches for time without limit. Time under a repository and branch that were not confirmed for longer than `context_max_age` keeps its ticket but is only tier `suggested`, with the reason `context unconfirmed for <age>`: confirm it in `ticktack review`; `ticktack auto` does not book it. A shell prompt, checkout, commit or title hint on the same repository and branch confirms the context again. This also applies to the branch a day starts with from the day before.
 - A pin (`ticktack switch`) is exempt from that limit on the day it was set. On the following days it still decides the ticket, but only as `suggested`, so a forgotten pin no longer books as `explicit` for days. This does not depend on `context_max_age` and also holds with `"0"`.
