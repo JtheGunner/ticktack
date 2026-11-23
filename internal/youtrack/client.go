@@ -32,7 +32,6 @@ const (
 	defaultTimeout    = 30 * time.Second
 	defaultMaxRetries = 3
 	maxRetryAfter     = 60 * time.Second
-	issuesPageSize    = 100
 	// maxResponseBytes bounds one successful response body; a larger body is
 	// an error, never a silent truncation.
 	maxResponseBytes = 8 << 20
@@ -326,14 +325,18 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 }
 
 // MyOpenIssues returns issues assigned to the token owner in state "In Progress".
+// It reads every page of the result.
 func (c *Client) MyOpenIssues(ctx context.Context) ([]Issue, error) {
 	q := url.Values{
 		"query":  {"for: me State: {In Progress}"},
 		"fields": {"idReadable,summary,updated"},
-		"$top":   {strconv.Itoa(issuesPageSize)},
 	}
 	var issues []Issue
-	if err := c.do(ctx, http.MethodGet, "/api/issues", q, nil, &issues); err != nil {
+	err := getAllPages(ctx, c, "/api/issues", q, func(it Issue) string { return it.ID }, func(it Issue) bool {
+		issues = append(issues, it)
+		return false
+	})
+	if err != nil {
 		return nil, err
 	}
 	return issues, nil
