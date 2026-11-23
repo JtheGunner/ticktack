@@ -26,16 +26,16 @@ func newAgentCommand() *cobra.Command {
 	var interval time.Duration
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Run the presence agent in the foreground",
+		Short: msgAgentAgentShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if interval <= 0 {
-				return errors.New("--interval must be positive")
+				return errors.New(msgAgentIntervalNotPositive)
 			}
 			return runAgent(cmd, interval)
 		},
 	}
-	cmd.Flags().DurationVar(&interval, "interval", presence.DefaultInterval, "sampling interval")
+	cmd.Flags().DurationVar(&interval, "interval", presence.DefaultInterval, msgAgentIntervalFlag)
 	return cmd
 }
 

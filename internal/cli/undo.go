@@ -19,11 +19,9 @@ func newUndoCommand() *cobra.Command {
 func newUndoCommandWith(deps syncDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "undo",
-		Short: "Revert the last sync",
-		Long: `Revert the last booking run: items it created are deleted from YouTrack,
-items it updated are restored to their previous minutes and items it deleted
-are booked again. Running undo again reverts the run before it.` + msgBookingLockHelp,
-		Args: cobra.NoArgs,
+		Short: msgUndoUndoShort,
+		Long:  msgUndoUndoLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUndo(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
 		},

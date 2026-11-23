@@ -11,7 +11,7 @@ var Version = "dev"
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ticktack",
-		Short:         "ticktack command line tool",
+		Short:         msgRootTicktackShort,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

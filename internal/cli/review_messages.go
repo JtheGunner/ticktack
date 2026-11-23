@@ -208,3 +208,12 @@ func msgReviewUndone(kind event.OverrideKind, ticket, from, to string, correctio
 }
 
 func msgReviewHeading(day string) string { return "Review for " + day }
+
+// Help texts and flag descriptions of the review command.
+const (
+	msgReviewReviewShort = "Review the day's blocks and confirm what may be booked"
+	msgReviewReviewLong  = `Show the day as a numbered timeline with tier and reason per block, then
+confirm, reassign, discard, mark as break or split entries. Only confirmed
+items are booked by ` + "`ticktack sync`" + `. Corrections are stored as overrides.`
+	msgReviewDayFlag = "day to review as YYYY-MM-DD (default: today)"
+)

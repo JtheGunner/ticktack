@@ -121,3 +121,12 @@ func anyIfEmpty(s string) string {
 	}
 	return s
 }
+
+// Help texts and flag descriptions of the explain command.
+const (
+	msgExplainExplainShort = "Show the signal and rule behind a block"
+	msgExplainExplainLong  = "Show which signal and which rule decided a block of `ticktack today`.\n" +
+		"The argument is the block number printed by `ticktack today`, or a local time HH:MM inside a block.\n" +
+		"On days with a daylight-saving change, a skipped time means the following hour and a repeated time its first occurrence."
+	msgExplainDayFlag = "day as YYYY-MM-DD (default: today)"
+)

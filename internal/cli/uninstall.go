@@ -47,17 +47,14 @@ func newUninstallCommand() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove the launchd agent, shell hook, token and log",
-		Long: "Reverses `ticktack init`: unloads and removes the launchd agent, removes the " +
-			"managed block from the shell startup files, deletes the YouTrack token from the " +
-			"OS keychain and deletes the log file with its backup and state files. The config file, the database and the " +
-			"binary stay; `ticktack purge` deletes the data.",
-		Args: cobra.NoArgs,
+		Short: msgUninstallUninstallShort,
+		Long:  msgUninstallUninstallLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUninstall(cmd.Context(), defaultUninstallDeps(cmd), yes)
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	cmd.Flags().BoolVar(&yes, "yes", false, msgUninstallYesFlag)
 	return cmd
 }
 
@@ -100,7 +97,7 @@ func (r *uninstallRun) say(status render.Status, format string, args ...any) {
 // and does not stop the remaining steps.
 func runUninstall(ctx context.Context, deps uninstallDeps, yes bool) error {
 	if deps.Home == "" {
-		return errors.New("cannot determine the home directory")
+		return errors.New(msgUninstallNoHome)
 	}
 	r := &uninstallRun{deps: deps}
 	if !yes {

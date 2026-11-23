@@ -112,3 +112,8 @@ const (
 
 	msgFixPrefix = "fix: "
 )
+
+// Help texts and flag descriptions of the doctor command.
+const (
+	msgDoctorDoctorShort = "Check the setup and name the fix for each problem"
+)

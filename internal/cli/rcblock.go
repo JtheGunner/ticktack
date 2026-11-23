@@ -43,7 +43,7 @@ func upsertManagedBlock(content, block string) (string, error) {
 	}
 	endRel := strings.Index(content[begin:], rcBlockEnd)
 	if endRel < 0 {
-		return "", errors.New("found the begin marker but no end marker; fix the file by hand")
+		return "", errors.New(msgRCBlockNoEndMarker)
 	}
 	end := begin + endRel + len(rcBlockEnd)
 	if end < len(content) && content[end] == '\n' {
@@ -63,7 +63,7 @@ func removeManagedBlock(content string) (string, bool, error) {
 	}
 	endRel := strings.Index(content[begin:], rcBlockEnd)
 	if endRel < 0 {
-		return "", false, errors.New("found the begin marker but no end marker; fix the file by hand")
+		return "", false, errors.New(msgRCBlockNoEndMarker)
 	}
 	end := begin + endRel + len(rcBlockEnd)
 	if end < len(content) && content[end] == '\n' {
@@ -123,7 +123,7 @@ func writeFileAtomic(path string, data []byte, defaultMode os.FileMode) error {
 	case err == nil:
 		path = resolved
 	case isSymlink(path):
-		return fmt.Errorf("%s is a dangling symlink; refusing to replace it", path)
+		return fmt.Errorf(msgRCDanglingSymlink, path)
 	}
 	mode := defaultMode
 	if info, err := os.Stat(path); err == nil {
@@ -176,7 +176,7 @@ func rcFileFor(home, goos, shell, zdotdir string) (string, error) {
 	case "fish":
 		return filepath.Join(home, ".config", "fish", "config.fish"), nil
 	}
-	return "", fmt.Errorf("unsupported shell %q", shell)
+	return "", fmt.Errorf(msgRCUnsupportedShell, shell)
 }
 
 func isSymlink(path string) bool {

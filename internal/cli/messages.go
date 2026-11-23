@@ -86,3 +86,14 @@ const (
 	msgInitPrintSnippetFlag = "print the hook script for a shell and exit"
 	msgInitConfirmSuffix    = "%s [Y/n] "
 )
+
+// User-visible plain errors of the agent, uninstall, sync and shell startup file code.
+const (
+	msgAgentIntervalNotPositive = "--interval must be positive"
+	msgUninstallNoHome          = "cannot determine the home directory"
+	msgSyncNoURLSet             = "youtrack_url is not set"
+	msgSyncBadDay               = "invalid --day %q: expected YYYY-MM-DD"
+	msgRCBlockNoEndMarker       = "found the begin marker but no end marker; fix the file by hand"
+	msgRCDanglingSymlink        = "%s is a dangling symlink; refusing to replace it"
+	msgRCUnsupportedShell       = "unsupported shell %q"
+)

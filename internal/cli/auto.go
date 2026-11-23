@@ -26,15 +26,15 @@ func newAutoCommandWith(deps syncDeps) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "auto",
-		Short: "Book the safe blocks of a day automatically (opt-in, needs a track record)",
-		Long:  msgAutoLong + msgBookingLockHelpDryRun,
+		Short: msgAutoAutoShort,
+		Long:  msgAutoAutoLong,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAuto(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd), dayFlag, dryRun)
 		},
 	}
-	cmd.Flags().StringVar(&dayFlag, "day", "", "local day to book as YYYY-MM-DD (default: today)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan without booking anything")
+	cmd.Flags().StringVar(&dayFlag, "day", "", msgAutoDayFlag)
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, msgAutoDryRunFlag)
 	return cmd
 }
 
@@ -45,8 +45,8 @@ func newDigestCommand() *cobra.Command {
 func newDigestCommandWith(deps syncDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "digest",
-		Short: "Show the digest of the last auto run",
-		Long:  msgDigestLong,
+		Short: msgAutoDigestShort,
+		Long:  msgAutoDigestLong,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDigest(cmd.Context(), cmd.OutOrStdout(), deps.forCommand(cmd))
