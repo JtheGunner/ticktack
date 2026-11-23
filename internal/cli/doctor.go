@@ -183,6 +183,7 @@ func newDoctorCommand() *cobra.Command {
 func runDoctor(ctx context.Context, deps doctorDeps, out io.Writer) error {
 	checks := []func(context.Context, doctorDeps) checkResult{
 		checkConfig,
+		checkConfigFreshness,
 		checkHook,
 		checkAgent,
 		checkToken,
@@ -291,6 +292,29 @@ func checkConfig(_ context.Context, deps doctorDeps) checkResult {
 		return failResult(msgCheckConfig, fmt.Sprintf(msgConfigBad, err), fmt.Sprintf(msgConfigFix, path))
 	}
 	return okResult(msgCheckConfig, fmt.Sprintf(msgConfigOK, path))
+}
+
+// checkConfigFreshness compares the config file with the options this version
+// knows. It only reads the file; unreadable or broken files are skipped
+// because checkConfig already reports them.
+func checkConfigFreshness(_ context.Context, deps doctorDeps) checkResult {
+	path, err := deps.ConfigPath()
+	if err != nil {
+		return skipResult(msgCheckConfigFreshness, msgConfigFreshSkipped)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return skipResult(msgCheckConfigFreshness, msgConfigFreshSkipped)
+	}
+	plan, err := config.PlanUpdate(string(data))
+	if err != nil {
+		return skipResult(msgCheckConfigFreshness, msgConfigFreshSkipped)
+	}
+	if !plan.Changed() {
+		return okResult(msgCheckConfigFreshness, msgConfigFreshOK)
+	}
+	return warnResult(msgCheckConfigFreshness,
+		fmt.Sprintf(msgConfigFreshOutdated, len(plan.Added), len(plan.Removed)), msgConfigFreshFix)
 }
 
 // installedRCFile returns the first shell rc file holding a managed block.

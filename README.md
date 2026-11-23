@@ -209,6 +209,8 @@ The log file `ticktack.log` stays bounded: above 1 MiB it is rotated into a sing
 
 A complete, commented example lives in [`examples/config.toml`](examples/config.toml). Unknown keys are rejected so typos do not go unnoticed.
 
+**After an upgrade.** A new version can add options and drop old ones, and your existing config is never rewritten on its own. `ticktack doctor` shows a `config options` line that tells you when the file is behind and points to `ticktack config update`. The command previews what it would change: the options it would add (as commented blocks with their description) and the keys it would remove (with their old value). It asks before writing, keeps a backup as `config.toml.bak` next to the file (mode `0600`, overwritten on each run) and follows a symlinked config, so the backup sits next to the real file. Your values and comments are never touched. Two limits: a top-level key placed below a table header is read as a key of that table and would be removed, and a commented-out leftover of a removed option is not detected and stays.
+
 | Key                  | Default                | Meaning                                                          |
 |----------------------|------------------------|------------------------------------------------------------------|
 | `youtrack_url`       | none                   | Base URL of your YouTrack instance. Must use `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `::1`. |
@@ -282,6 +284,7 @@ Resolution order for a block:
 | ℹ️ | `ticktack version`              | Print the ticktack version.                                                          |
 | 🧰 | `ticktack init`                 | Set up config, token, shell hook and launchd agent (`--yes`, `--url`, `--shell`, `--skip-config`, `--skip-token`, `--skip-hook`, `--skip-agent`, `--skip-alias`, `--print-snippet SHELL`). |
 | 🩺 | `ticktack doctor`               | Check the setup and name the fix for each problem.                                   |
+| 🔄 | `ticktack config update`        | Add new options to the config as commented blocks and drop keys this version no longer knows, after a preview (`--yes`, `--dry-run`). |
 | 🖥️ | `ticktack agent`                | Run the presence agent in the foreground (launchd runs it for you; `--interval`).    |
 | 🐚 | `ticktack hook`                 | Internal: reports the working directory from the shell prompt. Hidden from help.     |
 | 👀 | `ticktack status`               | Show what ticktack currently detects.                                                |

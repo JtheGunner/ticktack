@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktack config update` brings an existing config in line with the options this version knows: it previews the options it would add (as commented blocks with their description) and the keys it would remove (with their old value), asks before writing (`--yes` skips the prompt, `--dry-run` writes nothing), keeps a backup as `config.toml.bak` and never touches your values or comments.
+- `ticktack doctor` shows a `config options` line that warns when the config lacks options or still holds removed keys and points to `ticktack config update`.
+
 ### Changed
 
 - The example config and the config written by `ticktack init` now list every allowed value of the `[auto]` keys (`enabled`, `mode` = `"gated"` or `"autopilot"`, `trusted_days`, `autopilot_lookback_days`) next to the key.

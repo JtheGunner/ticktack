@@ -84,17 +84,20 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # Tables follow. Top-level keys such as the ones above must stay before the
 # first table.
 
-# Standard task for time without a ticket: one catch-all issue in this project,
-# and per matching project when repo_roots is set. Created by `ticktack sync`
-# after one confirmation.
+# Standard task for time without a ticket. Created by `ticktack sync` after
+# one confirmation.
 # [default_issue]
+# Project of the catch-all issue. With repo_roots set, one more is created per
+# matching project.
 # project = "GENERAL"
+# Summary of the catch-all issue.
 # summary = "Meetings / Admin"
 
-# Periodic git scan by the agent (default 15m). It runs only when repo_paths or
+# Periodic git scan by the agent.
+# [scan]
+# How often the scan runs (default 15m). It runs only when repo_paths or
 # repo_roots is set, once at start and then at this interval. "0" turns it off;
 # otherwise the minimum is 5m.
-# [scan]
 # interval = "15m"
 
 # Fixed repository to ticket mappings. Repeat the table for more rules. The
@@ -105,11 +108,12 @@ ticket_pattern = "[A-Z][A-Z0-9]+-\\d+"
 # ticket = "ABC-1"
 
 # Optional window-title hints (off by default). Needs the macOS Accessibility
-# permission. Titles are read in memory and never stored. Maps an IDE project
-# name to the absolute path of its repository.
+# permission.
 [titlehint]
+# true turns the hints on. Titles are read in memory and never stored.
 enabled = false
 
+# Maps an IDE project name to the absolute path of its repository.
 # [titlehint.projects]
 # "my-ide-project" = "/abs/path/to/repo"
 
@@ -128,35 +132,32 @@ enabled = false
 # "us.zoom.xos" = "neutral"
 # "com.apple.Music" = "personal"
 
-# Optional import from a local ActivityWatch server (off by default). Only
-# loopback addresses are accepted.
+# Optional import from a local ActivityWatch server (loopback only, off by
+# default).
 [activitywatch]
+# true turns the import on.
 enabled = false
+# URL of the ActivityWatch server. Only loopback addresses are accepted.
 url = "http://localhost:5600"
 # Restrict the import to buckets of this host (default: every host).
 # hostname = "my-mac"
 
 # Optional auto mode (off by default). It books a day without a review, and only
 # its explicit and rule blocks; an item with any lower-tier time stays for review.
-#
-#   enabled                  true | false. The master switch: false turns both
-#                            modes off.
-#   mode                     "gated" (default): `ticktack auto` books only once the
-#                            trust gate is met, that is trusted_days consecutive
-#                            reviewed days without a correction. Run it by hand or
-#                            from your own scheduler.
-#                            "autopilot": an explicit opt-in that replaces the trust
-#                            gate. The agent books completed days itself, every 30
-#                            minutes. Days you confirmed in `ticktack review` are
-#                            never touched, and today is never booked.
-#                            Any other value is a configuration error.
-#   trusted_days             whole number, at least 1 (default 10). Gated mode only.
-#   autopilot_lookback_days  whole number from 1 to 31 (default 7). Autopilot only:
-#                            how many completed days back the agent looks.
-#
-# To switch the autopilot off, set mode back to "gated" or enabled to false.
 [auto]
+# true | false. The master switch: false turns both modes off.
 enabled = false
-trusted_days = 10
+# "gated" (default): `ticktack auto` books only once the trust gate is met, that
+# is trusted_days consecutive reviewed days without a correction. Run it by hand
+# or from your own scheduler.
+# "autopilot": an explicit opt-in that replaces the trust gate. The agent books
+# completed days itself, every 30 minutes. Days you confirmed in
+# `ticktack review` are never touched, and today is never booked. To switch the
+# autopilot off, set mode back to "gated" or enabled to false.
+# Any other value is a configuration error.
 mode = "gated"
+# Whole number, at least 1 (default 10). Gated mode only.
+trusted_days = 10
+# Whole number from 1 to 31 (default 7). Autopilot only: how many completed
+# days back the agent looks.
 autopilot_lookback_days = 7
