@@ -379,7 +379,7 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - Raw events are kept until you delete them, unless you set `retention_days`: then the agent deletes the events of fully booked days older than that many days (see [Retention](#retention)). Those days can no longer be re-derived.
-- `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now.
+- `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now. A gap in presence (for example from an ActivityWatch import) that reaches into a pause is cut at the pause, so its paused part is not stored either. If the pause marker file is damaged, `ticktack resume` still ends the pause and tells you; the pause then starts at the file's modification time, so time before that may not be protected.
 - `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
 - `ticktack uninstall` removes the launchd agent, the shell hook, the keychain token and the log file.
 

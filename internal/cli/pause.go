@@ -53,8 +53,14 @@ func runResume(deps dailyDeps) error {
 	if err != nil {
 		return err
 	}
-	if err := pause.End(path, deps.Now()); err != nil {
+	ended, err := pause.End(path, deps.Now())
+	if err != nil {
 		return err
+	}
+	if ended.Recovered != nil {
+		if _, err := fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusWarn, fmt.Sprintf(msgResumeFlagRecovered, SanitizeForTerminal(ended.Recovered.Error())))); err != nil {
+			return err
+		}
 	}
 	_, err = fmt.Fprintln(deps.Out, deps.Render.Gutter(render.StatusOK, msgResumed))
 	return err
