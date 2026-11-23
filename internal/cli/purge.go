@@ -18,13 +18,9 @@ func newPurgeCommand() *cobra.Command {
 	var yes, expired, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "purge",
-		Short: "Delete all local ticktack data, or only expired events",
-		Long: "Delete all local ticktack data. With --expired only the raw events of fully\n" +
-			"booked days older than retention_days are deleted; overrides, the ledger and\n" +
-			"the sync history stay. Those days can no longer be re-derived, reviewed,\n" +
-			"explained or synced. --dry-run prints how many events and days that would be\n" +
-			"without deleting anything.",
-		Args: cobra.NoArgs,
+		Short: msgPurgeShort,
+		Long:  msgPurgeLong,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if dryRun && !expired {
 				return errors.New(msgPurgeDryRunFlag)
@@ -35,9 +31,9 @@ func newPurgeCommand() *cobra.Command {
 			return runPurge(cmd.Context(), defaultDailyDeps(cmd), yes)
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
-	cmd.Flags().BoolVar(&expired, "expired", false, "delete only the events of fully booked days older than retention_days")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "with --expired: print the number of events and days without deleting")
+	cmd.Flags().BoolVar(&yes, "yes", false, msgPurgeYesFlag)
+	cmd.Flags().BoolVar(&expired, "expired", false, msgPurgeExpiredFlag)
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, msgPurgeDryRunHelp)
 	return cmd
 }
 

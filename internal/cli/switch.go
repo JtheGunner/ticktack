@@ -21,15 +21,14 @@ func newSwitchCommand() *cobra.Command {
 	var clearPin bool
 	cmd := &cobra.Command{
 		Use:   "switch TICKET",
-		Short: "Attribute time to a ticket manually from now on",
-		Long: "Attribute time to TICKET from now on, regardless of the detected repository or branch.\n" +
-			"Use `switch --clear` or `switch auto` to return to automatic detection.",
-		Args: cobra.MaximumNArgs(1),
+		Short: msgSwitchShort,
+		Long:  msgSwitchLong,
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSwitch(cmd.Context(), defaultDailyDeps(cmd), args, clearPin)
 		},
 	}
-	cmd.Flags().BoolVar(&clearPin, "clear", false, "return to automatic ticket detection")
+	cmd.Flags().BoolVar(&clearPin, "clear", false, msgSwitchClearFlag)
 	return cmd
 }
 
@@ -74,9 +73,9 @@ func runSwitch(ctx context.Context, deps dailyDeps, args []string, clearFlag boo
 func parseSwitchTarget(args []string, clearFlag bool) (ticket string, clearing bool, err error) {
 	switch {
 	case len(args) == 0 && !clearFlag:
-		return "", false, errors.New("a ticket ID is required (or use --clear)")
+		return "", false, errors.New(msgSwitchNeedsTicket)
 	case len(args) == 1 && clearFlag:
-		return "", false, errors.New("--clear cannot be combined with a ticket ID")
+		return "", false, errors.New(msgSwitchClearWithTicket)
 	case clearFlag:
 		return "", true, nil
 	case strings.EqualFold(strings.TrimSpace(args[0]), autoKeyword):

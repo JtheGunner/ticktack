@@ -12,7 +12,7 @@ import (
 func newPauseCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pause",
-		Short: "Pause all capture",
+		Short: msgPauseShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPause(defaultDailyDeps(cmd))
@@ -23,7 +23,7 @@ func newPauseCommand() *cobra.Command {
 func newResumeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume",
-		Short: "Resume capture after a pause",
+		Short: msgResumeShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runResume(defaultDailyDeps(cmd))

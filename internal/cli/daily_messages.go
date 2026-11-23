@@ -104,3 +104,30 @@ func msgTodayHeading(day string) string { return "Blocks for " + day }
 func msgOverDailyCap(dailyCap time.Duration) string {
 	return fmt.Sprintf("OVER DAILY CAP (%s)", dailyCap)
 }
+
+// Help texts and flag descriptions of pause, resume, switch, today and purge.
+const (
+	msgPauseShort  = "Pause all capture"
+	msgResumeShort = "Resume capture after a pause"
+
+	msgSwitchShort = "Attribute time to a ticket manually from now on"
+	msgSwitchLong  = "Attribute time to TICKET from now on, regardless of the detected repository or branch.\n" +
+		"Use `switch --clear` or `switch auto` to return to automatic detection."
+	msgSwitchClearFlag       = "return to automatic ticket detection"
+	msgSwitchNeedsTicket     = "a ticket ID is required (or use --clear)"
+	msgSwitchClearWithTicket = "--clear cannot be combined with a ticket ID"
+
+	msgTodayShort   = "List today's blocks and totals"
+	msgTodayDayFlag = "day to show as YYYY-MM-DD (default: today)"
+	msgTodayBadDay  = "--day %q: expected format YYYY-MM-DD"
+
+	msgPurgeShort = "Delete all local ticktack data, or only expired events"
+	msgPurgeLong  = "Delete all local ticktack data. With --expired only the raw events of fully\n" +
+		"booked days older than retention_days are deleted; overrides, the ledger and\n" +
+		"the sync history stay. Those days can no longer be re-derived, reviewed,\n" +
+		"explained or synced. --dry-run prints how many events and days that would be\n" +
+		"without deleting anything."
+	msgPurgeYesFlag     = "do not ask for confirmation"
+	msgPurgeExpiredFlag = "delete only the events of fully booked days older than retention_days"
+	msgPurgeDryRunHelp  = "with --expired: print the number of events and days without deleting"
+)
