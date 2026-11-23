@@ -97,14 +97,11 @@ func runReview(ctx context.Context, deps reviewDeps, dayFlag string) error {
 	if err != nil {
 		return err
 	}
-	st, err := deps.OpenStore()
+	st, err := openStoreForDay(ctx, deps.OpenStore, day)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	if err := refuseArchivedDay(ctx, st, day); err != nil {
-		return err
-	}
 
 	var opts []review.Option
 	if deps.NewIssueSource != nil {
