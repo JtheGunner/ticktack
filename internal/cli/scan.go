@@ -16,6 +16,7 @@ import (
 	gitscan "github.com/JtheGunner/ticktack/internal/collector/git"
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/event"
+	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/reporoots"
 )
@@ -110,11 +111,12 @@ type scanReport struct {
 
 // scanRepositories scans every configured path and appends the events. A
 // failing repository is recorded and does not stop the others. Only a failed
-// append or a cancelled ctx aborts the pass. The events of all repositories
+// append or a cancelled ctx aborts the pass. Events inside a pause are dropped
+// before storing. The events of all repositories
 // are stored in one transaction after the last scan, so a pass either stores
 // everything it found or nothing and holds the write lock only briefly.
 // Appending is idempotent because every event carries a deterministic key.
-func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, sink eventAppender) (scanReport, error) {
+func scanRepositories(ctx context.Context, repos []string, home string, from, to time.Time, pattern *regexp.Regexp, scan repoScanner, paused pause.Intervals, sink eventAppender) (scanReport, error) {
 	report := scanReport{Total: len(repos)}
 	var found []event.Event
 	for _, raw := range repos {
@@ -141,6 +143,7 @@ func scanRepositories(ctx context.Context, repos []string, home string, from, to
 			report.Skipped = append(report.Skipped, skippedRepo{raw, describeScanError(err, timedOut)})
 			continue
 		}
+		events = outsidePauses(events, paused)
 		found = append(found, events...)
 		report.Scanned++
 		report.Found += len(events)
@@ -213,8 +216,8 @@ func trackedRepos(cfg config.Config, home string) []string {
 }
 
 // runScan runs the explicit, one-shot scan of the configured repositories. It
-// honours the pause flag and is idempotent. since is empty for the default
-// lookback.
+// honours the pause flag, never stores events from an earlier pause and is
+// idempotent. since is empty for the default lookback.
 func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner, since string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
@@ -241,6 +244,10 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	}
 
 	now := deps.Now()
+	pauseIntervals, err := loadPauses(deps, now)
+	if err != nil {
+		return err
+	}
 	from := scanStartOfLookback(now, cfg.Location)
 	if since != "" {
 		from, err = time.ParseInLocation(dayLayout, since, cfg.Location)
@@ -260,7 +267,7 @@ func runScan(ctx context.Context, deps dailyDeps, home string, scan repoScanner,
 	if err != nil {
 		return err
 	}
-	report, err := scanRepositories(ctx, repos, home, from, to, cfg.TicketPattern, scan, st)
+	report, err := scanRepositories(ctx, repos, home, from, to, cfg.TicketPattern, scan, pauseIntervals, st)
 	if err != nil {
 		return err
 	}

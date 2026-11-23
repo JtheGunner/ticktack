@@ -6,7 +6,11 @@ import (
 	"time"
 
 	"github.com/JtheGunner/ticktack/internal/config"
+	"github.com/JtheGunner/ticktack/internal/pause"
 )
+
+// pauseLoader returns the pauses known at now; a running pause lasts until now.
+type pauseLoader func(now time.Time) (pause.Intervals, error)
 
 // backgroundJob is a collector loop that runs until ctx is cancelled.
 type backgroundJob func(ctx context.Context)
@@ -37,7 +41,9 @@ func runWithBackground(ctx context.Context, jobs []backgroundJob, main func(ctx 
 // newScanJob builds the periodic git scan of the agent, or returns nil while
 // the scan is off or no repository is configured. The job scans once at start
 // and then every interval, and does nothing while the pause flag exists.
-func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoScanner, paused func() bool, interval time.Duration, now func() time.Time, logf func(format string, args ...any)) backgroundJob {
+// Events from an earlier pause are never stored; a pass is skipped when the
+// pauses cannot be loaded.
+func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoScanner, paused func() bool, pauses pauseLoader, interval time.Duration, now func() time.Time, logf func(format string, args ...any)) backgroundJob {
 	if interval <= 0 || (len(cfg.RepoPaths) == 0 && len(cfg.RepoRoots) == 0) {
 		return nil
 	}
@@ -47,8 +53,13 @@ func newScanJob(cfg config.Config, home string, sink eventAppender, scan repoSca
 				return
 			}
 			current := now()
+			pauseIntervals, err := pauses(current)
+			if err != nil {
+				logf(msgRepoLogNoPauses, err)
+				return
+			}
 			from := scanStartOfLookback(current, cfg.Location)
-			report, err := scanRepositories(ctx, trackedRepos(cfg, home), home, from, current.Add(scanFutureSlack), cfg.TicketPattern, scan, sink)
+			report, err := scanRepositories(ctx, trackedRepos(cfg, home), home, from, current.Add(scanFutureSlack), cfg.TicketPattern, scan, pauseIntervals, sink)
 			for _, s := range report.Skipped {
 				logf(msgRepoLogSkipped, SanitizeForTerminal(s.Path), SanitizeForTerminal(s.Reason))
 			}

@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Time inside a pause is no longer stored afterwards. `ticktack pause` and `ticktack resume` now record each pause with its start and end, and `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event that lies inside one. Before, a scan or import that ran after `ticktack resume` read the paused hours back from the git reflog or from ActivityWatch. The pause times live in `pause-intervals` in the state directory and survive `ticktack purge`. Pauses made with an earlier version are not known and are not filtered.
 - Work item text no longer takes commit subjects from commits of another ticket or from a branch without a ticket: a commit is used only when it was made during the item's time and its own ticket (from its branch) equals the item's ticket, so pinned, reassigned or folded time cannot leak subjects from an unrelated or private repository.
 - Reading commit subjects, and every other `git` call, no longer lazily fetches missing objects from the promisor remote of a partial clone (`GIT_NO_LAZY_FETCH=1`, plus `GIT_ALLOW_PROTOCOL=none` and `GIT_TERMINAL_PROMPT=0`, so the guard does not depend on the git version); a missing commit is skipped, keeping network calls limited to YouTrack and ActivityWatch.
 - Splitting an override block in `ticktack review` without a different ticket reported success and changed nothing; it is refused with a message.

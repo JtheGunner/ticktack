@@ -17,6 +17,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/logfile"
 	"github.com/JtheGunner/ticktack/internal/paths"
+	"github.com/JtheGunner/ticktack/internal/pause"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
 
@@ -84,6 +85,7 @@ func runAgent(cmd *cobra.Command, interval time.Duration) error {
 			logger.Printf("git scan disabled: %v", homeErr)
 		} else {
 			jobs = append(jobs, newScanJob(cfg, home, st, defaultRepoScanner, pauseFlagCheck(pausePath),
+				func(now time.Time) (pause.Intervals, error) { return pause.Load(pausePath, now) },
 				cfg.Scan.Interval, func() time.Time { return time.Now().Round(0) }, logger.Printf))
 		}
 	}

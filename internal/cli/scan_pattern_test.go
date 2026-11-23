@@ -22,7 +22,7 @@ func TestScanJobPassesConfiguredTicketPattern(t *testing.T) {
 	}
 	custom := regexp.MustCompile(`[A-Z]+_\d+`)
 	cfg := config.Config{RepoPaths: []string{repo}, Location: time.UTC, TicketPattern: custom}
-	job := newScanJob(cfg, "/home/u", &syncSink{}, scan, func() bool { return false }, time.Hour,
+	job := newScanJob(cfg, "/home/u", &syncSink{}, scan, func() bool { return false }, noPauses, time.Hour,
 		func() time.Time { return dailyNow }, t.Logf)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

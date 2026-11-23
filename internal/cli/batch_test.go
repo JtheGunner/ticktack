@@ -65,7 +65,7 @@ func TestScanStoresAPassInOneBatch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sink := &batchSink{err: tt.sinkErr}
-			report, err := scanRepositories(context.Background(), []string{repoA, repoB}, "/home/u", at.Add(-time.Hour), at.Add(time.Hour), nil, scan, sink)
+			report, err := scanRepositories(context.Background(), []string{repoA, repoB}, "/home/u", at.Add(-time.Hour), at.Add(time.Hour), nil, scan, nil, sink)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}

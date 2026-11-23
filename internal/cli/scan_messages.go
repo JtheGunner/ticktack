@@ -25,6 +25,7 @@ const (
 	msgRepoLogSkipped   = "git scan: skipped %s: %s"
 	msgRepoLogDone      = "git scan: %d of %d repositories scanned, %d events found"
 	msgRepoLogStoreFail = "git scan: storing events failed: %v"
+	msgRepoLogNoPauses  = "git scan skipped: pauses not readable: %v"
 
 	msgCheckRepos        = "git repositories"
 	msgReposNone         = "no repo_paths configured (optional)"

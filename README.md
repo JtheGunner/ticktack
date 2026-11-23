@@ -203,7 +203,7 @@ The config file is optional; every key has a default.
 |----------------|-------------------------------------------------------------------|
 | 📄 Config      | `$XDG_CONFIG_HOME/ticktack/config.toml` (default `~/.config/ticktack/config.toml`) |
 | 🗄️ Database    | `$XDG_DATA_HOME/ticktack/events.db` (default `~/.local/share/ticktack/events.db`)  |
-| 📝 Log + pause flag | `$XDG_STATE_HOME/ticktack/` (default `~/.local/state/ticktack/`)  |
+| 📝 Log + pause state | `$XDG_STATE_HOME/ticktack/` (default `~/.local/state/ticktack/`)  |
 
 The log file `ticktack.log` stays bounded: above 1 MiB it is rotated into a single `ticktack.log.1`, and an identical message is written at most once every 10 minutes.
 
@@ -285,7 +285,7 @@ Resolution order for a block:
 | 👀 | `ticktack status`               | Show what ticktack currently detects.                                                |
 | 📋 | `ticktack today`                | List today's blocks and totals (`--day YYYY-MM-DD`).                                 |
 | 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
-| ⏸️ | `ticktack pause`                | Pause all capture.                                                                   |
+| ⏸️ | `ticktack pause`                | Pause all capture. Time inside a pause is never stored, also not by a later scan or import. |
 | ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
 | 🗑️ | `ticktack purge`                | Empty the local database: events, overrides, ledger and sync history, review state, learned rules, digests, the cached project list, standard tasks, the consent to create them and the list of archived days (`--yes` skips the prompt). Config, token, agent and shell hook stay. |
 | 🧽 | `ticktack purge --expired`      | Delete only the raw events of fully booked days older than `retention_days` (`--dry-run` prints the number of events and days without deleting; `--yes` skips the prompt). The days can no longer be re-derived. See [Retention](#retention). |
@@ -379,8 +379,12 @@ Days without a review and days booked by auto mode are skipped: they neither cou
 - The YouTrack token lives in the OS keychain, never in the config, environment files or logs.
 - Nothing is booked without your review, unless you enabled auto mode and its trust gate is met.
 - Raw events are kept until you delete them, unless you set `retention_days`: then the agent deletes the events of fully booked days older than that many days (see [Retention](#retention)). Those days can no longer be re-derived.
-- `ticktack pause` stops all capture; `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
+- `ticktack pause` stops all capture until `ticktack resume`. The paused time stays out for good: `ticktack scan`, the agent's periodic scan and `ticktack import activitywatch` drop every event whose timestamp lies inside a pause, also when they run after the resume. A pause that is still running counts until now.
+- `ticktack purge` empties every table of the local database, including the consent that lets auto mode create a standard task. Afterwards auto mode asks again.
 - `ticktack uninstall` removes the launchd agent, the shell hook, the keychain token and the log file.
+
+> [!NOTE]
+> To leave paused time out later, ticktack keeps the start and end of every pause in `pause-intervals` in the state directory. The file holds timestamps only. `ticktack purge` does not delete it, so a scan after a purge cannot read paused time back from the git reflog. Events stored before a pause began are not removed by it.
 
 ---
 

@@ -53,8 +53,8 @@ func newImportCommand() *cobra.Command {
 }
 
 // runImportActivityWatch runs the explicit, one-shot import. It needs
-// enabled = true in the configuration, honours the pause flag and is
-// idempotent. since is empty for the automatic cursor.
+// enabled = true in the configuration, honours the pause flag, never stores
+// events from an earlier pause and is idempotent. since is empty for the automatic cursor.
 func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSourceFunc, since string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
@@ -77,6 +77,10 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 	}
 
 	now := deps.Now()
+	pauseIntervals, err := loadPauses(deps, now)
+	if err != nil {
+		return err
+	}
 	var explicit time.Time
 	if since != "" {
 		explicit, err = time.ParseInLocation(dayLayout, since, cfg.Location)
@@ -103,7 +107,8 @@ func runImportActivityWatch(ctx context.Context, deps dailyDeps, newSource newSo
 	}
 
 	imp := &activitywatch.Importer{Source: source, Now: func() time.Time { return now }, Hostname: cfg.ActivityWatch.Hostname}
-	events, collectErr := imp.Collect(ctx, from)
+	collected, collectErr := imp.Collect(ctx, from)
+	events := outsidePauses(collected, pauseIntervals)
 	var presence, gaps, hints int
 	if err := st.AppendBatch(ctx, events); err != nil {
 		return err
