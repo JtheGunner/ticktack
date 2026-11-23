@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -105,6 +106,16 @@ type SyncOptions struct {
 // fall back to it.Description when it has nothing better.
 type Describer interface {
 	Describe(ctx context.Context, it sessionizer.DayItem) string
+}
+
+// ReliableDescriber is a Describer that also says whether its source could be
+// read completely. When reliable is false, a text that names commits which
+// the sync history already holds is kept instead of the new one, so a
+// repository that is only briefly unreadable does not flip the booked text to
+// the short summary and back.
+type ReliableDescriber interface {
+	Describer
+	DescribeReliably(ctx context.Context, it sessionizer.DayItem) (text string, reliable bool)
 }
 
 // ItemResult is the outcome for one item.
@@ -363,9 +374,13 @@ func (r *syncRun) deleteRow(ctx context.Context, row store.LedgerRow) (ItemResul
 		return fail(err)
 	}
 	// The text the item had is kept with the entry, so undo books it again as
-	// it was. The sink call has gone through, so a failed read only costs the
-	// text: undo then falls back to the generic one.
-	previousText, _, _ := r.opts.Repo.LastBookedText(ctx, row.Issue, row.Date, row.Type)
+	// it was. A failed read fails the row instead of recording a deletion
+	// without its text; the row stays in the ledger, and the next sync finds
+	// the item gone (counted as deleted) and tries again.
+	previousText, _, err := r.opts.Repo.LastBookedText(ctx, row.Issue, row.Date, row.Type)
+	if err != nil {
+		return fail(err)
+	}
 	runID, err := r.ensureRun(ctx, r.opts.Now())
 	if err != nil {
 		return fail(err)
@@ -447,11 +462,49 @@ type syncRun struct {
 // description returns the text of an item without its marker: the describer's
 // text when one is configured, the item's own description otherwise. The
 // marker is appended by the caller, always at the end.
-func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem) string {
+//
+// When a ReliableDescriber could not read its source completely and the item
+// was booked with a commit-based text before, that text is returned again:
+// the last booked text stays until the source can be read reliably. An item
+// that never had commit text gets the describer's text as before.
+func (r *syncRun) description(ctx context.Context, it sessionizer.DayItem, key string) (string, error) {
 	if r.opts.Describer == nil {
-		return it.Description
+		return it.Description, nil
 	}
-	return r.opts.Describer.Describe(ctx, it)
+	rd, ok := r.opts.Describer.(ReliableDescriber)
+	if !ok {
+		return r.opts.Describer.Describe(ctx, it), nil
+	}
+	text, reliable := rd.DescribeReliably(ctx, it)
+	if reliable {
+		return text, nil
+	}
+	previous, found, err := r.opts.Repo.LastBookedText(ctx, it.Ticket, it.Date.String(), itemType(it))
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return text, nil
+	}
+	if kept, ok := commitBasedText(previous, key); ok {
+		return kept, nil
+	}
+	return text, nil
+}
+
+// summaryText matches the short summary the sessionizer writes ("ABC-1 — 3
+// blocks"); a text that matches it carries no commit subjects.
+var summaryText = regexp.MustCompile(`^.+ — \d+ blocks?$`)
+
+// commitBasedText returns the booked text without its marker when it names
+// commits, so it can be booked again as it was. The summary, the placeholder
+// undo writes and a text without the item's marker are not commit-based.
+func commitBasedText(booked, key string) (string, bool) {
+	text, ok := strings.CutSuffix(booked, " "+Marker(key))
+	if !ok || text == "" || text == restoredDescription || summaryText.MatchString(text) {
+		return "", false
+	}
+	return text, true
 }
 
 func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemResult, error) {
@@ -476,9 +529,13 @@ func (r *syncRun) syncItem(ctx context.Context, it sessionizer.DayItem) (ItemRes
 		return res, nil
 	}
 
+	description, err := r.description(ctx, it, key)
+	if err != nil {
+		return failItem(err)
+	}
 	work := sink.WorkItem{
 		Issue: it.Ticket, Date: it.Date, Minutes: it.Minutes, Type: typ,
-		Text: r.description(ctx, it) + " " + Marker(key),
+		Text: description + " " + Marker(key),
 	}
 	row, inLedger, err := r.opts.Repo.LedgerGet(ctx, it.Ticket, date, typ)
 	if err != nil {
