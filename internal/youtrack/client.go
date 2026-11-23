@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/JtheGunner/ticktack/internal/sink"
 )
@@ -324,6 +325,23 @@ func (c *Client) WorkItemTypes(ctx context.Context, project string) ([]WorkItemT
 	return settings.WorkItemTypes, nil
 }
 
+// maxIssueSummaryBytes caps the summary kept per issue. The summary is only
+// shown next to the key in review suggestions, and YouTrack limits summaries
+// to 255 characters, so a longer one is not a real title. With maxCollectionEntries
+// entries the retained summaries stay below 5 MiB.
+const maxIssueSummaryBytes = 1024
+
+// truncateUTF8 cuts s to at most limit bytes without splitting a rune.
+func truncateUTF8(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return s[:limit]
+}
+
 // MyOpenIssues returns issues assigned to the token owner in state "In Progress".
 // It reads every page of the result.
 func (c *Client) MyOpenIssues(ctx context.Context) ([]Issue, error) {
@@ -333,6 +351,7 @@ func (c *Client) MyOpenIssues(ctx context.Context) ([]Issue, error) {
 	}
 	var issues []Issue
 	err := getAllPages(ctx, c, "/api/issues", q, func(it Issue) string { return it.ID }, func(it Issue) bool {
+		it.Summary = truncateUTF8(it.Summary, maxIssueSummaryBytes)
 		issues = append(issues, it)
 		return false
 	})

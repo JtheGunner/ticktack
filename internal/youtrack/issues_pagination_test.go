@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func issueEntry(i int) string {
@@ -125,6 +127,56 @@ func TestMyOpenIssuesEntryBudget(t *testing.T) {
 				t.Fatalf("issues=%d err=%v", len(issues), err)
 			}
 		})
+	}
+}
+
+func TestMyOpenIssuesTruncatesHugeSummariesAtRuneBoundary(t *testing.T) {
+	huge := strings.Repeat("ä", 1<<20) // 2 MiB of two-byte runes
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		skip := r.URL.Query().Get("$skip")
+		n, _ := strconv.Atoi(skip)
+		if n >= 20 {
+			_, _ = io.WriteString(w, `[]`)
+			return
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`[{"idReadable":"ABC-%d","summary":%q}]`, n+1, huge))
+	}))
+	issues, err := c.MyOpenIssues(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 20 {
+		t.Fatalf("issues = %d, want 20", len(issues))
+	}
+	total := 0
+	for _, is := range issues {
+		if len(is.Summary) > maxIssueSummaryBytes || !utf8.ValidString(is.Summary) || is.Summary == "" {
+			t.Fatalf("summary of %s: len=%d valid=%v", is.ID, len(is.Summary), utf8.ValidString(is.Summary))
+		}
+		total += len(is.Summary)
+	}
+	if total > 20*maxIssueSummaryBytes {
+		t.Errorf("retained %d bytes", total)
+	}
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	tests := []struct {
+		in    string
+		limit int
+		want  string
+	}{
+		{"abc", 3, "abc"},
+		{"abcd", 3, "abc"},
+		{"aää", 2, "a"},
+		{"aää", 3, "aä"},
+		{"€", 2, ""},
+		{"", 5, ""},
+	}
+	for _, tc := range tests {
+		if got := truncateUTF8(tc.in, tc.limit); got != tc.want {
+			t.Errorf("truncateUTF8(%q, %d) = %q, want %q", tc.in, tc.limit, got, tc.want)
+		}
 	}
 }
 
