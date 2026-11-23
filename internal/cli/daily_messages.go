@@ -16,7 +16,7 @@ const (
 	msgCaptureActive       = "Capture active"
 	msgNoPresence          = "Presence never seen"
 	msgPaused              = "Capture paused."
-	msgResumeFlagRecovered = "The pause marker was damaged (%s). The pause is counted from when the marker was written, so no paused time is stored."
+	msgResumeFlagRecovered = "The pause marker was damaged (%s). The pause starts at the file's modification time, so time before that may not be protected."
 	msgResumed             = "Capture resumed."
 	msgSwitchCleared       = "Back to automatic ticket detection."
 	msgNoBlocks            = "No time recorded for %s."

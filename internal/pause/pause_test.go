@@ -384,3 +384,49 @@ func TestOutsideLeavesEventsWithoutAnEndTimeAlone(t *testing.T) {
 		t.Fatalf("got %+v, want both untouched", got)
 	}
 }
+
+func damagedFlagWithMtime(t *testing.T, mtime time.Time) string {
+	t.Helper()
+	flag := flagIn(t)
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flag, []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(flag, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	return flag
+}
+
+func TestEndClampsAFutureModificationTimeToNow(t *testing.T) {
+	now := t0.Add(time.Hour)
+	for name, mtime := range map[string]time.Time{"future": now.Add(48 * time.Hour), "exactly now": now} {
+		t.Run(name, func(t *testing.T) {
+			flag := damagedFlagWithMtime(t, mtime)
+			ended, err := End(flag, now)
+			if err != nil || ended.Recovered == nil {
+				t.Fatalf("End = %+v, %v, want a recovered end", ended, err)
+			}
+			got := mustLoad(t, flag, now.Add(time.Hour))
+			if len(got) != 1 || !got[0].Start.Equal(now) || !got[0].End.Equal(now) {
+				t.Fatalf("intervals = %+v, want a valid interval at now", got)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsALogLineThatEndsBeforeItStarts(t *testing.T) {
+	flag := flagIn(t)
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := t0.Add(time.Hour).Format(time.RFC3339Nano) + " " + t0.Format(time.RFC3339Nano) + "\n"
+	if err := os.WriteFile(LogPath(flag), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(flag, t0); err == nil {
+		t.Fatal("Load must fail closed on an inverted interval")
+	}
+}

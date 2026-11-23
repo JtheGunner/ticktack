@@ -82,12 +82,17 @@ type Ended struct {
 // removes the flag file. Without a running pause it does nothing. A flag file
 // whose content cannot be read or understood still ends the pause, so the
 // user is never stuck paused: the interval starts at the file's modification
-// time (the moment the flag was written), and Ended.Recovered reports the
-// problem. The stored interval is never shorter than the pause was.
+// time, and Ended.Recovered reports the problem. Time before that moment is
+// not protected: the interval is never extended backwards to a guess. A start
+// later than now (clock skew, a touched file) is clamped to now, so a stored
+// interval always ends at or after its start.
 func End(flagPath string, now time.Time) (Ended, error) {
 	start, running, recovered, err := runningSince(flagPath)
 	if err != nil || !running {
 		return Ended{}, err
+	}
+	if start.After(now) {
+		start = now
 	}
 	logPath := LogPath(flagPath)
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, fileMode)
@@ -196,6 +201,9 @@ func parseLine(line string) (Interval, error) {
 	end, err := time.Parse(timeLayout, fields[1])
 	if err != nil {
 		return Interval{}, fmt.Errorf("end time: %w", err)
+	}
+	if end.Before(start) {
+		return Interval{}, errors.New("end time lies before the start time")
 	}
 	return Interval{Start: start, End: end}, nil
 }
