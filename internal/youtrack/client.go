@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/JtheGunner/ticktack/internal/sink"
 )
@@ -32,8 +33,14 @@ const (
 	defaultMaxRetries = 3
 	maxRetryAfter     = 60 * time.Second
 	issuesPageSize    = 100
-	// maxResponseBytes bounds how much of one response body is read.
+	// maxResponseBytes bounds one successful response body; a larger body is
+	// an error, never a silent truncation.
 	maxResponseBytes = 8 << 20
+	// maxErrorBodyBytes bounds how much of an error response is inspected
+	// for the server's reason.
+	maxErrorBodyBytes = 16 << 10
+	// maxReasonRunes bounds the server reason quoted in an error message.
+	maxReasonRunes = 200
 )
 
 // WorkItemType is a work item type configured for a project.
@@ -100,6 +107,7 @@ type Client struct {
 	loc        *time.Location
 	backoff    func(attempt int) time.Duration
 	sleep      func(ctx context.Context, d time.Duration) error
+	now        func() time.Time // clock for a Retry-After given as an HTTP date
 	maxRetries int
 	log        *slog.Logger
 
@@ -126,6 +134,7 @@ func New(baseURL, token string, opts ...Option) (*Client, error) {
 		loc:        time.Local,
 		backoff:    defaultBackoff,
 		sleep:      sleepContext,
+		now:        time.Now,
 		maxRetries: defaultMaxRetries,
 		log:        slog.New(slog.DiscardHandler),
 		types:      map[string][]WorkItemType{},
@@ -454,14 +463,20 @@ func (c *Client) once(ctx context.Context, method, target string, payload []byte
 		return 0, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body := io.LimitReader(resp.Body, maxResponseBytes)
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		if out == nil {
 			return resp.StatusCode, 0, nil
 		}
-		if err := json.NewDecoder(body).Decode(out); err != nil {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+		if err != nil {
+			return resp.StatusCode, 0, fmt.Errorf("youtrack: read response: %w", err)
+		}
+		if len(data) > maxResponseBytes {
+			return resp.StatusCode, 0, fmt.Errorf("youtrack: response exceeds %d bytes", maxResponseBytes)
+		}
+		if err := json.Unmarshal(data, out); err != nil {
 			return resp.StatusCode, 0, fmt.Errorf("youtrack: decode response: %w", err)
 		}
 		return resp.StatusCode, 0, nil
@@ -472,16 +487,69 @@ func (c *Client) once(ctx context.Context, method, target string, payload []byte
 	case resp.StatusCode == http.StatusNotFound:
 		return resp.StatusCode, 0, sink.ErrNotFound
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After")), sink.ErrRateLimited
+		return resp.StatusCode, c.parseRetryAfter(resp.Header.Get("Retry-After")), sink.ErrRateLimited
+	case resp.StatusCode == http.StatusServiceUnavailable:
+		return resp.StatusCode, c.parseRetryAfter(resp.Header.Get("Retry-After")), c.statusError(resp.StatusCode, resp.Body)
 	default:
-		return resp.StatusCode, 0, fmt.Errorf("youtrack: unexpected status %d", resp.StatusCode)
+		return resp.StatusCode, 0, c.statusError(resp.StatusCode, resp.Body)
 	}
 }
 
-func parseRetryAfter(v string) time.Duration {
-	secs, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || secs <= 0 {
+// statusError describes an unexpected status, quoting the server's reason when
+// the body is a JSON object with an "error_description" or "error" text. Other
+// bodies (HTML error pages, proxies) are never quoted. The reason is cut to a
+// short single line and the token is masked in case a server echoes it back.
+func (c *Client) statusError(status int, body io.Reader) error {
+	reason := c.errorReason(body)
+	if reason == "" {
+		return fmt.Errorf("youtrack: unexpected status %d", status)
+	}
+	return fmt.Errorf("youtrack: unexpected status %d: %s", status, reason)
+}
+
+func (c *Client) errorReason(body io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(body, maxErrorBodyBytes))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Description string `json:"error_description"`
+		Error       string `json:"error"`
+	}
+	if json.Unmarshal(data, &payload) != nil {
+		return ""
+	}
+	reason := payload.Description
+	if reason == "" {
+		reason = payload.Error
+	}
+	reason = strings.ReplaceAll(reason, c.token, "[redacted]")
+	reason = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, reason)
+	reason = strings.Join(strings.Fields(reason), " ")
+	if r := []rune(reason); len(r) > maxReasonRunes {
+		reason = string(r[:maxReasonRunes]) + "..."
+	}
+	return reason
+}
+
+// parseRetryAfter reads a Retry-After header, either delay seconds or an HTTP
+// date. It returns 0 when the value is missing, malformed or not in the future.
+func (c *Client) parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	at, err := http.ParseTime(v)
+	if err != nil {
 		return 0
 	}
-	return time.Duration(secs) * time.Second
+	return max(at.Sub(c.now()), 0)
 }
