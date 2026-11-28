@@ -98,13 +98,16 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 
 ### Shell completion
 
-`ticktack completion SHELL` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. With Homebrew and zsh:
+A Homebrew install sets up completion for `bash`, `zsh` and `fish` by itself. Open a new shell after installing; zsh also needs `autoload -Uz compinit && compinit` in `~/.zshrc` if completion is not active yet.
+
+For any other install (for example `go install`), `ticktack completion SHELL` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. With zsh:
 
 ```sh
-ticktack completion zsh > "$(brew --prefix)/share/zsh/site-functions/_ticktack"
+mkdir -p ~/.zfunc
+ticktack completion zsh > ~/.zfunc/_ticktack
 ```
 
-Open a new shell afterwards. If completion is not active yet, add `autoload -Uz compinit && compinit` to `~/.zshrc`. Run `ticktack completion SHELL --help` for the other shells.
+Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit` and open a new shell. Run `ticktack completion SHELL --help` for the other shells.
 
 ### Uninstall
 
