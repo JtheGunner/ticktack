@@ -86,16 +86,6 @@ go install github.com/JtheGunner/ticktack/cmd/ticktack@latest
 
 Check the install with `ticktack version`. A `go install` build reports the module version, or `dev-<revision>` when built from a checkout.
 
-### Shell completion
-
-`ticktack completion SHELL` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. With Homebrew and zsh:
-
-```sh
-ticktack completion zsh > "$(brew --prefix)/share/zsh/site-functions/_ticktack"
-```
-
-Open a new shell afterwards. If completion is not active yet, add `autoload -Uz compinit && compinit` to `~/.zshrc`. Run `ticktack completion SHELL --help` for the other shells.
-
 `ticktack init` writes two things into the launchd agent definition:
 
 - **The path of the binary, in a form that survives upgrades.** A Homebrew install is referenced through its `opt` link (`<prefix>/opt/ticktack/bin/ticktack`), not the versioned Cellar directory. Any other install is referenced through the path it was started from, without following symlinks.
@@ -105,6 +95,16 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 
 > [!NOTE]
 > The capture agents (presence sampling, launchd) are macOS-only and rely on the system tools `ioreg` and `lsappinfo`. The review and sync commands are plain Go.
+
+### Shell completion
+
+`ticktack completion SHELL` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. With Homebrew and zsh:
+
+```sh
+ticktack completion zsh > "$(brew --prefix)/share/zsh/site-functions/_ticktack"
+```
+
+Open a new shell afterwards. If completion is not active yet, add `autoload -Uz compinit && compinit` to `~/.zshrc`. Run `ticktack completion SHELL --help` for the other shells.
 
 ### Uninstall
 
