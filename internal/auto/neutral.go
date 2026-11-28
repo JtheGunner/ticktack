@@ -3,6 +3,7 @@ package auto
 import (
 	"cloud.google.com/go/civil"
 
+	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/sessionizer"
 )
 
@@ -115,4 +116,61 @@ func MoveUncertain(items []sessionizer.DayItem, neutralTicket string) (moved []s
 // scaleRound returns value*num/den rounded to the nearest whole number.
 func scaleRound(value, num, den int) int {
 	return (2*value*num + den) / (2 * den)
+}
+
+// SelectNeutral picks what the autopilot books for one day: all presence time.
+// Time on the explicit and rule tiers stays on its ticket; every other minute
+// is moved to the neutral ticket (see MoveUncertain). The day total and the
+// cap are judged on the input items, so a capped day books nothing and skips
+// the input items as Select does.
+//
+// An empty neutralTicket moves nothing: items with fully sure time are booked,
+// time without a ticket is skipped as unassigned and any other item is skipped
+// with ReasonStandardTask, because there is no standard task to book it on.
+func SelectNeutral(items []sessionizer.DayItem, neutralTicket string, capMinutes int) Selection {
+	sel := Selection{CapMinutes: capMinutes}
+	for _, it := range items {
+		sel.TotalMinutes += it.Minutes
+	}
+	sel.CapExceeded = capMinutes > 0 && sel.TotalMinutes > capMinutes
+	if sel.CapExceeded {
+		for _, it := range items {
+			sel.Skipped = append(sel.Skipped, Entry{Item: it, Tier: sureTier(it), Reason: ReasonOverCap})
+		}
+		return sel
+	}
+	if neutralTicket == "" {
+		for _, it := range items {
+			e := Entry{Item: it, Tier: sureTier(it)}
+			switch {
+			case it.Ticket == "":
+				e.Reason = ReasonUnassigned
+			case it.Certainty.Sure() < it.Minutes:
+				e.Reason = ReasonStandardTask
+			}
+			if e.Reason != "" {
+				sel.Skipped = append(sel.Skipped, e)
+				continue
+			}
+			sel.Book = append(sel.Book, e)
+		}
+		return sel
+	}
+	moved, from := MoveUncertain(items, neutralTicket)
+	for _, it := range moved {
+		e := Entry{Item: it, Tier: sureTier(it)}
+		if it.Ticket == neutralTicket && len(from) > 0 {
+			e.Tier, e.Neutral, e.From = resolver.TierRule, true, from
+		}
+		sel.Book = append(sel.Book, e)
+	}
+	return sel
+}
+
+// sureTier is the tier of a moved item: explicit when it holds no rule time.
+func sureTier(it sessionizer.DayItem) resolver.Tier {
+	if it.Certainty.Rule == 0 {
+		return resolver.TierExplicit
+	}
+	return resolver.TierRule
 }

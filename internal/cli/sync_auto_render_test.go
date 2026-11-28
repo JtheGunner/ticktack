@@ -354,3 +354,21 @@ func TestDigestNoneUsesGutter(t *testing.T) {
 		t.Errorf("digest-none line is not a styled gutter line:\n%q", out.String())
 	}
 }
+
+func TestDigestNamesOriginsOfNeutralTime(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: 1, Day: 5}
+	neutral := auto.DigestEntry{
+		Ticket: "STD-1", Date: day, Minutes: 285, Tier: resolver.TierRule, Status: "created", Neutral: true,
+		From: []auto.Origin{{Ticket: "YOU3-53", Minutes: 180}, {Ticket: "", Minutes: 105}},
+	}
+	plain := auto.DigestEntry{Ticket: "ABC-1", Date: day, Minutes: 60, Tier: resolver.TierRule, Status: "created"}
+
+	got := renderDigest(sampleDigest(plain, neutral), render.Plain())
+
+	if want := "uncertain time on standard task: YOU3-53 180m, no ticket 105m"; !strings.Contains(got, want) {
+		t.Fatalf("digest lacks %q:\n%s", want, got)
+	}
+	if strings.Count(got, "uncertain time") != 1 {
+		t.Fatalf("only the neutral entry may mention uncertain time:\n%s", got)
+	}
+}

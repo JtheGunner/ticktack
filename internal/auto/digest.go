@@ -20,6 +20,10 @@ type DigestEntry struct {
 	Tier    resolver.Tier
 	Status  string
 	Reason  string
+	// Neutral marks time booked on the standard task as uncertain; From says
+	// where it came from.
+	Neutral bool
+	From    []Origin
 }
 
 // Digest summarises one auto run: every item that was booked, updated,
@@ -62,6 +66,7 @@ func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun boo
 		entry := DigestEntry{Minutes: r.Minutes, Status: string(r.Action), Reason: r.Reason}
 		if e, ok := booked[r.Key]; ok {
 			entry.Ticket, entry.Date, entry.Tier = e.Item.Ticket, e.Item.Date, e.Tier
+			entry.Neutral, entry.From = e.Neutral, e.From
 		} else {
 			entry.Ticket, _, _ = strings.Cut(r.Key, ":"+day.String()+":")
 			entry.Date = day
@@ -79,6 +84,7 @@ func BuildDigest(day civil.Date, sel Selection, report ledger.Report, dryRun boo
 		d.Entries = append(d.Entries, DigestEntry{
 			Ticket: e.Item.Ticket, Date: e.Item.Date, Minutes: e.Item.Minutes,
 			Tier: e.Tier, Status: string(ledger.ActionSkipped), Reason: e.Reason,
+			Neutral: e.Neutral, From: e.From,
 		})
 	}
 	return d

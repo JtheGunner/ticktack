@@ -73,6 +73,9 @@ and skipped item with ticket, date, minutes, tier and reason.`
 
 	msgDigestNone = "No digest yet: `ticktack auto` has not booked anything."
 
+	msgDigestNeutralPrefix = "uncertain time on standard task: "
+	msgDigestNoTicket      = "no ticket"
+
 	msgDigestUndoHint = "Undo: run `ticktack undo` to revert this run."
 )
 
@@ -146,7 +149,7 @@ func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
 			e.Date.String(),
 			fmt.Sprintf("%d min", e.Minutes),
 			tier,
-			SanitizeForTerminal(e.Reason),
+			digestReason(e),
 		})
 	}
 	return r.Table([]render.Column{
@@ -157,6 +160,31 @@ func digestTable(r render.Renderer, entries []auto.DigestEntry) []string {
 		{Header: msgDigestColTier},
 		{Header: msgDigestColReason, Flex: true, Wrap: true},
 	}, rows)
+}
+
+// digestReason is the reason cell of an entry: its reason, followed by the
+// origins of the time when the entry is the standard-task item.
+func digestReason(e auto.DigestEntry) string {
+	reason := SanitizeForTerminal(e.Reason)
+	if !e.Neutral || len(e.From) == 0 {
+		return reason
+	}
+	origins := make([]string, 0, len(e.From))
+	for _, o := range e.From {
+		origins = append(origins, fmt.Sprintf("%s %dm", digestOriginName(o), o.Minutes))
+	}
+	text := msgDigestNeutralPrefix + strings.Join(origins, ", ")
+	if reason == "" {
+		return text
+	}
+	return reason + "; " + text
+}
+
+func digestOriginName(o auto.Origin) string {
+	if o.Ticket == "" {
+		return msgDigestNoTicket
+	}
+	return SanitizeForTerminal(o.Ticket)
 }
 
 // Help texts and flag descriptions of the auto command.
