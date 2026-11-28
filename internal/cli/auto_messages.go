@@ -73,8 +73,10 @@ and skipped item with ticket, date, minutes, tier and reason.`
 
 	msgDigestNone = "No digest yet: `ticktack auto` has not booked anything."
 
-	msgDigestNeutralPrefix = "uncertain time on standard task: "
-	msgDigestNoTicket      = "no ticket"
+	msgDigestOriginFormat    = "%s %dm"
+	msgDigestReasonSeparator = "; "
+	msgDigestNeutralPrefix   = "uncertain time on standard task: "
+	msgDigestNoTicket        = "no ticket"
 
 	msgDigestUndoHint = "Undo: run `ticktack undo` to revert this run."
 )
@@ -171,13 +173,13 @@ func digestReason(e auto.DigestEntry) string {
 	}
 	origins := make([]string, 0, len(e.From))
 	for _, o := range e.From {
-		origins = append(origins, fmt.Sprintf("%s %dm", digestOriginName(o), o.Minutes))
+		origins = append(origins, fmt.Sprintf(msgDigestOriginFormat, digestOriginName(o), o.Minutes))
 	}
 	text := msgDigestNeutralPrefix + strings.Join(origins, ", ")
 	if reason == "" {
 		return text
 	}
-	return reason + "; " + text
+	return reason + msgDigestReasonSeparator + text
 }
 
 func digestOriginName(o auto.Origin) string {
