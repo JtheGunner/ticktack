@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -259,5 +260,81 @@ func TestAutopilotLeavesAConfirmedDayAloneWithNeutralConfigured(t *testing.T) {
 	}
 	if len(prov.items) != 0 {
 		t.Fatalf("a day of the user was booked: %v", prov.items)
+	}
+}
+
+// bookItemsEarlier books items through the ledger as an earlier run would have.
+func bookItemsEarlier(t *testing.T, deps syncDeps, prov *provisioningSink, items ...sessionizer.DayItem) {
+	t.Helper()
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		if _, err := ledger.Sync(ctx, items, prov, ledger.SyncOptions{Repo: st, Now: deps.Now}); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// addMixedTicket adds 12:00-13:00 explicit and 13:00-14:00 learned time for ABC-3.
+func addMixedTicket(t *testing.T, deps syncDeps) {
+	t.Helper()
+	withStore(t, deps, func(ctx context.Context, st *store.Store) {
+		noon := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+		if _, err := st.AddLearnedRule(ctx, store.LearnedRule{Repo: "/work/three", Ticket: "ABC-3", CreatedAt: noon}); err != nil {
+			t.Fatal(err)
+		}
+		events := []event.Event{
+			{At: noon, Source: "test", Kind: event.KindContext, Ticket: "ABC-3"},
+			{At: noon.Add(time.Hour), Source: "test", Kind: event.KindContext, Repo: "/work/three", Branch: "main"},
+		}
+		for m := 1; m <= 120; m++ {
+			events = append(events, event.Event{At: noon.Add(time.Duration(m) * time.Minute), Source: "test", Kind: event.KindPresence})
+		}
+		for _, e := range events {
+			if err := st.Append(ctx, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+}
+
+func TestAutopilotKeepsBookedTicketsWhenTheNeutralTimeCannotBeBooked(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: 1, Day: 5}
+	earlier := func(ticket string, minutes int) sessionizer.DayItem {
+		return sessionizer.DayItem{Ticket: ticket, Date: day, Minutes: minutes, Type: sessionizer.DefaultWorkItemType, Certainty: sessionizer.Certainty{Rule: minutes}}
+	}
+	tests := []struct {
+		name  string
+		setup func(prov *provisioningSink)
+	}{
+		{"no consent and no task", func(*provisioningSink) {}},
+		{"lookup of the standard task fails", func(prov *provisioningSink) {
+			prov.findErrs = map[string]error{"GEN": errors.New("youtrack unreachable")}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, prov := neutralDeps(t)
+			addMixedTicket(t, deps)
+			tt.setup(prov)
+			// ABC-2 moves entirely, ABC-3 partly; both were booked before.
+			bookItemsEarlier(t, deps, prov, earlier("ABC-2", 60), earlier("ABC-3", 120))
+			out, err := runAutopilotByHand(t, deps, "", false)
+			if err != nil && !strings.Contains(tt.name, "fails") {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			if prov.items["ABC-2/1"].Minutes != 60 {
+				t.Errorf("the booking of ABC-2 was lost: %v\n%s", prov.items, out)
+			}
+			if prov.items["ABC-3/1"].Minutes != 120 {
+				t.Errorf("the booking of ABC-3 was reduced: %v\n%s", prov.items, out)
+			}
+			if prov.items["ABC-1/1"].Minutes != 60 {
+				t.Errorf("explicit ABC-1 not booked: %v", prov.items)
+			}
+			for key := range prov.items {
+				if strings.HasPrefix(key, "GEN") {
+					t.Errorf("neutral time booked: %v", prov.items)
+				}
+			}
+		})
 	}
 }

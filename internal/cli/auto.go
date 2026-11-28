@@ -185,6 +185,7 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 		if err != nil {
 			return false, err
 		}
+		prepared := sel
 		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
 		switch {
 		case endsRun(ctx, err):
@@ -194,6 +195,18 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 			return false, err
 		default:
 			sel = provided
+			if hasNeutralEntry(prepared) && !hasNeutralEntry(provided) {
+				// The standard task could not be provided, so the moved time
+				// has nowhere to go. Fall back to the selection of the gated
+				// mode, which skips mixed items as a whole: their bookings
+				// stay as they are instead of losing time that is booked
+				// nowhere.
+				sel = auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes).
+					Without(provisioned.FailedTickets).Resolve(provisioned.Rewritten, provisioned.DroppedTickets)
+				if keep, _, err = reconciliation(ctx, st, d.Items, day); err != nil {
+					return false, err
+				}
+			}
 			// No booking of a project whose standard task could not be
 			// provided is reconciled away: its issue may be unknown here.
 			report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
@@ -243,6 +256,17 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 	}
 	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
 	return true, syncErr
+}
+
+// hasNeutralEntry reports whether the selection books time moved to the
+// standard task.
+func hasNeutralEntry(sel auto.Selection) bool {
+	for _, e := range sel.Book {
+		if e.Neutral {
+			return true
+		}
+	}
+	return false
 }
 
 // autopilotItemFailure turns the failed and unsent items of a report into one
