@@ -17,6 +17,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/render"
 	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/review"
+	"github.com/JtheGunner/ticktack/internal/sessionizer"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
 )
@@ -215,11 +216,13 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 			}
 			// No booking of a project whose standard task could not be
 			// provided is reconciled away: its issue may be unknown here.
+			// The standard-task items go first: they take over time the
+			// ticket items give up, so a failed send must leave those alone.
 			report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
 				Repo: st, DryRun: dryRun, Now: deps.Now,
 				Reconcile: []civil.Date{day}, Keep: keep,
 				HoldProjects: provisioned.FailedProjects, Failed: provisioned.Failed,
-				Describer: deps.describer(cfg),
+				Describer: deps.describer(cfg), Ahead: neutralTickets(sel),
 			})
 		}
 	}
@@ -262,6 +265,21 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 	}
 	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
 	return true, syncErr
+}
+
+// neutralTickets returns the predicate that picks the items of the selection
+// that hold time moved to the standard task, or nil when there are none.
+func neutralTickets(sel auto.Selection) func(sessionizer.DayItem) bool {
+	tickets := map[string]bool{}
+	for _, e := range sel.Book {
+		if e.Neutral {
+			tickets[e.Item.Ticket] = true
+		}
+	}
+	if len(tickets) == 0 {
+		return nil
+	}
+	return func(it sessionizer.DayItem) bool { return tickets[it.Ticket] }
 }
 
 // hasNeutralEntry reports whether the selection books time moved to the
