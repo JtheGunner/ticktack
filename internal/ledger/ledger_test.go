@@ -754,3 +754,56 @@ func TestUndoReusesItemAlreadyRecreated(t *testing.T) {
 		t.Fatalf("ledger row = %+v", repo.rows[key])
 	}
 }
+
+func TestSyncSendsAheadItemsFirstAndHoldsTheRestWhenTheyFail(t *testing.T) {
+	boom := errors.New("boom")
+	ahead := func(it sessionizer.DayItem) bool { return it.Ticket == "GEN-5" }
+	tests := []struct {
+		name string
+		// failCreate fails the creation of the ahead item.
+		failCreate  bool
+		wantMinutes map[string]int
+		wantFailed  int
+		wantNotSent int
+		wantDeleted int
+	}{
+		{"ahead item booked: the reductions and the reconciliation follow", false, map[string]int{"ABC-1": 30, "GEN-5": 60}, 0, 0, 1},
+		{"ahead item fails: nothing is reduced or deleted", true, map[string]int{"ABC-1": 60, "ABC-2": 60}, 1, 1, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, repo := newFakeSink(), newFakeRepo()
+			mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 60), dayItem("ABC-2", 60)}, s, opts(repo))
+			if tt.failCreate {
+				s.createErr["GEN-5"] = boom
+			}
+			o := reconciling(repo)
+			o.Ahead = ahead
+			// ABC-1 is reduced, ABC-2 moves away entirely, GEN-5 is new.
+			rep := mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("GEN-5", 60)}, s, o)
+
+			if rep.Failed != tt.wantFailed || rep.NotSent != tt.wantNotSent || rep.Deleted != tt.wantDeleted {
+				t.Fatalf("report = %+v, want failed %d, not sent %d, deleted %d", rep, tt.wantFailed, tt.wantNotSent, tt.wantDeleted)
+			}
+			got := sinkMinutes(s)
+			if len(got) != len(tt.wantMinutes) {
+				t.Fatalf("sink = %v, want %v", got, tt.wantMinutes)
+			}
+			for issue, minutes := range tt.wantMinutes {
+				if got[issue] != minutes {
+					t.Errorf("%s = %d minutes, want %d (sink %v)", issue, got[issue], minutes, got)
+				}
+			}
+		})
+	}
+}
+
+func TestSyncAheadItemsGoBeforeTheOthers(t *testing.T) {
+	s, repo := newFakeSink(), newFakeRepo()
+	o := opts(repo)
+	o.Ahead = func(it sessionizer.DayItem) bool { return it.Ticket == "ZZZ-1" }
+	mustSync(t, []sessionizer.DayItem{dayItem("ABC-1", 30), dayItem("ZZZ-1", 30)}, s, o)
+	if len(s.calls) == 0 || !strings.HasPrefix(s.mutating()[0], "create:ZZZ-1") {
+		t.Fatalf("calls = %v, want the ahead item created first", s.mutating())
+	}
+}

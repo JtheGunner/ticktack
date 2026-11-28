@@ -91,6 +91,12 @@ type SyncOptions struct {
 	// task could not be provided (ProvisionReport.FailedProjects), so no
 	// booking of theirs may be deleted on that basis.
 	HoldProjects []string
+	// Ahead picks the items that are sent before all others, for example the
+	// item that takes over time another item gives up. If one of them fails,
+	// the other items are reported as not sent and nothing is reconciled, so a
+	// booking is never reduced or deleted on the strength of a booking that did
+	// not happen. Nil sends every item in the usual order.
+	Ahead func(sessionizer.DayItem) bool
 	// Failed holds the results of items that failed before the run and are
 	// not among the items, for example because their standard task could not
 	// be provided (ProvisionReport.Failed). They are reported as they are;
@@ -199,14 +205,19 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	sorted := sortedItems(items)
+	sorted, aheadCount := aheadFirst(sortedItems(items), opts.Ahead)
 
 	run := &syncRun{sink: s, opts: opts}
 	var report Report
 	for _, res := range opts.Failed {
 		report.add(res)
 	}
+	aheadFailed := false
 	for i, it := range sorted {
+		if aheadFailed && i >= aheadCount {
+			markNotSent(&report, sorted[i:])
+			return report, nil
+		}
 		if err := ctx.Err(); err != nil {
 			markNotSent(&report, sorted[i:])
 			return report, err
@@ -219,6 +230,12 @@ func Sync(ctx context.Context, items []sessionizer.DayItem, s sink.TimeSink, opt
 			markNotSent(&report, sorted[i+1:])
 			return report, err
 		}
+		if i < aheadCount && res.Action == ActionFailed {
+			aheadFailed = true
+		}
+	}
+	if aheadFailed {
+		return report, nil
 	}
 	if err := run.reconcile(ctx, sorted, &report); err != nil {
 		return report, err
@@ -261,6 +278,25 @@ func sortedItems(items []sessionizer.DayItem) []sessionizer.DayItem {
 		return itemType(a) < itemType(b)
 	})
 	return sorted
+}
+
+// aheadFirst moves the items that ahead picks to the front, each group in its
+// order, and returns how many there are. A nil ahead changes nothing.
+func aheadFirst(sorted []sessionizer.DayItem, ahead func(sessionizer.DayItem) bool) ([]sessionizer.DayItem, int) {
+	if ahead == nil {
+		return sorted, 0
+	}
+	out := make([]sessionizer.DayItem, 0, len(sorted))
+	var rest []sessionizer.DayItem
+	for _, it := range sorted {
+		if ahead(it) {
+			out = append(out, it)
+		} else {
+			rest = append(rest, it)
+		}
+	}
+	count := len(out)
+	return append(out, rest...), count
 }
 
 // NotSentReport is the report of a run that stopped before any item was sent,
