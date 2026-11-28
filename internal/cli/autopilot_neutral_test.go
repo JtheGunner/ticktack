@@ -384,3 +384,39 @@ func TestAutoDayOnManualAndUnreviewedDays(t *testing.T) {
 		})
 	}
 }
+
+func TestAutopilotKeepsTicketBookingsWhenSendingTheNeutralItemFails(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: 1, Day: 5}
+	earlier := func(ticket string, minutes int) sessionizer.DayItem {
+		return sessionizer.DayItem{Ticket: ticket, Date: day, Minutes: minutes, Type: sessionizer.DefaultWorkItemType, Certainty: sessionizer.Certainty{Rule: minutes}}
+	}
+	deps, prov := neutralDeps(t)
+	addMixedTicket(t, deps)
+	prov.existing["GEN"] = "GEN-5"
+	prov.createFails = map[string]error{"GEN-5": errors.New("youtrack rejected the work item")}
+	// ABC-2 moves entirely, ABC-3 partly; both were booked before.
+	bookItemsEarlier(t, deps, prov, earlier("ABC-2", 60), earlier("ABC-3", 120))
+
+	out, err := runAutopilotByHand(t, deps, "", false)
+	if err == nil {
+		t.Fatalf("a failed neutral booking must surface as an error\n%s", out)
+	}
+	if prov.items["ABC-2/1"].Minutes != 60 {
+		t.Errorf("the booking of ABC-2 was lost: %v\n%s", prov.items, out)
+	}
+	if prov.items["ABC-3/1"].Minutes != 120 {
+		t.Errorf("the booking of ABC-3 was reduced: %v\n%s", prov.items, out)
+	}
+
+	// The next run, with the sink working again, completes the day.
+	prov.createFails = nil
+	if out, err := runAutopilotByHand(t, deps, "", false); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got := prov.items["GEN-5/1"].Minutes; got != 180 {
+		t.Errorf("standard task = %d minutes, want 180: %v", got, prov.items)
+	}
+	if _, ok := prov.items["ABC-2/1"]; ok {
+		t.Errorf("ABC-2 should have moved to the standard task: %v", prov.items)
+	}
+}

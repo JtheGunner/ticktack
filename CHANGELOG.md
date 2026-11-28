@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Homebrew formula installs the shell completion for bash, zsh and fish, so `brew install JtheGunner/tap/ticktack` needs no manual `ticktack completion` step.
 - The example config and the config written by `ticktack init` now list every allowed value of the `[auto]` keys (`enabled`, `mode` = `"gated"` or `"autopilot"`, `trusted_days`, `autopilot_lookback_days`) next to the key.
 
+### Fixed
+
+- The autopilot sends the time it moves to the standard task before it reduces or removes the bookings that time came from. If sending fails, the ticket bookings stay as they were, the run reports the failure and the next run completes the day. Before, a failed send could shrink or delete those bookings until the next run.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

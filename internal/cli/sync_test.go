@@ -19,10 +19,15 @@ import (
 type recordingSink struct {
 	calls []string
 	items map[string]sink.WorkItem
+	// createFails makes Create fail for the issues it maps to an error.
+	createFails map[string]error
 }
 
 func (r *recordingSink) Create(_ context.Context, w sink.WorkItem) (string, error) {
 	r.calls = append(r.calls, "create")
+	if err := r.createFails[w.Issue]; err != nil {
+		return "", err
+	}
 	id := w.Issue + "/1"
 	r.items[id] = w
 	return id, nil
