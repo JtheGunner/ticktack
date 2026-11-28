@@ -97,17 +97,22 @@ func TestAutopilotNeutralRerunIsANoOp(t *testing.T) {
 }
 
 func TestAutopilotNeutralRerunKeepsTheNeutralBooking(t *testing.T) {
-	// The first run books on the real key; a run in which the task is no
-	// longer found by lookup must still keep it (known default task).
+	// The first run books on the real key; a run in which the lookup no
+	// longer finds the task must still keep the booking (known default task).
 	deps, prov := neutralDeps(t)
 	prov.existing["GEN"] = "GEN-5"
 	if _, err := runAutopilotByHand(t, deps, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if n := countCalls(prov.recordingSink, "delete"); n != 0 {
-		t.Fatalf("deleted %d item(s)", n)
+	delete(prov.existing, "GEN")
+	calls := len(prov.calls)
+	if out, err := runAutopilotByHand(t, deps, "", false); err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
-	if _, ok := prov.items["GEN-5/1"]; !ok {
+	if countCalls(prov.recordingSink, "delete") != 0 || len(prov.calls) != calls {
+		t.Fatalf("second run changed bookings: %v", prov.calls)
+	}
+	if prov.items["GEN-5/1"].Minutes != 120 {
 		t.Fatalf("neutral booking lost: %v", prov.items)
 	}
 }
@@ -334,6 +339,47 @@ func TestAutopilotKeepsBookedTicketsWhenTheNeutralTimeCannotBeBooked(t *testing.
 				if strings.HasPrefix(key, "GEN") {
 					t.Errorf("neutral time booked: %v", prov.items)
 				}
+			}
+		})
+	}
+}
+
+func TestAutoDayOnManualAndUnreviewedDays(t *testing.T) {
+	day := civil.Date{Year: 2026, Month: 1, Day: 5}
+	tests := []struct {
+		name  string
+		setup func(ctx context.Context, t *testing.T, st *store.Store, deps syncDeps)
+		// wantNeutral is the minutes expected on the standard task: 60 is the
+		// day's own rule time, 120 includes the moved uncertain time.
+		wantNeutral int
+		wantABC2    int
+	}{
+		{"reviewed and booked by hand", func(ctx context.Context, t *testing.T, st *store.Store, deps syncDeps) {
+			if err := st.Confirm(ctx, store.Confirmation{Day: "2026-01-05", Issue: "ABC-2", Type: sessionizer.DefaultWorkItemType, Minutes: 60, ConfirmedAt: deps.Now()}); err != nil {
+				t.Fatal(err)
+			}
+		}, 60, 60},
+		{"held and unreviewed", func(ctx context.Context, t *testing.T, st *store.Store, deps syncDeps) {
+			if err := st.HoldDay(ctx, "2026-01-05", deps.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}, 120, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, prov := neutralDeps(t)
+			prov.existing["GEN"] = "GEN-5"
+			bookItemsEarlier(t, deps, prov, sessionizer.DayItem{Ticket: "ABC-2", Date: day, Minutes: 60, Type: sessionizer.DefaultWorkItemType, Certainty: sessionizer.Certainty{Rule: 60}})
+			withStore(t, deps, func(ctx context.Context, st *store.Store) { tt.setup(ctx, t, st, deps) })
+			out, err := runAutopilotByHand(t, deps, "2026-01-05", false)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			if got := prov.items["ABC-2/1"].Minutes; got != tt.wantABC2 {
+				t.Errorf("ABC-2 minutes = %d, want %d: %v", got, tt.wantABC2, prov.items)
+			}
+			if got := prov.items["GEN-5/1"].Minutes; got != tt.wantNeutral {
+				t.Errorf("standard task minutes = %d, want %d: %v", got, tt.wantNeutral, prov.items)
 			}
 		})
 	}

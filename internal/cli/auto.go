@@ -109,7 +109,13 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 				return err
 			}
 		}
-		_, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false, true)
+		// A day the user reviewed or booked is theirs: it keeps the plain
+		// selection, so nothing of theirs is moved to the standard task.
+		manual, err := manualDays(ctx, st)
+		if err != nil {
+			return err
+		}
+		_, err = bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false, !manual[day.String()])
 		return err
 	}
 
