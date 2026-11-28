@@ -58,5 +58,8 @@ brews:
       owner: JtheGunner
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    install: |
+      bin.install "ticktack"
+      generate_completions_from_executable(bin/"ticktack", "completion")
     test: |
       assert_match "ticktack", shell_output("#{bin}/ticktack version")

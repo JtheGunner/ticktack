@@ -96,6 +96,19 @@ Rerun `ticktack init` (it is safe to repeat) after moving the binary or changing
 > [!NOTE]
 > The capture agents (presence sampling, launchd) are macOS-only and rely on the system tools `ioreg` and `lsappinfo`. The review and sync commands are plain Go.
 
+### Shell completion
+
+A Homebrew install sets up completion for `bash`, `zsh` and `fish` by itself. Open a new shell after installing; zsh also needs `autoload -Uz compinit && compinit` in `~/.zshrc` if completion is not active yet.
+
+For any other install (for example `go install`), `ticktack completion SHELL` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. With zsh:
+
+```sh
+mkdir -p ~/.zfunc
+ticktack completion zsh > ~/.zfunc/_ticktack
+```
+
+Then add `fpath=(~/.zfunc $fpath)` to `~/.zshrc` before `compinit` and open a new shell. Run `ticktack completion SHELL --help` for the other shells.
+
 ### Uninstall
 
 `ticktack uninstall` reverses `ticktack init`. It lists what it is about to remove, asks once (`--yes` skips the question) and then:
@@ -281,29 +294,30 @@ Resolution order for a block:
 
 |    | Command                         | What it does                                                                         |
 |:--:|---------------------------------|--------------------------------------------------------------------------------------|
-| ℹ️ | `ticktack version`              | Print the ticktack version.                                                          |
-| 🧰 | `ticktack init`                 | Set up config, token, shell hook and launchd agent (`--yes`, `--url`, `--shell`, `--skip-config`, `--skip-token`, `--skip-hook`, `--skip-agent`, `--skip-alias`, `--print-snippet SHELL`). |
-| 🩺 | `ticktack doctor`               | Check the setup and name the fix for each problem.                                   |
-| 🔄 | `ticktack config update`        | Add new options to the config as commented blocks and drop keys this version no longer knows, after a preview (`--yes`, `--dry-run`). |
 | 🖥️ | `ticktack agent`                | Run the presence agent in the foreground (launchd runs it for you; `--interval`).    |
+| 🤖 | `ticktack auto`                 | Book the safe blocks of a day without review once trust is earned (`--day`, `--dry-run`). |
+| ⌨️ | `ticktack completion SHELL`     | Print the shell completion script (`bash`, `zsh`, `fish`, `powershell`); see [Shell completion](#shell-completion). |
+| 🔄 | `ticktack config update`        | Add new options to the config as commented blocks and drop keys this version no longer knows, after a preview (`--yes`, `--dry-run`). |
+| 📰 | `ticktack digest`               | Show the digest of the last auto run (stored as plain ASCII text without colour, so it stays stable). |
+| 🩺 | `ticktack doctor`               | Check the setup and name the fix for each problem.                                   |
+| 🔍 | `ticktack explain <N\|HH:MM>`   | Show the signal and rule behind a block (`--day`).                                   |
 | 🐚 | `ticktack hook`                 | Internal: reports the working directory from the shell prompt. Hidden from help.     |
-| 👀 | `ticktack status`               | Show what ticktack currently detects.                                                |
-| 📋 | `ticktack today`                | List today's blocks and totals (`--day YYYY-MM-DD`).                                 |
-| 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
+| 🔌 | `ticktack import activitywatch` | Import window and AFK events from a local ActivityWatch server (`--since YYYY-MM-DD`). |
+| 🧰 | `ticktack init`                 | Set up config, token, shell hook and launchd agent (`--yes`, `--url`, `--shell`, `--skip-config`, `--skip-token`, `--skip-hook`, `--skip-agent`, `--skip-alias`, `--print-snippet SHELL`). |
+| 🗺️ | `ticktack map`                  | List and edit rules: `map list`, `map add --repo R [--branch B] TICKET`, `map edit ID`, `map rm ID`. |
 | ⏸️ | `ticktack pause`                | Pause all capture. Time inside a pause is never stored, also not by a later scan or import. |
-| ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
 | 🗑️ | `ticktack purge`                | Empty the local database: events, overrides, ledger and sync history, review state, learned rules, digests, the cached project list, standard tasks, the consent to create them, the list of archived days and the autopilot holds (`--yes` skips the prompt). Config, token, agent and shell hook stay. |
 | 🧽 | `ticktack purge --expired`      | Delete only the raw events of fully booked days older than `retention_days` (`--dry-run` prints the number of events and days without deleting; `--yes` skips the prompt). The days can no longer be re-derived. See [Retention](#retention). |
-| 🧹 | `ticktack uninstall`            | Remove the launchd agent, the shell hook block, the keychain token and the log file (`--yes` skips the prompt). See [Uninstall](#uninstall). |
+| ▶️ | `ticktack resume`               | Resume capture after a pause.                                                        |
 | ✅ | `ticktack review`               | Review the day's blocks and confirm what may be booked (`--day`).                    |
-| 🔍 | `ticktack explain <N\|HH:MM>`   | Show the signal and rule behind a block (`--day`).                                   |
-| 🗺️ | `ticktack map`                  | List and edit rules: `map list`, `map add --repo R [--branch B] TICKET`, `map edit ID`, `map rm ID`. |
-| 📒 | `ticktack sync`                 | Book the confirmed time of a day in YouTrack (`--day`, `--dry-run`).                 |
-| ↩️ | `ticktack undo`                 | Revert the last sync.                                                                |
-| 🤖 | `ticktack auto`                 | Book the safe blocks of a day without review once trust is earned (`--day`, `--dry-run`). |
-| 📰 | `ticktack digest`               | Show the digest of the last auto run (stored as plain ASCII text without colour, so it stays stable). |
 | 🔭 | `ticktack scan`                 | Read the git reflog of the repositories in `repo_paths` and store repo and branch context (`--since YYYY-MM-DD`, default: the start of the day 7 days ago). |
-| 🔌 | `ticktack import activitywatch` | Import window and AFK events from a local ActivityWatch server (`--since YYYY-MM-DD`). |
+| 👀 | `ticktack status`               | Show what ticktack currently detects.                                                |
+| 📌 | `ticktack switch TICKET`        | Attribute time to a ticket from now on; `--clear` or `switch auto` returns to detection. |
+| 📒 | `ticktack sync`                 | Book the confirmed time of a day in YouTrack (`--day`, `--dry-run`).                 |
+| 📋 | `ticktack today`                | List today's blocks and totals (`--day YYYY-MM-DD`).                                 |
+| ↩️ | `ticktack undo`                 | Revert the last sync.                                                                |
+| 🧹 | `ticktack uninstall`            | Remove the launchd agent, the shell hook block, the keychain token and the log file (`--yes` skips the prompt). See [Uninstall](#uninstall). |
+| ℹ️ | `ticktack version`              | Print the ticktack version.                                                          |
 
 Run `ticktack <command> --help` for details.
 

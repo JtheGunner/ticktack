@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The autopilot now books all presence time of a completed day. Time on `explicit` and `rule` blocks stays on its ticket; all other presence time (`learned`, `suggested` and `unknown` blocks and time without a ticket) is booked as uncertain time on the standard task of `[default_issue].project`, and mixed items are split. Without `[default_issue]` it skips such time as before. If the standard task does not exist yet and you gave no consent in `ticktack sync`, that time is skipped and the tickets already booked stay. The digest lists the origin of the uncertain time, and the `ticktack doctor` autopilot line says whether it is booked or skipped. Gated auto mode is unchanged.
+- The Homebrew formula installs the shell completion for bash, zsh and fish, so `brew install JtheGunner/tap/ticktack` needs no manual `ticktack completion` step.
 - The example config and the config written by `ticktack init` now list every allowed value of the `[auto]` keys (`enabled`, `mode` = `"gated"` or `"autopilot"`, `trusted_days`, `autopilot_lookback_days`) next to the key.
 
 ## [0.4.0] - 2026-11-23
