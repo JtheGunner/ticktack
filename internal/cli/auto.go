@@ -15,6 +15,7 @@ import (
 	"github.com/JtheGunner/ticktack/internal/config"
 	"github.com/JtheGunner/ticktack/internal/ledger"
 	"github.com/JtheGunner/ticktack/internal/render"
+	"github.com/JtheGunner/ticktack/internal/resolver"
 	"github.com/JtheGunner/ticktack/internal/review"
 	"github.com/JtheGunner/ticktack/internal/sink"
 	"github.com/JtheGunner/ticktack/internal/store"
@@ -108,7 +109,13 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 				return err
 			}
 		}
-		_, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false)
+		// A day the user reviewed or booked is theirs: it keeps the plain
+		// selection, so nothing of theirs is moved to the standard task.
+		manual, err := manualDays(ctx, st)
+		if err != nil {
+			return err
+		}
+		_, err = bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false, !manual[day.String()])
 		return err
 	}
 
@@ -125,7 +132,7 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 		printAutoLocked(out, deps.Render, lock, cfgPath, streak, auto.RequiredDays(cfg.Auto))
 		return nil
 	}
-	_, err = bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false)
+	_, err = bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, false, false)
 	return err
 }
 
@@ -135,18 +142,41 @@ func runAuto(ctx context.Context, out io.Writer, deps syncDeps, dayFlag string, 
 // news prints nothing and a digest is stored only when the run changed or
 // failed something, so the periodic runs do not flood the digest table. It
 // reports whether it printed anything.
-func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, day civil.Date, dryRun, quiet bool) (bool, error) {
+//
+// With neutral set (the autopilot) and a [default_issue] configured, time that
+// is not explicit or rule moves to the standard task instead of being skipped,
+// so the whole presence time of the day is booked.
+func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.Config, cfgPath string, st *store.Store, day civil.Date, dryRun, quiet, neutral bool) (bool, error) {
 	d, err := review.LoadDay(ctx, st, cfg, day)
 	if err != nil {
 		return false, err
 	}
-	sel := auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes)
+	var sel auto.Selection
+	// reconcileItems are the items the day still derives for the booking: the
+	// day's own, or with the neutral move the items the selection books.
+	reconcileItems := d.Items
+	if neutral && cfg.DefaultIssue != nil {
+		// Once the standard task is known the resolver books the day's own
+		// standard-task time on its real key, so the moved time joins that key.
+		tasks, err := st.DefaultTasks(ctx)
+		if err != nil {
+			return false, err
+		}
+		neutralTicket := tasks[cfg.DefaultIssue.Project]
+		if neutralTicket == "" {
+			neutralTicket = resolver.DefaultRef(cfg.DefaultIssue.Project)
+		}
+		sel = auto.SelectNeutral(d.Items, neutralTicket, d.CapMinutes)
+		reconcileItems = sel.Items()
+	} else {
+		sel = auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes)
+	}
 
 	// A capped day needs a human, so nothing of it is changed, deletions included.
 	var keep []string
 	stale := false
 	if !sel.CapExceeded {
-		keep, stale, err = reconciliation(ctx, st, d.Items, day)
+		keep, stale, err = reconciliation(ctx, st, reconcileItems, day)
 		if err != nil {
 			return false, err
 		}
@@ -161,6 +191,7 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 		if err != nil {
 			return false, err
 		}
+		prepared := sel
 		provided, provisioned, err := provisionForAuto(ctx, st, cfg, target, sel, dryRun, deps.Now)
 		switch {
 		case endsRun(ctx, err):
@@ -170,6 +201,18 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 			return false, err
 		default:
 			sel = provided
+			if hasNeutralEntry(prepared) && !hasNeutralEntry(provided) {
+				// The standard task could not be provided, so the moved time
+				// has nowhere to go. Fall back to the selection of the gated
+				// mode, which skips mixed items as a whole: their bookings
+				// stay as they are instead of losing time that is booked
+				// nowhere.
+				sel = auto.Select(d.Items, auto.LowestTiers(d.Blocks), d.CapMinutes).
+					Without(provisioned.FailedTickets).Resolve(provisioned.Rewritten, provisioned.DroppedTickets)
+				if keep, _, err = reconciliation(ctx, st, d.Items, day); err != nil {
+					return false, err
+				}
+			}
 			// No booking of a project whose standard task could not be
 			// provided is reconciled away: its issue may be unknown here.
 			report, syncErr = ledger.Sync(ctx, sel.Items(), target, ledger.SyncOptions{
@@ -219,6 +262,17 @@ func bookAutoDay(ctx context.Context, out io.Writer, deps syncDeps, cfg config.C
 	}
 	_, _ = fmt.Fprintln(out, renderDigest(digest, deps.Render))
 	return true, syncErr
+}
+
+// hasNeutralEntry reports whether the selection books time moved to the
+// standard task.
+func hasNeutralEntry(sel auto.Selection) bool {
+	for _, e := range sel.Book {
+		if e.Neutral {
+			return true
+		}
+	}
+	return false
 }
 
 // autopilotItemFailure turns the failed and unsent items of a report into one
@@ -295,7 +349,7 @@ func runAutopilotPass(ctx context.Context, out io.Writer, deps syncDeps, cfg con
 		if archived {
 			continue
 		}
-		did, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, true)
+		did, err := bookAutoDay(ctx, out, deps, cfg, cfgPath, st, day, dryRun, true, true)
 		printed = printed || did
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", day, err))

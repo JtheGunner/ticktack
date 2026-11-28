@@ -24,6 +24,8 @@ func TestCheckAutopilotStatesTheMode(t *testing.T) {
 		{"mode set but not enabled", "[auto]\nmode = \"autopilot\"\n", statusSkip, []string{"off", "not enabled"}},
 		{"active with the default lookback", "[auto]\nenabled = true\nmode = \"autopilot\"\n", statusInfo, []string{"active", "7 days", "no digest written yet"}},
 		{"active with a custom lookback", "[auto]\nenabled = true\nmode = \"autopilot\"\nautopilot_lookback_days = 3\n", statusInfo, []string{"active", "3 days"}},
+		{"active without a standard task skips uncertain time", "[auto]\nenabled = true\nmode = \"autopilot\"\n", statusInfo, []string{"uncertain and unassigned time is skipped", "no [default_issue]"}},
+		{"active with a standard task books uncertain time", "[auto]\nenabled = true\nmode = \"autopilot\"\n[default_issue]\nproject = \"GEN\"\nsummary = \"Admin\"\n", statusInfo, []string{"uncertain time is booked on the standard task"}},
 		{"broken config is skipped", "[auto]\nmode = \"robot\"\n", statusSkip, []string{"config cannot be read"}},
 	}
 	for _, tt := range tests {

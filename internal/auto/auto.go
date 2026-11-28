@@ -63,6 +63,11 @@ type Entry struct {
 	Tier resolver.Tier
 	// Reason explains skipped entries; empty for items to book.
 	Reason string
+	// Neutral marks the standard-task item that holds time moved from
+	// uncertain sources (see SelectNeutral).
+	Neutral bool
+	// From says where the minutes of a neutral item came from.
+	From []Origin
 }
 
 // Selection is the outcome of Select for one day.
@@ -123,7 +128,8 @@ func (s Selection) Without(tickets []string) Selection {
 }
 
 // mergeEntries combines entries whose items share a ticket, date and type.
-// The merged entry keeps the lowest tier of its parts.
+// The merged entry keeps the lowest tier of its parts, is neutral when any
+// part is, and lists the origins of all parts.
 func mergeEntries(entries []Entry) []Entry {
 	items := make([]sessionizer.DayItem, len(entries))
 	for i, e := range entries {
@@ -134,15 +140,20 @@ func mergeEntries(entries []Entry) []Entry {
 		return entries
 	}
 	tiers := map[string]resolver.Tier{}
+	neutral := map[string]bool{}
+	from := map[string][]Origin{}
 	for _, e := range entries {
 		k := key(e.Item)
 		if cur, ok := tiers[k]; !ok || rank(e.Tier) > rank(cur) {
 			tiers[k] = e.Tier
 		}
+		neutral[k] = neutral[k] || e.Neutral
+		from[k] = append(from[k], e.From...)
 	}
 	out := make([]Entry, len(merged))
 	for i, it := range merged {
-		out[i] = Entry{Item: it, Tier: tiers[key(it)]}
+		k := key(it)
+		out[i] = Entry{Item: it, Tier: tiers[k], Neutral: neutral[k], From: from[k]}
 	}
 	return out
 }
