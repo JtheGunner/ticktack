@@ -127,6 +127,8 @@ const (
 	msgAutopilotOff            = "off: auto mode is not enabled ([auto] enabled = false)"
 	msgAutopilotGated          = "off: auto mode is gated, it books only after the trust gate is met (mode = \"gated\")"
 	msgAutopilotActive         = "active: the agent books completed days every 30 minutes, looking back %d days"
+	msgAutopilotNeutralBooked  = "uncertain time is booked on the standard task"
+	msgAutopilotNeutralSkipped = "uncertain and unassigned time is skipped because no [default_issue] is configured"
 	msgAutopilotLastRun        = "last digest written %s ago"
 	msgAutopilotLastUnreadable = "last digest written %s ago has no readable totals line: see `ticktack digest`"
 	msgAutopilotLastFail       = "last run failed %d item(s) (%d failed, %d not sent), written %s ago: see `ticktack digest`"

@@ -33,7 +33,11 @@ func checkAutopilot(ctx context.Context, deps doctorDeps) checkResult {
 	case !cfg.Auto.Autopilot():
 		return infoResult(msgCheckAutopilot, msgAutopilotGated)
 	}
-	return infoResult(msgCheckAutopilot, fmt.Sprintf(msgAutopilotActive, auto.LookbackDays(cfg.Auto))+"; "+lastDigestAge(ctx, deps))
+	neutral := msgAutopilotNeutralSkipped
+	if cfg.DefaultIssue != nil {
+		neutral = msgAutopilotNeutralBooked
+	}
+	return infoResult(msgCheckAutopilot, fmt.Sprintf(msgAutopilotActive, auto.LookbackDays(cfg.Auto))+"; "+neutral+"; "+lastDigestAge(ctx, deps))
 }
 
 // lastDigestAge describes when the last auto digest was written, which is the
